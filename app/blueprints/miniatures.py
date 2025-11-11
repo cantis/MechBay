@@ -28,8 +28,16 @@ bp = Blueprint("miniatures", __name__, url_prefix="/miniatures")
 @bp.route("")
 def list_miniatures():
     q = request.args.get("q")
-    minis = get_all_miniatures(q)
-    return render_template("miniatures/list.html", miniatures=minis, query=q)
+    sort = request.args.get("sort")
+    direction = request.args.get("direction")
+    minis = get_all_miniatures(q, sort=sort, direction=direction)
+    return render_template(
+        "miniatures/list.html",
+        miniatures=minis,
+        query=q,
+        sort=sort,
+        direction=direction,
+    )
 
 
 @bp.route("/add", methods=["GET", "POST"])

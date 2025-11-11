@@ -10,7 +10,9 @@ from ..extensions import session_scope
 from ..models.miniature import Miniature
 
 
-def get_all_miniatures(search_query: str | None = None) -> Sequence[Miniature]:
+def get_all_miniatures(
+    search_query: str | None = None, sort: str | None = None, direction: str | None = None
+) -> Sequence[Miniature]:
     with session_scope() as session:
         stmt = select(Miniature)
         if search_query:
@@ -23,6 +25,21 @@ def get_all_miniatures(search_query: str | None = None) -> Sequence[Miniature]:
                     Miniature.type.like(like),
                 )
             )
+        # Sorting logic
+        valid_sort_columns = {
+            "unique_id": Miniature.unique_id,
+            "prefix": Miniature.prefix,
+            "chassis": Miniature.chassis,
+            "type": Miniature.type,
+            "status": Miniature.status,
+            "tray_id": Miniature.tray_id,
+        }
+        if sort in valid_sort_columns:
+            col = valid_sort_columns[sort]
+            if direction == "desc":
+                stmt = stmt.order_by(col.desc())
+            elif direction == "asc":
+                stmt = stmt.order_by(col.asc())
         return session.execute(stmt).scalars().all()
 
 

@@ -1,14 +1,20 @@
 {% extends 'base.html' %}
 {% block content %}
+
+<!-- FontAwesome CDN for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="m-0">Miniatures</h2>
     <a class="btn btn-primary" href="{{ url_for('miniatures.add') }}">Add Miniature</a>
-
 </div>
 <form class="row g-2 mb-3" method="get" action="{{ url_for('miniatures.list_miniatures') }}">
     <div class="col-auto">
         <input class="form-control" type="search" placeholder="Search" name="q" value="{{ query or '' }}" />
     </div>
+    <input type="hidden" name="sort" value="{{ sort or '' }}" />
+    <input type="hidden" name="direction" value="{{ direction or '' }}" />
     <div class="col-auto">
         <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
@@ -18,12 +24,34 @@
     <table class="table table-striped align-middle">
         <thead>
             <tr>
-                <th>Unique ID</th>
-                <th>Prefix</th>
-                <th>Chassis</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Tray</th>
+                {% set columns = [
+                ('unique_id', 'Unique ID'),
+                ('prefix', 'Prefix'),
+                ('chassis', 'Chassis'),
+                ('type', 'Type'),
+                ('status', 'Status'),
+                ('tray_id', 'Tray')
+                ] %}
+                {% for col, label in columns %}
+                <th style="cursor:pointer">
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
+                        style="text-decoration:none; color:inherit;">
+                        {{ label }}
+                        {% if sort == col %}
+                        {% if direction == 'asc' %}
+                        <i class="fa-solid fa-arrow-up"></i>
+                        {% elif direction == 'desc' %}
+                        <i class="fa-solid fa-arrow-down"></i>
+                        {% endif %}
+                        {% endif %}
+                    </a>
+                    {% if sort == col %}
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query) }}" title="Clear sort">
+                        <i class="fa-solid fa-xmark" style="color:#888"></i>
+                    </a>
+                    {% endif %}
+                </th>
+                {% endfor %}
                 <th>Notes</th>
                 <th style="width: 160px">Actions</th>
             </tr>
