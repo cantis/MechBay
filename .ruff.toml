@@ -1,0 +1,8 @@
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "A", "C4", "ISC"]
+ignore = [
+    # allow print in simple scripts/tests
+    "T201",
+]

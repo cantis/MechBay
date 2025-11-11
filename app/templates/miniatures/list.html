@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="m-0">Miniatures</h2>
+    <a class="btn btn-primary" href="{{ url_for('miniatures.add') }}">Add Miniature</a>
+
+</div>
+<form class="row g-2 mb-3" method="get" action="{{ url_for('miniatures.list_miniatures') }}">
+    <div class="col-auto">
+        <input class="form-control" type="search" placeholder="Search" name="q" value="{{ query or '' }}" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-outline-secondary" type="submit">Search</button>
+    </div>
+</form>
+
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Unique ID</th>
+                <th>Prefix</th>
+                <th>Chassis</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Tray</th>
+                <th>Notes</th>
+                <th style="width: 160px">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in miniatures %}
+            <tr>
+                <td>{{ m.unique_id }}</td>
+                <td>{{ m.prefix }}</td>
+                <td>{{ m.chassis }}</td>
+                <td>{{ m.type }}</td>
+                <td>{{ m.status or '' }}</td>
+                <td>{{ m.tray_id or '' }}</td>
+                <td>{{ m.notes or '' }}</td>
+                <td>
+                    <div class="btn-group">
+                        <a class="btn btn-sm btn-outline-primary"
+                            href="{{ url_for('miniatures.edit', id=m.id) }}">Edit</a>
+                        <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
+                            onsubmit="return confirm('Delete this miniature?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" class="text-center text-muted">No miniatures yet.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="mt-3">
+        <a class="btn btn-outline-success" href="{{ url_for('miniatures.export') }}">Export JSON</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('miniatures.import_route') }}">Import JSON</a>
+    </div>
+</div>
+{% endblock %}

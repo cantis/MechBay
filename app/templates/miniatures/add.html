@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Add Miniature</h2>
+<form method="post" class="row g-3">
+    <div class="col-md-3">
+        <label class="form-label">Unique ID *</label>
+        <input name="unique_id" required class="form-control" placeholder="e.g. WHM-001" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Prefix *</label>
+        <input name="prefix" required class="form-control" placeholder="WHM" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Chassis *</label>
+        <input name="chassis" required class="form-control" placeholder="Warhammer" />
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Type *</label>
+        <select name="type" required class="form-select">
+            <option value="">-- choose --</option>
+            <option>Mech</option>
+            <option>Vehicle</option>
+            <option>Infantry</option>
+            <option>VTOL</option>
+            <option>Support</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+            <option value="">--</option>
+            <option>New</option>
+            <option>Primed</option>
+            <option>Detail</option>
+            <option>Based</option>
+            <option>Finished</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Tray</label>
+        <input name="tray_id" class="form-control" placeholder="T1" />
+    </div>
+    <div class="col-12">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" rows="3" class="form-control" placeholder="Optional"></textarea>
+    </div>
+    <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Add</button>
+        <a class="btn btn-secondary" href="{{ url_for('miniatures.list_miniatures') }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

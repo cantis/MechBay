@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Edit Miniature</h2>
+<form method="post" class="row g-3">
+    <div class="col-md-3">
+        <label class="form-label">Unique ID *</label>
+        <input name="unique_id" required class="form-control" value="{{ mini.unique_id }}" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Prefix *</label>
+        <input name="prefix" required class="form-control" value="{{ mini.prefix }}" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Chassis *</label>
+        <input name="chassis" required class="form-control" value="{{ mini.chassis }}" />
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Type *</label>
+        <select name="type" required class="form-select">
+            {% set types = ['Mech','Vehicle','Infantry','VTOL','Support'] %}
+            {% for t in types %}
+            <option value="{{ t }}" {% if mini.type==t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Status</label>
+        {% set statuses = ['','New','Primed','Detail','Based','Finished'] %}
+        <select name="status" class="form-select">
+            {% for s in statuses %}
+            <option value="{{ s }}" {% if (mini.status or '' )==s %}selected{% endif %}>{{ s or '--' }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Tray</label>
+        <input name="tray_id" class="form-control" value="{{ mini.tray_id or '' }}" />
+    </div>
+    <div class="col-12">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" rows="3" class="form-control">{{ mini.notes or '' }}</textarea>
+    </div>
+    <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <a class="btn btn-secondary" href="{{ url_for('miniatures.list_miniatures') }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}
