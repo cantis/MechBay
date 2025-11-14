@@ -8,17 +8,21 @@ from .config import Config
 from .extensions import init_db
 
 
-def create_app() -> Flask:
+def create_app(config_overrides: dict | None = None) -> Flask:
     app = Flask(__name__)
 
     # Load base config
     app.config.from_object(Config())
 
-    # Ensure instance/data directory exists
+    # Apply any explicit overrides (used by tests to inject in-memory DB)
+    if config_overrides:
+        app.config.update(config_overrides)
+
+    # Ensure instance/data directory exists (only relevant for file-based DBs)
     data_dir = Path(__file__).resolve().parent
     (data_dir).mkdir(parents=True, exist_ok=True)
 
-    # Initialize DB and create tables
+    # Initialize DB and create tables (uses possibly overridden DATABASE_URL)
     init_db(app)
 
     # Register blueprints
