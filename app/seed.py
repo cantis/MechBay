@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sqlalchemy import and_
+
 from .extensions import session_scope
 from .models.miniature import Miniature
 
@@ -11,6 +13,7 @@ def run() -> int:
     """
     examples = [
         {
+            "series": "A",
             "unique_id": 1,
             "prefix": "WHM",
             "chassis": "Warhammer",
@@ -19,6 +22,7 @@ def run() -> int:
             "tray_id": "A1",
         },
         {
+            "series": "A",
             "unique_id": 2,
             "prefix": "BNC",
             "chassis": "Banshee",
@@ -30,7 +34,13 @@ def run() -> int:
     created = 0
     with session_scope() as session:
         for e in examples:
-            if not session.query(Miniature).filter_by(unique_id=e["unique_id"]).first():
+            if (
+                not session.query(Miniature)
+                .filter(
+                    and_(Miniature.series == e["series"], Miniature.unique_id == e["unique_id"])
+                )
+                .first()
+            ):
                 session.add(Miniature(**e))
                 created += 1
     return created

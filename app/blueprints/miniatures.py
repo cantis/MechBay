@@ -30,13 +30,15 @@ def list_miniatures():
     q = request.args.get("q")
     sort = request.args.get("sort")
     direction = request.args.get("direction")
-    minis = get_all_miniatures(q, sort=sort, direction=direction)
+    series_filter = request.args.get("series", "All")
+    minis = get_all_miniatures(q, sort=sort, direction=direction, series_filter=series_filter)
     return render_template(
         "miniatures/list.html",
         miniatures=minis,
         query=q,
         sort=sort,
         direction=direction,
+        series_filter=series_filter,
     )
 
 
@@ -50,7 +52,13 @@ def add():
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
             return redirect(url_for("miniatures.add"))
+
+        series = form.get("series", "A")
+        if not series:
+            series = "A"
+
         data = {
+            "series": series,
             "unique_id": unique_id,
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
@@ -59,14 +67,25 @@ def add():
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
         }
-        # Prevent duplicate unique_id user mistake
-        existing = next((m for m in get_all_miniatures() if m.unique_id == unique_id), None)
-        if existing:
-            flash("Unique ID already exists", "danger")
-        else:
-            add_miniature(data)
-            flash("Miniature added", "success")
-            return redirect(url_for("miniatures.list_miniatures"))
+        # Prevent duplicate (series, unique_id) combination
+        from sqlalchemy import and_
+
+        from ..extensions import session_scope
+        from ..models.miniature import Miniature
+
+        with session_scope() as session:
+            existing = (
+                session.query(Miniature)
+                .filter(and_(Miniature.series == series, Miniature.unique_id == unique_id))
+                .first()
+            )
+            if existing:
+                flash(f"Unique ID {unique_id} already exists in Series {series}", "danger")
+                return render_template("miniatures/add.html")
+
+        add_miniature(data)
+        flash("Miniature added", "success")
+        return redirect(url_for("miniatures.list_miniatures"))
     return render_template("miniatures/add.html")
 
 
@@ -87,7 +106,13 @@ def edit(id: int):  # noqa: A002
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
             return redirect(url_for("miniatures.edit", id=id))
+
+        series = form.get("series", "A")
+        if not series:
+            series = "A"
+
         data = {
+            "series": series,
             "unique_id": unique_id,
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),

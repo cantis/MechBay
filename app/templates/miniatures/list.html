@@ -9,12 +9,27 @@
     <h2 class="m-0">Miniatures</h2>
     <a class="btn btn-primary" href="{{ url_for('miniatures.add') }}">Add Miniature</a>
 </div>
+
+<!-- Series Filter -->
+<div class="mb-3">
+    <div class="btn-group" role="group" aria-label="Series filter">
+        {% for s in ['All', 'A', 'B', 'C'] %}
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s) }}"
+            class="btn btn-outline-primary {% if series_filter == s %}active{% endif %}">
+            {% if s == 'All' %}All Series{% else %}Series {{ s }}{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Search Form -->
 <form class="row g-2 mb-3" method="get" action="{{ url_for('miniatures.list_miniatures') }}">
     <div class="col-auto">
         <input class="form-control" type="search" placeholder="Search" name="q" value="{{ query or '' }}" />
     </div>
     <input type="hidden" name="sort" value="{{ sort or '' }}" />
     <input type="hidden" name="direction" value="{{ direction or '' }}" />
+    <input type="hidden" name="series" value="{{ series_filter or 'All' }}" />
     <div class="col-auto">
         <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
@@ -25,6 +40,7 @@
         <thead>
             <tr>
                 {% set columns = [
+                ('series', 'Series'),
                 ('unique_id', 'Unique ID'),
                 ('prefix', 'Prefix'),
                 ('chassis', 'Chassis'),
@@ -34,7 +50,7 @@
                 ] %}
                 {% for col, label in columns %}
                 <th style="cursor:pointer">
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
                         style="text-decoration:none; color:inherit;">
                         {{ label }}
                         {% if sort == col %}
@@ -46,7 +62,8 @@
                         {% endif %}
                     </a>
                     {% if sort == col %}
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query) }}" title="Clear sort">
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter) }}"
+                        title="Clear sort">
                         <i class="fa-solid fa-xmark" style="color:#888"></i>
                     </a>
                     {% endif %}
@@ -59,6 +76,7 @@
         <tbody>
             {% for m in miniatures %}
             <tr>
+                <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
                 <td>{{ m.chassis }}</td>
@@ -79,7 +97,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="8" class="text-center text-muted">No miniatures yet.</td>
+                <td colspan="9" class="text-center text-muted">No miniatures yet.</td>
             </tr>
             {% endfor %}
         </tbody>

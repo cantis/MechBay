@@ -2,7 +2,16 @@
 {% block content %}
 <h2>Edit Miniature</h2>
 <form method="post" class="row g-3">
-    <div class="col-md-3">
+    <div class="col-md-2">
+        <label class="form-label">Series *</label>
+        <select name="series" required class="form-select">
+            {% set series_options = [('A', 'A - Mechs'), ('B', 'B - Armour/Infantry/Support'), ('C', 'C - Other')] %}
+            {% for val, label in series_options %}
+            <option value="{{ val }}" {% if mini.series==val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
         <input name="unique_id" type="number" min="1" required class="form-control" value="{{ mini.unique_id }}" />
     </div>
@@ -10,7 +19,7 @@
         <label class="form-label">Prefix *</label>
         <input name="prefix" required class="form-control" value="{{ mini.prefix }}" />
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <label class="form-label">Chassis *</label>
         <input name="chassis" required class="form-control" value="{{ mini.chassis }}" />
     </div>

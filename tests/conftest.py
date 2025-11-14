@@ -39,6 +39,7 @@ def client(app):
 @pytest.fixture()
 def mini_data():
     return {
+        "series": "A",
         "unique_id": 1001,
         "prefix": "WHM",
         "chassis": "Warhammer",

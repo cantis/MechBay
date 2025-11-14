@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..extensions import Base
@@ -11,10 +11,12 @@ from ..extensions import Base
 
 class Miniature(Base):
     __tablename__ = "miniatures"
+    __table_args__ = (UniqueConstraint("series", "unique_id", name="uix_series_unique_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series: Mapped[str] = mapped_column(String(16), nullable=False, default="A")
     # Changed to Integer per new requirement
-    unique_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    unique_id: Mapped[int] = mapped_column(Integer, nullable=False)
     prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     chassis: Mapped[str] = mapped_column(String(128), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -26,6 +28,7 @@ class Miniature(Base):
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
+            "series": self.series,
             "unique_id": self.unique_id,
             "prefix": self.prefix,
             "chassis": self.chassis,

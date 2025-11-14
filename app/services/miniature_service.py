@@ -4,30 +4,42 @@ import json
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from ..extensions import session_scope
 from ..models.miniature import Miniature
 
 
 def get_all_miniatures(
-    search_query: str | None = None, sort: str | None = None, direction: str | None = None
+    search_query: str | None = None,
+    sort: str | None = None,
+    direction: str | None = None,
+    series_filter: str | None = None,
 ) -> Sequence[Miniature]:
     with session_scope() as session:
         stmt = select(Miniature)
+
+        # Series filter
+        if series_filter and series_filter != "All":
+            stmt = stmt.where(Miniature.series == series_filter)
+
+        # Search query
         if search_query:
             like = f"%{search_query}%"
             conditions = [
                 Miniature.prefix.like(like),
                 Miniature.chassis.like(like),
                 Miniature.type.like(like),
+                Miniature.series.like(like),
             ]
             # If the search query is an integer, match unique_id exactly
             if search_query.isdigit():
                 conditions.append(Miniature.unique_id == int(search_query))
             stmt = stmt.where(or_(*conditions))
+
         # Sorting logic
         valid_sort_columns = {
+            "series": Miniature.series,
             "unique_id": Miniature.unique_id,
             "prefix": Miniature.prefix,
             "chassis": Miniature.chassis,
@@ -41,11 +53,18 @@ def get_all_miniatures(
                 stmt = stmt.order_by(col.desc())
             elif direction == "asc":
                 stmt = stmt.order_by(col.asc())
+        else:
+            # Default sort: series ASC, then unique_id ASC
+            stmt = stmt.order_by(Miniature.series.asc(), Miniature.unique_id.asc())
+
         return session.execute(stmt).scalars().all()
 
 
 def add_miniature(data: dict) -> Miniature:
     with session_scope() as session:
+        # Ensure series defaults to "A" if not provided
+        if "series" not in data or not data["series"]:
+            data["series"] = "A"
         mini = Miniature(**data)
         session.add(mini)
         session.flush()  # populate PK
@@ -101,8 +120,18 @@ def import_from_json(path: str, merge: bool = False) -> int:
             except (TypeError, ValueError):
                 continue  # skip invalid record
 
+            # Default series to "A" if not in import data
+            series = item.get("series", "A")
+            if not series:
+                series = "A"
+
             if merge and unique_id is not None:
-                existing = session.query(Miniature).filter(Miniature.unique_id == unique_id).first()
+                # Match on BOTH series and unique_id for merge
+                existing = (
+                    session.query(Miniature)
+                    .filter(and_(Miniature.series == series, Miniature.unique_id == unique_id))
+                    .first()
+                )
                 if existing:
                     for k, v in item.items():
                         if hasattr(existing, k):
@@ -112,6 +141,7 @@ def import_from_json(path: str, merge: bool = False) -> int:
                             setattr(existing, k, v)
                     continue
             mini = Miniature(
+                series=series,
                 unique_id=unique_id,
                 prefix=item.get("prefix"),
                 chassis=item.get("chassis"),

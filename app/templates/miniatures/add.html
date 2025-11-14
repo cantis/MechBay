@@ -2,7 +2,15 @@
 {% block content %}
 <h2>Add Miniature</h2>
 <form method="post" class="row g-3">
-    <div class="col-md-3">
+    <div class="col-md-2">
+        <label class="form-label">Series *</label>
+        <select name="series" required class="form-select">
+            <option value="A">A - Mechs</option>
+            <option value="B">B - Armour/Infantry/Support</option>
+            <option value="C">C - Other</option>
+        </select>
+    </div>
+    <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
         <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001" />
     </div>
@@ -10,7 +18,7 @@
         <label class="form-label">Prefix *</label>
         <input name="prefix" required class="form-control" placeholder="WHM" />
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <label class="form-label">Chassis *</label>
         <input name="chassis" required class="form-control" placeholder="Warhammer" />
     </div>
