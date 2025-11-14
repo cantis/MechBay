@@ -75,7 +75,7 @@
         </thead>
         <tbody>
             {% for m in miniatures %}
-            <tr>
+            <tr style="cursor: pointer;" ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id) }}';">
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
@@ -85,17 +85,31 @@
                 <td>{{ m.tray_id or '' }}</td>
                 <td>{{ m.notes or '' }}</td>
                 <td>
-                    <div class="btn-group">
-                        <a class="btn btn-sm btn-outline-primary"
-                            href="{{ url_for('miniatures.edit', id=m.id) }}">Edit</a>
-                        <a class="btn btn-sm btn-outline-success" href="{{ url_for('miniatures.duplicate', id=m.id) }}"
-                            title="Duplicate">
-                            Copy
+                    <div class="d-flex gap-3 align-items-center">
+                        <a href="{{ url_for('miniatures.edit', id=m.id) }}" title="Edit" class="text-primary"
+                            style="cursor: pointer;">
+                            <i class="fa-solid fa-pen"></i>
                         </a>
-                        <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
-                            onsubmit="return confirm('Delete this miniature?');">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                        </form>
+                        <a href="{{ url_for('miniatures.duplicate', id=m.id) }}" title="Duplicate" class="text-success"
+                            style="cursor: pointer;">
+                            <i class="fa-solid fa-copy"></i>
+                        </a>
+                        <div class="dropdown">
+                            <a href="#" class="text-secondary dropdown-toggle" data-bs-toggle="dropdown"
+                                aria-expanded="false" style="cursor: pointer; text-decoration: none;">
+                                <i class="fa-solid fa-ellipsis-vertical"></i>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
+                                        onsubmit="return confirm('Delete this miniature?');" class="m-0">
+                                        <button type="submit" class="dropdown-item text-danger">
+                                            <i class="fa-solid fa-trash"></i> Delete
+                                        </button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </td>
             </tr>
