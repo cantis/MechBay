@@ -88,6 +88,10 @@
                     <div class="btn-group">
                         <a class="btn btn-sm btn-outline-primary"
                             href="{{ url_for('miniatures.edit', id=m.id) }}">Edit</a>
+                        <a class="btn btn-sm btn-outline-success" href="{{ url_for('miniatures.duplicate', id=m.id) }}"
+                            title="Duplicate">
+                            Copy
+                        </a>
                         <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
                             onsubmit="return confirm('Delete this miniature?');">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>

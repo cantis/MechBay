@@ -1,56 +1,59 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Add Miniature</h2>
-<form method="post" class="row g-3">
+<h2>Add Miniature{% if duplicate_of %} (Duplicated from ID {{ duplicate_of.id }}){% endif %}</h2>
+<form method="post" action="{{ url_for('miniatures.add') }}" class="row g-3">
     <div class="col-md-2">
         <label class="form-label">Series *</label>
+        {% set series_prefill = (prefill.series if prefill is defined and prefill.series is not none else 'A') %}
         <select name="series" required class="form-select">
-            <option value="A">A - Mechs</option>
-            <option value="B">B - Armour/Infantry/Support</option>
-            <option value="C">C - Other</option>
+            <option value="A" {% if series_prefill=='A' %}selected{% endif %}>A - Mechs</option>
+            <option value="B" {% if series_prefill=='B' %}selected{% endif %}>B - Armour/Infantry/Support</option>
+            <option value="C" {% if series_prefill=='C' %}selected{% endif %}>C - Other</option>
         </select>
     </div>
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
-        <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001" />
+        <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001"
+            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% endif %}" />
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
-        <input name="prefix" required class="form-control" placeholder="WHM" />
+        <input name="prefix" required class="form-control" placeholder="WHM"
+            value="{% if prefill is defined and prefill.prefix %}{{ prefill.prefix }}{% endif %}" />
     </div>
     <div class="col-md-3">
         <label class="form-label">Chassis *</label>
-        <input name="chassis" required class="form-control" placeholder="Warhammer" />
+        <input name="chassis" required class="form-control" placeholder="Warhammer"
+            value="{% if prefill is defined and prefill.chassis %}{{ prefill.chassis }}{% endif %}" />
     </div>
     <div class="col-md-3">
         <label class="form-label">Type *</label>
         <select name="type" required class="form-select">
             <option value="">-- choose --</option>
-            <option>Mech</option>
-            <option>Vehicle</option>
-            <option>Infantry</option>
-            <option>VTOL</option>
-            <option>Support</option>
+            {% set type_prefill = (prefill.type if prefill is defined else '') %}
+            {% for t in ['Mech','Vehicle','Infantry','VTOL','Support'] %}
+            <option value="{{ t }}" {% if type_prefill==t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
         </select>
     </div>
     <div class="col-md-3">
         <label class="form-label">Status</label>
+        {% set status_prefill = (prefill.status if prefill is defined else '') %}
         <select name="status" class="form-select">
-            <option value="">--</option>
-            <option>New</option>
-            <option>Primed</option>
-            <option>Detail</option>
-            <option>Based</option>
-            <option>Finished</option>
+            {% for s in ['','New','Primed','Detail','Based','Finished'] %}
+            <option value="{{ s }}" {% if status_prefill==s %}selected{% endif %}>{{ s or '--' }}</option>
+            {% endfor %}
         </select>
     </div>
     <div class="col-md-3">
         <label class="form-label">Tray</label>
-        <input name="tray_id" class="form-control" placeholder="T1" />
+        <input name="tray_id" class="form-control" placeholder="T1"
+            value="{% if prefill is defined and prefill.tray_id %}{{ prefill.tray_id }}{% endif %}" />
     </div>
     <div class="col-12">
         <label class="form-label">Notes</label>
-        <textarea name="notes" rows="3" class="form-control" placeholder="Optional"></textarea>
+        <textarea name="notes" rows="3" class="form-control"
+            placeholder="Optional">{% if prefill is defined and prefill.notes %}{{ prefill.notes }}{% endif %}</textarea>
     </div>
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Add</button>

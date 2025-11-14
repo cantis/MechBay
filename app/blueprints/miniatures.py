@@ -89,6 +89,46 @@ def add():
     return render_template("miniatures/add.html")
 
 
+@bp.route("/<int:id>/duplicate")
+def duplicate(id: int):  # noqa: A002
+    """Open the add form with fields prefilled from an existing miniature.
+
+    The unique_id will be set to the next available integer within the same series
+    (max existing unique_id for that series + 1).
+    """
+    from sqlalchemy import func
+
+    from ..extensions import session_scope
+    from ..models.miniature import Miniature
+
+    with session_scope() as session:
+        mini = session.get(Miniature, id)
+        if not mini:
+            flash("Miniature not found", "danger")
+            return redirect(url_for("miniatures.list_miniatures"))
+
+        # Compute next unique_id within same series
+        max_unique = (
+            session.query(func.max(Miniature.unique_id))
+            .filter(Miniature.series == mini.series)
+            .scalar()
+        ) or 0
+        next_unique = max_unique + 1
+
+        prefill = {
+            "series": mini.series,
+            "unique_id": next_unique,
+            "prefix": mini.prefix,
+            "chassis": mini.chassis,
+            "type": mini.type,
+            "status": mini.status,
+            "tray_id": mini.tray_id,
+            "notes": mini.notes,
+        }
+    flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
+    return render_template("miniatures/add.html", prefill=prefill, duplicate_of=mini)
+
+
 @bp.route("/<int:id>/edit", methods=["GET", "POST"])
 def edit(id: int):  # noqa: A002
     from ..services.miniature_service import get_all_miniatures

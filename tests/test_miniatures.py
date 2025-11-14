@@ -115,3 +115,41 @@ def test_series_independence(client):
     assert all_minis[0].unique_id == 1
     assert all_minis[1].unique_id == 1
     assert all_minis[0].series != all_minis[1].series
+
+
+def test_duplicate_prefill(client):
+    """Duplicating a miniature should prefill the add form with next unique_id in series."""
+    # Add two entries in Series A
+    client.post(
+        "/miniatures/add",
+        data={
+            "series": "A",
+            "unique_id": 1,
+            "prefix": "WHM",
+            "chassis": "Warhammer",
+            "type": "Mech",
+        },
+    )
+    client.post(
+        "/miniatures/add",
+        data={
+            "series": "A",
+            "unique_id": 2,
+            "prefix": "BNC",
+            "chassis": "Banshee",
+            "type": "Mech",
+        },
+    )
+
+    from app.services.miniature_service import get_all_miniatures
+
+    minis = get_all_miniatures()
+    # Duplicate the second one
+    target_id = next(m.id for m in minis if m.unique_id == 2 and m.series == "A")
+    resp = client.get(f"/miniatures/{target_id}/duplicate")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # Expect next unique id (3) present in value attribute
+    assert 'value="3"' in html or ">3<" in html
+    # Prefilled chassis
+    assert "Banshee" in html

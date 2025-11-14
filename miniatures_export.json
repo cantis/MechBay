@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "id": 1,
+    "series": "A",
+    "unique_id": 1001,
+    "prefix": "WHM",
+    "chassis": "Warhammer",
+    "type": "Mech",
+    "status": "New",
+    "tray_id": "T1",
+    "notes": "First test mini",
+    "created_at": "2025-11-14T20:22:08.240258"
+  },
+  {
+    "id": 2,
+    "series": "A",
+    "unique_id": 1002,
+    "prefix": "BNC",
+    "chassis": "Banshee",
+    "type": "Mech",
+    "status": null,
+    "tray_id": null,
+    "notes": null,
+    "created_at": "2025-11-14T20:22:08.242389"
+  }
+]
