@@ -17,14 +17,15 @@ def get_all_miniatures(
         stmt = select(Miniature)
         if search_query:
             like = f"%{search_query}%"
-            stmt = stmt.where(
-                or_(
-                    Miniature.unique_id.like(like),
-                    Miniature.prefix.like(like),
-                    Miniature.chassis.like(like),
-                    Miniature.type.like(like),
-                )
-            )
+            conditions = [
+                Miniature.prefix.like(like),
+                Miniature.chassis.like(like),
+                Miniature.type.like(like),
+            ]
+            # If the search query is an integer, match unique_id exactly
+            if search_query.isdigit():
+                conditions.append(Miniature.unique_id == int(search_query))
+            stmt = stmt.where(or_(*conditions))
         # Sorting logic
         valid_sort_columns = {
             "unique_id": Miniature.unique_id,
@@ -93,16 +94,25 @@ def import_from_json(path: str, merge: bool = False) -> int:
             session.query(Miniature).delete()
 
         for item in raw:
-            unique_id = item.get("unique_id")
-            if merge and unique_id:
+            raw_unique_id = item.get("unique_id")
+            # Coerce to int; skip if cannot convert
+            try:
+                unique_id = int(raw_unique_id) if raw_unique_id is not None else None
+            except (TypeError, ValueError):
+                continue  # skip invalid record
+
+            if merge and unique_id is not None:
                 existing = session.query(Miniature).filter(Miniature.unique_id == unique_id).first()
                 if existing:
                     for k, v in item.items():
                         if hasattr(existing, k):
+                            # Ensure we don't accidentally write string unique_id back
+                            if k == "unique_id":
+                                continue
                             setattr(existing, k, v)
                     continue
             mini = Miniature(
-                unique_id=item.get("unique_id"),
+                unique_id=unique_id,
                 prefix=item.get("prefix"),
                 chassis=item.get("chassis"),
                 type=item.get("type"),

@@ -44,7 +44,12 @@ def list_miniatures():
 def add():
     if request.method == "POST":
         form = request.form
-        unique_id = form.get("unique_id")
+        unique_id_raw = form.get("unique_id")
+        try:
+            unique_id = int(unique_id_raw)
+        except (TypeError, ValueError):
+            flash("Unique ID must be an integer", "danger")
+            return redirect(url_for("miniatures.add"))
         data = {
             "unique_id": unique_id,
             "prefix": form.get("prefix"),
@@ -76,8 +81,14 @@ def edit(id: int):  # noqa: A002
         return redirect(url_for("miniatures.list_miniatures"))
     if request.method == "POST":
         form = request.form
+        unique_id_raw = form.get("unique_id")
+        try:
+            unique_id = int(unique_id_raw)
+        except (TypeError, ValueError):
+            flash("Unique ID must be an integer", "danger")
+            return redirect(url_for("miniatures.edit", id=id))
         data = {
-            "unique_id": form.get("unique_id"),
+            "unique_id": unique_id,
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
             "type": form.get("type"),

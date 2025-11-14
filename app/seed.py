@@ -11,7 +11,7 @@ def run() -> int:
     """
     examples = [
         {
-            "unique_id": "WHM-001",
+            "unique_id": 1,
             "prefix": "WHM",
             "chassis": "Warhammer",
             "type": "Mech",
@@ -19,7 +19,7 @@ def run() -> int:
             "tray_id": "A1",
         },
         {
-            "unique_id": "BNC-002",
+            "unique_id": 2,
             "prefix": "BNC",
             "chassis": "Banshee",
             "type": "Mech",

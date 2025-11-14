@@ -13,7 +13,8 @@ class Miniature(Base):
     __tablename__ = "miniatures"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    unique_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # Changed to Integer per new requirement
+    unique_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     chassis: Mapped[str] = mapped_column(String(128), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
