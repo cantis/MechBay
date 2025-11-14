@@ -21,11 +21,13 @@ def app():
     The schema is created at app init and discarded automatically when the engine
     is disposed at test end.
     """
-    test_app = create_app({
-        "TESTING": True,
-        # pysqlite driver explicit for consistency; plain sqlite:///:memory: also works
-        "DATABASE_URL": "sqlite+pysqlite:///:memory:",
-    })
+    test_app = create_app(
+        {
+            "TESTING": True,
+            # pysqlite driver explicit for consistency; plain sqlite:///:memory: also works
+            "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+        }
+    )
     return test_app
 
 
