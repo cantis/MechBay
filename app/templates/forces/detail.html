@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<!-- SortableJS for drag and drop -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">{{ force.name }}</h2>
+        <small class="text-muted">
+            {% if force.is_active %}<span class="badge bg-success">Active</span>{% endif %}
+            {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
+            {{ force.lances | length }} Lance(s), {{ total_minis }} Miniature(s)
+        </small>
+    </div>
+    <div>
+        <a href="{{ url_for('forces.export', id=force.id) }}" class="btn btn-outline-success">
+            <i class="fa-solid fa-download"></i> Export
+        </a>
+        <a href="{{ url_for('forces.list_forces') }}" class="btn btn-outline-secondary">Back to Forces</a>
+    </div>
+</div>
+
+<!-- Add Lance Dropdown -->
+<div class="mb-3">
+    <div class="dropdown d-inline">
+        <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            <i class="fa-solid fa-plus"></i> Add Lance
+        </button>
+        <ul class="dropdown-menu">
+            <li>
+                <h6 class="dropdown-header">Empty Lance</h6>
+            </li>
+            <li>
+                <form method="post" action="{{ url_for('forces.create_lance', id=force.id) }}" class="px-3 py-2">
+                    <input type="text" name="name" class="form-control form-control-sm mb-2"
+                        placeholder="Lance name (optional)">
+                    <button type="submit" class="btn btn-sm btn-primary w-100">Create Empty</button>
+                </form>
+            </li>
+            {% if templates %}
+            <li>
+                <hr class="dropdown-divider">
+            </li>
+            <li>
+                <h6 class="dropdown-header">From Template</h6>
+            </li>
+            {% for template in templates %}
+            <li>
+                <button class="dropdown-item" onclick="applyTemplate({{ template.id }}, '{{ template.name }}')">
+                    {{ template.name }}
+                </button>
+            </li>
+            {% endfor %}
+            {% endif %}
+        </ul>
+    </div>
+</div>
+
+<!-- Lances Grid -->
+<div class="row g-3">
+    {% for lance in force.lances %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="m-0 editable-lance-name" data-lance-id="{{ lance.id }}">
+                    {{ lance.name or 'Lance ' ~ loop.index }}
+                </h6>
+                <form method="post" action="{{ url_for('forces.delete_lance', id=force.id, lance_id=lance.id) }}"
+                    onsubmit="return confirm('Delete this lance?');" class="m-0">
+                    <button type="submit" class="btn btn-sm btn-link text-danger p-0">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </form>
+            </div>
+            <div class="card-body">
+                <ul class="list-group sortable-lance" data-lance-id="{{ lance.id }}">
+                    {% for fm in lance.miniatures %}
+                    {% set m = fm.miniature %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center"
+                        data-miniature-id="{{ m.id }}">
+                        <div>
+                            <i class="fa-solid fa-grip-vertical text-muted me-2" style="cursor: grab;"></i>
+                            <strong>{{ m.prefix }}</strong> {{ m.chassis }}
+                            <small class="text-muted">({{ m.series }}-{{ m.unique_id }})</small>
+                        </div>
+                        <button class="btn btn-sm btn-link text-danger p-0"
+                            onclick="removeMiniature({{ m.id }}, {{ force.id }})">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted text-center empty-placeholder">Empty lance</li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-2">
+                    <small class="text-muted">{{ lance.miniatures | length }} / 4-6 miniatures</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="alert alert-info">
+            No lances yet. Add a lance to get started!
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Template Confirmation Modal -->
+<div class="modal fade" id="templateConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Apply Lance Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="templateConfirmBody">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmTemplateBtn">Create Lance</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Initialize SortableJS on all lance lists
+    document.querySelectorAll('.sortable-lance').forEach(el => {
+        new Sortable(el, {
+            group: 'lances',
+            animation: 150,
+            handle: '.fa-grip-vertical',
+            onEnd: function (evt) {
+                const miniatureId = evt.item.dataset.miniatureId;
+                const targetLanceId = evt.to.dataset.lanceId;
+                const position = evt.newIndex;
+
+                // Remove empty placeholder if exists
+                evt.to.querySelectorAll('.empty-placeholder').forEach(p => p.remove());
+
+                // Send move request
+                fetch(`/forces/{{ force.id }}/move-miniature`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        miniature_id: miniatureId,
+                        target_lance_id: targetLanceId,
+                        position: position
+                    })
+                }).then(response => {
+                    if (!response.ok) {
+                        alert('Failed to move miniature');
+                        location.reload();
+                    }
+                });
+            }
+        });
+    });
+
+    // Apply template function
+    let currentTemplateId = null;
+
+    function applyTemplate(templateId, templateName) {
+        currentTemplateId = templateId;
+
+        fetch(`/forces/{{ force.id }}/lances/from-template`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `template_id=${templateId}`
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else if (data.needs_confirmation) {
+                    // Show confirmation modal
+                    const body = document.getElementById('templateConfirmBody');
+                    body.innerHTML = `
+                <p>Template: <strong>${data.template_name}</strong></p>
+                <p>Found ${data.matched_count} of ${data.matched_count + data.missing.length} miniatures.</p>
+                ${data.missing.length > 0 ? `
+                    <p class="text-warning"><strong>Missing:</strong></p>
+                    <ul class="list-group">
+                        ${data.missing.map(m => `<li class="list-group-item">${m}</li>`).join('')}
+                    </ul>
+                    <p class="mt-2">Create partial lance with available miniatures?</p>
+                ` : ''}
+            `;
+
+                    const modal = new bootstrap.Modal(document.getElementById('templateConfirmModal'));
+                    modal.show();
+                } else {
+                    alert(data.error || 'Failed to apply template');
+                }
+            });
+    }
+
+    // Confirm template application
+    document.getElementById('confirmTemplateBtn').onclick = function () {
+        fetch(`/forces/{{ force.id }}/lances/from-template`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `template_id=${currentTemplateId}&confirm=true`
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert(data.error || 'Failed to create lance');
+                }
+            });
+    };
+
+    // Remove miniature function
+    function removeMiniature(miniatureId, forceId) {
+        if (!confirm('Remove this miniature from the force?')) return;
+
+        fetch(`/forces/${forceId}/remove-miniature`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ miniature_id: miniatureId })
+        })
+            .then(response => {
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to remove miniature');
+                }
+            });
+    }
+
+    // Inline lance name editing
+    document.querySelectorAll('.editable-lance-name').forEach(el => {
+        el.ondblclick = function () {
+            const lanceId = this.dataset.lanceId;
+            const currentName = this.textContent.trim();
+            const newName = prompt('Enter new lance name:', currentName);
+
+            if (newName !== null && newName !== currentName) {
+                fetch(`/forces/{{ force.id }}/lances/${lanceId}/rename`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            this.textContent = data.name || 'Unnamed Lance';
+                        } else {
+                            alert('Failed to rename lance');
+                        }
+                    });
+            }
+        };
+    });
+</script>
+
+{% endblock %}

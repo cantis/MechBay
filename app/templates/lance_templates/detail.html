@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">{{ template.name }}</h2>
+        {% if template.description %}
+        <p class="text-muted mb-0">{{ template.description }}</p>
+        {% endif %}
+    </div>
+    <div>
+        <a href="{{ url_for('lance_templates.edit', id=template.id) }}" class="btn btn-outline-primary">
+            <i class="fa-solid fa-pen"></i> Edit
+        </a>
+        <a href="{{ url_for('lance_templates.list_templates') }}" class="btn btn-outline-secondary">Back</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="m-0">Required Chassis Patterns</h5>
+    </div>
+    <div class="card-body">
+        <ol class="list-group list-group-numbered">
+            {% for tm in template.miniatures %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ tm.chassis_pattern }}</strong>
+                    <small class="text-muted d-block">Will match any miniature with "{{ tm.chassis_pattern }}" in
+                        chassis name</small>
+                </div>
+            </li>
+            {% endfor %}
+        </ol>
+        <div class="mt-3">
+            <small class="text-muted">
+                <i class="fa-solid fa-info-circle"></i>
+                Total: {{ template.miniatures | length }} miniature(s) required
+            </small>
+        </div>
+    </div>
+</div>
+
+<div class="mt-3">
+    <form method="post" action="{{ url_for('lance_templates.delete', id=template.id) }}"
+        onsubmit="return confirm('Delete this template? This cannot be undone.');">
+        <button type="submit" class="btn btn-outline-danger">
+            <i class="fa-solid fa-trash"></i> Delete Template
+        </button>
+    </form>
+</div>
+
+{% endblock %}

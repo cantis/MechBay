@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<h2>Create Lance Template</h2>
+<p class="text-muted">Define a reusable lance configuration with chassis patterns.</p>
+
+<form method="post" class="row g-3">
+    <div class="col-12">
+        <label class="form-label">Template Name *</label>
+        <input type="text" name="name" required class="form-control" placeholder="e.g., Heavy Assault Lance">
+    </div>
+
+    <div class="col-12">
+        <label class="form-label">Description</label>
+        <textarea name="description" rows="2" class="form-control" placeholder="Optional description"></textarea>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label">Chassis Patterns *</label>
+        <small class="text-muted d-block mb-2">
+            Enter partial chassis names (e.g., "Warhammer" will match "Warhammer WHM-6R", "Warhammer WHM-7M", etc.)
+        </small>
+        <div id="chassis-list">
+            <div class="input-group mb-2">
+                <input type="text" name="chassis_0" class="form-control" placeholder="Chassis pattern" required>
+                <button type="button" class="btn btn-outline-danger" onclick="removeChassisField(this)" disabled>
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addChassisField()">
+            <i class="fa-solid fa-plus"></i> Add Another Chassis
+        </button>
+    </div>
+
+    <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Create Template</button>
+        <a href="{{ url_for('lance_templates.list_templates') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<script>
+    let chassisCount = 1;
+
+    function addChassisField() {
+        const container = document.getElementById('chassis-list');
+        const div = document.createElement('div');
+        div.className = 'input-group mb-2';
+        div.innerHTML = `
+        <input type="text" name="chassis_${chassisCount}" class="form-control" placeholder="Chassis pattern" required>
+        <button type="button" class="btn btn-outline-danger" onclick="removeChassisField(this)">
+            <i class="fa-solid fa-times"></i>
+        </button>
+    `;
+        container.appendChild(div);
+        chassisCount++;
+    }
+
+    function removeChassisField(button) {
+        button.closest('.input-group').remove();
+    }
+</script>
+
+{% endblock %}

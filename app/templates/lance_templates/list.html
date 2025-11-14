@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="m-0">Lance Templates</h2>
+    <a href="{{ url_for('lance_templates.create') }}" class="btn btn-primary">
+        <i class="fa-solid fa-plus"></i> Create Template
+    </a>
+</div>
+
+<p class="text-muted">Pre-defined lance configurations for quick force building.</p>
+
+{% if templates %}
+<div class="row g-3">
+    {% for template in templates %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="m-0">{{ template.name }}</h5>
+            </div>
+            <div class="card-body">
+                {% if template.description %}
+                <p class="card-text text-muted small">{{ template.description }}</p>
+                {% endif %}
+                <h6 class="card-subtitle mb-2">Required Chassis:</h6>
+                <ul class="list-group list-group-flush">
+                    {% for tm in template.miniatures %}
+                    <li class="list-group-item small">
+                        <i class="fa-solid fa-robot text-muted"></i> {{ tm.chassis_pattern }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-2">
+                    <small class="text-muted">{{ template.miniatures | length }} miniature(s)</small>
+                </div>
+            </div>
+            <div class="card-footer bg-white border-top d-flex gap-2">
+                <a href="{{ url_for('lance_templates.edit', id=template.id) }}"
+                    class="btn btn-sm btn-outline-primary flex-fill">
+                    <i class="fa-solid fa-pen"></i> Edit
+                </a>
+                <a href="{{ url_for('lance_templates.detail', id=template.id) }}"
+                    class="btn btn-sm btn-outline-secondary flex-fill">
+                    <i class="fa-solid fa-eye"></i> View
+                </a>
+                <form method="post" action="{{ url_for('lance_templates.delete', id=template.id) }}"
+                    onsubmit="return confirm('Delete this template?');" class="m-0">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    No templates yet. Create your first lance template to get started!
+</div>
+{% endif %}
+
+{% endblock %}

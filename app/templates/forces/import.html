@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<h2>Import Force</h2>
+<p class="text-muted">Upload a force JSON file to recreate it with your current miniatures.</p>
+
+<form method="post" enctype="multipart/form-data" class="row g-3">
+    <div class="col-12">
+        <label class="form-label">Force JSON File *</label>
+        <input type="file" name="file" accept=".json" required class="form-control">
+        <div class="form-text">
+            Select a previously exported force JSON file. Miniatures will be matched by Series and Unique ID.
+        </div>
+    </div>
+
+    <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Import</button>
+        <a class="btn btn-secondary" href="{{ url_for('forces.list_forces') }}">Cancel</a>
+    </div>
+</form>
+
+{% endblock %}

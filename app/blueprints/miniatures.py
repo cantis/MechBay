@@ -13,6 +13,7 @@ from flask import (
     url_for,
 )
 
+from ..services import force_service
 from ..services.miniature_service import (
     add_miniature,
     delete_miniature,
@@ -32,6 +33,16 @@ def list_miniatures():
     direction = request.args.get("direction")
     series_filter = request.args.get("series", "All")
     minis = get_all_miniatures(q, sort=sort, direction=direction, series_filter=series_filter)
+
+    # Get active force info for UI
+    active_force = force_service.get_active_force()
+    assigned_miniature_ids = set()
+    lances = []
+
+    if active_force:
+        assigned_miniature_ids = force_service.get_miniatures_in_force(active_force.id)
+        lances = active_force.lances
+
     return render_template(
         "miniatures/list.html",
         miniatures=minis,
@@ -39,6 +50,9 @@ def list_miniatures():
         sort=sort,
         direction=direction,
         series_filter=series_filter,
+        active_force=active_force,
+        assigned_miniature_ids=assigned_miniature_ids,
+        lances=lances,
     )
 
 
@@ -169,6 +183,25 @@ def edit(id: int):  # noqa: A002
 
 @bp.route("/<int:id>/delete", methods=["POST"])
 def delete(id: int):  # noqa: A002
+    # Check if miniature is in any forces
+    from ..extensions import session_scope
+    from ..models.force import Force
+    from ..models.force_miniature import ForceMiniature
+    from ..models.lance import Lance
+
+    with session_scope() as session:
+        force_assignments = (
+            session.query(Force.name, Lance.name)
+            .join(Lance)
+            .join(ForceMiniature)
+            .filter(ForceMiniature.miniature_id == id)
+            .all()
+        )
+
+        if force_assignments:
+            force_names = ", ".join([f"{f[0]}" for f in force_assignments])
+            flash(f"Warning: Miniature removed from forces: {force_names}", "warning")
+
     if delete_miniature(id):
         flash("Miniature deleted", "info")
     else:

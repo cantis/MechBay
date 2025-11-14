@@ -6,7 +6,15 @@
     crossorigin="anonymous" referrerpolicy="no-referrer" />
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="m-0">Miniatures</h2>
+    <div>
+        <h2 class="m-0">Miniatures</h2>
+        {% if active_force %}
+        <small class="text-muted">
+            Active Force: <strong>{{ active_force.name }}</strong>
+            <a href="{{ url_for('forces.detail', id=active_force.id) }}" class="text-decoration-none">[View]</a>
+        </small>
+        {% endif %}
+    </div>
     <a class="btn btn-primary" href="{{ url_for('miniatures.add') }}">Add Miniature</a>
 </div>
 
@@ -75,7 +83,8 @@
         </thead>
         <tbody>
             {% for m in miniatures %}
-            <tr style="cursor: pointer;" ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id) }}';">
+            <tr style="cursor: pointer; {% if m.id in assigned_miniature_ids %}border-left: 4px solid #198754;{% endif %}"
+                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id) }}';">
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
@@ -100,6 +109,26 @@
                                 <i class="fa-solid fa-ellipsis-vertical"></i>
                             </a>
                             <ul class="dropdown-menu">
+                                {% if active_force and lances %}
+                                <li>
+                                    <h6 class="dropdown-header">Add to Lance</h6>
+                                </li>
+                                {% for lance in lances %}
+                                <li>
+                                    <form method="post"
+                                        action="{{ url_for('forces.add_miniature', id=active_force.id) }}" class="m-0">
+                                        <input type="hidden" name="miniature_id" value="{{ m.id }}">
+                                        <input type="hidden" name="lance_id" value="{{ lance.id }}">
+                                        <button type="submit" class="dropdown-item">
+                                            <i class="fa-solid fa-plus"></i> {{ lance.name or 'Lance ' ~ loop.index }}
+                                        </button>
+                                    </form>
+                                </li>
+                                {% endfor %}
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                {% endif %}
                                 <li>
                                     <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
                                         onsubmit="return confirm('Delete this miniature?');" class="m-0">

@@ -26,9 +26,13 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     init_db(app)
 
     # Register blueprints
+    from .blueprints.forces import bp as forces_bp
+    from .blueprints.lance_templates import bp as lance_templates_bp
     from .blueprints.miniatures import bp as miniatures_bp
 
     app.register_blueprint(miniatures_bp)
+    app.register_blueprint(forces_bp)
+    app.register_blueprint(lance_templates_bp)
 
     @app.route("/")
     def index():
