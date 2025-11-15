@@ -63,6 +63,15 @@
                             </button>
                             <ul class="dropdown-menu">
                                 <li>
+                                    <a class="dropdown-item" href="#"
+                                        onclick="event.preventDefault(); renameForce({{ force.id }}, '{{ force.name }}')">
+                                        <i class="fa-solid fa-pen"></i> Rename
+                                    </a>
+                                </li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li>
                                     <form method="post" action="{{ url_for('forces.delete', id=force.id) }}"
                                         onsubmit="return confirm('Delete this force and all its lances?');" class="m-0">
                                         <button type="submit" class="dropdown-item text-danger">
@@ -108,5 +117,30 @@
         </div>
     </div>
 </div>
+
+<script>
+    function renameForce(forceId, currentName) {
+        const newName = prompt('Enter new force name:', currentName);
+
+        if (newName !== null && newName.trim() !== '' && newName !== currentName) {
+            fetch(`/forces/${forceId}/rename`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName.trim() })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Failed to rename force: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    alert('Failed to rename force');
+                });
+        }
+    }
+</script>
 
 {% endblock %}

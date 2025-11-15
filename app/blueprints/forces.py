@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -53,6 +54,22 @@ def activate(id: int):  # noqa: A002
     else:
         flash("Force not found", "danger")
     return redirect(url_for("forces.list_forces"))
+
+
+@bp.route("/<int:id>/rename", methods=["POST"])
+def rename(id: int):  # noqa: A002
+    """Rename a force."""
+    data = request.get_json()
+    new_name = data.get("name", "").strip()
+
+    if not new_name:
+        return jsonify({"success": False, "error": "Name is required"}), 400
+
+    force = force_service.rename_force(id, new_name)
+    if force:
+        return jsonify({"success": True, "name": force.name}), 200
+    else:
+        return jsonify({"success": False, "error": "Force not found"}), 404
 
 
 @bp.route("/<int:id>/add-miniature", methods=["POST"])
@@ -217,6 +234,17 @@ def export(id: int):  # noqa: A002
     except ValueError as e:
         flash(str(e), "danger")
         return redirect(url_for("forces.list_forces"))
+
+
+@bp.route("/<int:id>/report")
+def print_report(id: int):  # noqa: A002
+    """Generate printable force report."""
+    force = force_service.get_force_by_id(id)
+    if not force:
+        flash("Force not found", "danger")
+        return redirect(url_for("forces.list_forces"))
+
+    return render_template("forces/report.html", force=force, now=datetime.now())
 
 
 @bp.route("/import", methods=["GET", "POST"])

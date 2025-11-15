@@ -86,6 +86,19 @@ def switch_force(force_id: int) -> Force | None:
         return force
 
 
+def rename_force(force_id: int, new_name: str) -> Force | None:
+    """Rename a force."""
+    with session_scope() as session:
+        force = session.get(Force, force_id)
+        if not force:
+            return None
+
+        force.name = new_name.strip()
+        force.updated_at = datetime.utcnow()
+        session.flush()
+        return force
+
+
 def delete_force(force_id: int) -> bool:
     """Delete a force and all its lances/assignments."""
     with session_scope() as session:
