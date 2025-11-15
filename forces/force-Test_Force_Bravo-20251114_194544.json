@@ -1,0 +1,112 @@
+{
+  "force_name": "Test Force Bravo",
+  "exported_at": "2025-11-15T01:45:44.324043",
+  "lances": [
+    {
+      "name": "Command Lance",
+      "order": 1,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 1,
+          "prefix": "WHM",
+          "chassis": "Warhammer",
+          "tray_id": "Bay 1",
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 22,
+          "prefix": "AS7",
+          "chassis": "Atlas",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 5,
+          "prefix": "MAD",
+          "chassis": "Marauder",
+          "tray_id": "Bay 1",
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 6,
+          "prefix": "ARC",
+          "chassis": "Archer",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "name": "Battle Lance",
+      "order": 2,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 77,
+          "prefix": "WVR",
+          "chassis": "Wolverine",
+          "tray_id": null,
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 66,
+          "prefix": "SHD",
+          "chassis": "Shadow Hawk",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 10,
+          "prefix": "PXH",
+          "chassis": "Phoenix Hawk",
+          "tray_id": null,
+          "order": 2
+        }
+      ]
+    },
+    {
+      "name": "Inner Sphere Pursuit Lance",
+      "order": 3,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 30,
+          "prefix": "CDA",
+          "chassis": "Cicada",
+          "tray_id": "",
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 41,
+          "prefix": "CLNT",
+          "chassis": "Clint",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 55,
+          "prefix": "HER",
+          "chassis": "Hermes 2",
+          "tray_id": null,
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 48,
+          "prefix": "DV",
+          "chassis": "Dervish",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

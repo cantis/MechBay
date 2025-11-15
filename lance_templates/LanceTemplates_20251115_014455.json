@@ -1,0 +1,86 @@
+{
+  "exported_at": "2025-11-15T01:44:55.772047",
+  "template_count": 8,
+  "templates": [
+    {
+      "name": "Inner Sphere Battle Lance",
+      "description": "Standard medium battle force",
+      "chassis_patterns": [
+        "Warhammer",
+        "Rifleman",
+        "Wasp",
+        "Phoenix Hawk"
+      ]
+    },
+    {
+      "name": "Inner Sphere Command Lance",
+      "description": "Heavy command unit with mixed roles",
+      "chassis_patterns": [
+        "Marauder",
+        "Archer",
+        "Valkyrie",
+        "Stinger"
+      ]
+    },
+    {
+      "name": "Inner Sphere Direct Fire Lance",
+      "description": "Some battles can only be won by moving into the teeth of the fight. Thee BattleMechs give MechWarriors the armored protection and lethal firepower to lead from the front and take the fight to the enemy.",
+      "chassis_patterns": [
+        "Atlas",
+        "Marauder",
+        "Orion",
+        "Crusader"
+      ]
+    },
+    {
+      "name": "Inner Sphere Fire Lance",
+      "description": "Long-range fire support",
+      "chassis_patterns": [
+        "Longbow",
+        "Stalker",
+        "Trebuchet",
+        "Zeus"
+      ]
+    },
+    {
+      "name": "Inner Sphere Heavy Lance",
+      "description": "Balanced heavy lance",
+      "chassis_patterns": [
+        "Warhammer",
+        "Marauder",
+        "Archer",
+        "Rifleman"
+      ]
+    },
+    {
+      "name": "Inner Sphere Pursuit Lance",
+      "description": "Stopping an enemy piercing or flanking attack can be the difference between victory and defeat. With dogged ruthlessness, these 'Mechs can pursue and eliminate any maneuvering action the enemy attempts.",
+      "chassis_patterns": [
+        "Cicada",
+        "Clint",
+        "Hermes",
+        "Dervish"
+      ]
+    },
+    {
+      "name": "Inner Sphere Recon Lance",
+      "description": "Fast reconnaissance and skirmish",
+      "chassis_patterns": [
+        "Firestarter",
+        "Ostscout",
+        "Spector",
+        "Javelin"
+      ]
+    },
+    {
+      "name": "Inner Sphere Urban Lance",
+      "description": null,
+      "chassis_patterns": [
+        "Enforcer",
+        "Hunchback",
+        "Raven",
+        "Victor"
+      ]
+    }
+  ]
+}

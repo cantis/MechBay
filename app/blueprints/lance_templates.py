@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from io import BytesIO
+from pathlib import Path
+
+from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 
 from ..services import lance_template_service
 
@@ -100,3 +103,50 @@ def delete(id: int):  # noqa: A002
         flash("Template not found", "danger")
 
     return redirect(url_for("lance_templates.list_templates"))
+
+
+@bp.route("/export")
+def export():
+    """Export all lance templates to JSON file."""
+    try:
+        filepath = lance_template_service.export_templates_to_json()
+        return send_file(
+            BytesIO(filepath.read_bytes()),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=filepath.name,
+        )
+    except Exception as e:
+        flash(f"Export failed: {str(e)}", "danger")
+        return redirect(url_for("lance_templates.list_templates"))
+
+
+@bp.route("/import", methods=["GET", "POST"])
+def import_route():
+    """Import lance templates from JSON file."""
+    if request.method == "POST":
+        uploaded = request.files.get("file")
+        if not uploaded or uploaded.filename == "":
+            flash("No file selected", "warning")
+            return redirect(url_for("lance_templates.import_route"))
+
+        temp_path = Path("_upload_templates.json")
+        uploaded.save(temp_path)
+        try:
+            result = lance_template_service.import_templates_from_json(str(temp_path))
+
+            flash(
+                f"Imported {result['imported_count']} template(s). "
+                f"Skipped {result['skipped_count']}.",
+                "success",
+            )
+            return redirect(url_for("lance_templates.list_templates"))
+        except ValueError as e:
+            flash(f"Import failed: {str(e)}", "danger")
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+        return redirect(url_for("lance_templates.import_route"))
+
+    return render_template("lance_templates/import.html")

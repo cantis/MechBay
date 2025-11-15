@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -136,3 +139,110 @@ def match_template_miniatures(
             missing.append(tm.chassis_pattern)
 
     return {"matched": matched, "missing": missing, "template_name": template.name}
+
+
+def export_templates_to_json(directory: str = "lance_templates/") -> Path:
+    """Export all lance templates to a JSON file."""
+    templates = get_all_templates()
+    
+    # Create export directory if it doesn't exist
+    export_dir = Path(directory)
+    export_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Build export data
+    export_data = {
+        "exported_at": datetime.utcnow().isoformat(),
+        "template_count": len(templates),
+        "templates": []
+    }
+    
+    for template in templates:
+        template_data = {
+            "name": template.name,
+            "description": template.description,
+            "chassis_patterns": [tm.chassis_pattern for tm in template.miniatures]
+        }
+        export_data["templates"].append(template_data)
+    
+    # Generate filename with timestamp
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"LanceTemplates_{timestamp}.json"
+    filepath = export_dir / filename
+    
+    # Write to file
+    with filepath.open("w", encoding="utf-8") as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False)
+    
+    return filepath
+
+
+def import_templates_from_json(file_path: str) -> dict[str, Any]:
+    """Import lance templates from a JSON file."""
+    filepath = Path(file_path)
+    
+    if not filepath.exists():
+        raise ValueError(f"File not found: {file_path}")
+    
+    # Read JSON file
+    with filepath.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    if "templates" not in data:
+        raise ValueError("Invalid lance templates file format")
+    
+    imported_count = 0
+    skipped_count = 0
+    
+    with session_scope() as session:
+        for template_data in data["templates"]:
+            name = template_data.get("name")
+            description = template_data.get("description")
+            chassis_patterns = template_data.get("chassis_patterns", [])
+            
+            if not name or not chassis_patterns:
+                skipped_count += 1
+                continue
+            
+            # Check if template with this name already exists
+            existing = session.execute(
+                select(LanceTemplate).where(LanceTemplate.name == name)
+            ).scalar_one_or_none()
+            
+            if existing:
+                # Update existing template
+                existing.description = description
+                
+                # Delete existing patterns
+                session.query(LanceTemplateMiniature).filter(
+                    LanceTemplateMiniature.template_id == existing.id
+                ).delete()
+                
+                # Add new patterns
+                for idx, pattern in enumerate(chassis_patterns):
+                    mini = LanceTemplateMiniature(
+                        template_id=existing.id,
+                        chassis_pattern=pattern,
+                        order=idx
+                    )
+                    session.add(mini)
+            else:
+                # Create new template
+                template = LanceTemplate(name=name, description=description)
+                session.add(template)
+                session.flush()
+                
+                for idx, pattern in enumerate(chassis_patterns):
+                    mini = LanceTemplateMiniature(
+                        template_id=template.id,
+                        chassis_pattern=pattern,
+                        order=idx
+                    )
+                    session.add(mini)
+            
+            imported_count += 1
+    
+    return {
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "total_in_file": len(data["templates"])
+    }
