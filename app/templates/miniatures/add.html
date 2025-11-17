@@ -40,7 +40,7 @@
         <label class="form-label">Status</label>
         {% set status_prefill = (prefill.status if prefill is defined else '') %}
         <select name="status" class="form-select">
-            {% for s in ['','New','Primed','Detail','Based','Finished'] %}
+            {% for s in ['','New','Primed','Drybush','Detail','Base','Finished'] %}
             <option value="{{ s }}" {% if status_prefill==s %}selected{% endif %}>{{ s or '--' }}</option>
             {% endfor %}
         </select>

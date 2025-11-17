@@ -83,7 +83,7 @@ Each record represents a single physical miniature.
 - `prefix` — short model code like WHM or BNC (string, required)
 - `chassis` — full miniature name (string, required)
 - `type` — Mech, Vehicle, Infantry, VTOL, or Support (string, required)
-- `status` — painting progress (New, Primed, Detail, Based, Finished)
+- `status` — painting progress ('','New','Primed','Drybush','Detail','Base','Finished')
 - `tray_id` — identifier for the tray or case where the miniature is stored
 - `notes` — freeform text for details or remarks
 - `created_at` — timestamp, defaults to current time

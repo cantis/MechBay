@@ -1,0 +1,158 @@
+{
+  "force_name": "500 Point Unit 15 Nov 25",
+  "exported_at": "2025-11-15T06:45:46.702601",
+  "lances": [
+    {
+      "name": "Inner Sphere Pursuit Lance",
+      "order": 3,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 30,
+          "prefix": "CDA",
+          "chassis": "Cicada",
+          "tray_id": "",
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 41,
+          "prefix": "CLNT",
+          "chassis": "Clint",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 55,
+          "prefix": "HER",
+          "chassis": "Hermes 2",
+          "tray_id": null,
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 48,
+          "prefix": "DV",
+          "chassis": "Dervish",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "name": "Medium Lance",
+      "order": 4,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 14,
+          "prefix": "TBT",
+          "chassis": "Trebuchet",
+          "tray_id": "Bay 1",
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 15,
+          "prefix": "ENF",
+          "chassis": "Enforcer",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 10,
+          "prefix": "PXH",
+          "chassis": "Phoenix Hawk",
+          "tray_id": null,
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 23,
+          "prefix": "PNT",
+          "chassis": "Panther",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "name": "Inner Sphere Fire Lance",
+      "order": 5,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 13,
+          "prefix": "LGB",
+          "chassis": "Longbow",
+          "tray_id": null,
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 12,
+          "prefix": "STK",
+          "chassis": "Stalker",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 70,
+          "prefix": "TBT",
+          "chassis": "Trebuchet",
+          "tray_id": "",
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 3,
+          "prefix": "ZEU",
+          "chassis": "Zeus",
+          "tray_id": "Bay 1",
+          "order": 3
+        }
+      ]
+    },
+    {
+      "name": "Battlefield Support: Calvary Lance",
+      "order": 6,
+      "miniatures": [
+        {
+          "series": "B",
+          "unique_id": 6,
+          "prefix": "-",
+          "chassis": "Condor",
+          "tray_id": "Hanger 1",
+          "order": 0
+        },
+        {
+          "series": "B",
+          "unique_id": 7,
+          "prefix": "-",
+          "chassis": "Condor",
+          "tray_id": "Hanger 1",
+          "order": 1
+        },
+        {
+          "series": "B",
+          "unique_id": 8,
+          "prefix": "-",
+          "chassis": "Pegasus",
+          "tray_id": "Hanger 1",
+          "order": 2
+        },
+        {
+          "series": "B",
+          "unique_id": 9,
+          "prefix": "-",
+          "chassis": "Pegasus",
+          "tray_id": "Hanger 1",
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

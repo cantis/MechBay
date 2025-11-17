@@ -1,0 +1,82 @@
+{
+  "force_name": "250 Point Unit 15 Nov 25",
+  "exported_at": "2025-11-15T06:48:21.182771",
+  "lances": [
+    {
+      "name": "Inner Sphere Urban Lance",
+      "order": 2,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 15,
+          "prefix": "ENF",
+          "chassis": "Enforcer",
+          "tray_id": null,
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 59,
+          "prefix": "HBK",
+          "chassis": "Hunchback",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 65,
+          "prefix": "RVN",
+          "chassis": "Raven",
+          "tray_id": null,
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 72,
+          "prefix": "VTR",
+          "chassis": "Victor",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "name": "Inner Sphere Battle Lance",
+      "order": 3,
+      "miniatures": [
+        {
+          "series": "A",
+          "unique_id": 1,
+          "prefix": "WHM",
+          "chassis": "Warhammer",
+          "tray_id": "Bay 1",
+          "order": 0
+        },
+        {
+          "series": "A",
+          "unique_id": 9,
+          "prefix": "RFL",
+          "chassis": "Rifleman",
+          "tray_id": null,
+          "order": 1
+        },
+        {
+          "series": "A",
+          "unique_id": 11,
+          "prefix": "WSP",
+          "chassis": "Wasp",
+          "tray_id": null,
+          "order": 2
+        },
+        {
+          "series": "A",
+          "unique_id": 10,
+          "prefix": "PXH",
+          "chassis": "Phoenix Hawk",
+          "tray_id": null,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

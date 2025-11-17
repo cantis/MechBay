@@ -34,7 +34,7 @@
     </div>
     <div class="col-md-3">
         <label class="form-label">Status</label>
-        {% set statuses = ['','New','Primed','Detail','Based','Finished'] %}
+        {% set statuses = ['','New','Primed','Drybush','Detail','Base','Finished'] %}
         <select name="status" class="form-select">
             {% for s in statuses %}
             <option value="{{ s }}" {% if (mini.status or '' )==s %}selected{% endif %}>{{ s or '--' }}</option>
