@@ -158,13 +158,21 @@ def add_miniature_to_lance(
 def remove_miniature_from_force(miniature_id: int, force_id: int) -> bool:
     """Remove a miniature from any lance in the force."""
     with session_scope() as session:
-        deleted = (
+        # First, find the ForceMiniature records to delete
+        force_miniatures = (
             session.query(ForceMiniature)
             .join(Lance)
             .filter(and_(Lance.force_id == force_id, ForceMiniature.miniature_id == miniature_id))
-            .delete(synchronize_session=False)
+            .all()
         )
-        return deleted > 0
+
+        # Delete each record
+        deleted_count = 0
+        for fm in force_miniatures:
+            session.delete(fm)
+            deleted_count += 1
+
+        return deleted_count > 0
 
 
 def move_miniature_between_lances(

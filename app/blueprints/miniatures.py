@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -213,12 +214,15 @@ def delete(id: int):  # noqa: A002
 def export():
     temp_path = Path("miniatures_export.json")
     export_to_json(str(temp_path))
+    # Generate timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    download_filename = f"Miniature_Inventory_{timestamp}.json"
     # Serve as attachment
     return send_file(
         BytesIO(temp_path.read_bytes()),
         mimetype="application/json",
         as_attachment=True,
-        download_name="miniatures.json",
+        download_name=download_filename,
     )
 
 

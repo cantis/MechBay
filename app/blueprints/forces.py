@@ -74,37 +74,60 @@ def rename(id: int):  # noqa: A002
 
 @bp.route("/<int:id>/add-miniature", methods=["POST"])
 def add_miniature(id: int):  # noqa: A002
-    """Add a miniature to a lance (JSON API)."""
-    data = request.get_json() or request.form
+    """Add a miniature to a lance (JSON API or form submission)."""
+    is_json = request.is_json
+    data = request.get_json(silent=True) or request.form
     miniature_id = data.get("miniature_id")
     lance_id = data.get("lance_id")
 
     if not miniature_id or not lance_id:
-        return jsonify({"success": False, "error": "Missing parameters"}), 400
+        if is_json:
+            return jsonify({"success": False, "error": "Missing parameters"}), 400
+        flash("Missing parameters", "danger")
+        return redirect(url_for("miniatures.list_miniatures"))
 
     result = force_service.add_miniature_to_lance(int(miniature_id), int(lance_id))
 
-    if result["success"]:
-        return jsonify(result), 200
+    if is_json:
+        if result["success"]:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
     else:
-        return jsonify(result), 400
+        if result["success"]:
+            flash("Miniature added to lance", "success")
+        else:
+            flash(result.get("error", "Failed to add miniature"), "danger")
+        return redirect(url_for("miniatures.list_miniatures"))
 
 
 @bp.route("/<int:id>/remove-miniature", methods=["POST"])
 def remove_miniature(id: int):  # noqa: A002
-    """Remove a miniature from the force (JSON API)."""
-    data = request.get_json() or request.form
+    """Remove a miniature from the force (JSON API or form submission)."""
+    is_json = request.is_json
+    data = request.get_json(silent=True) or request.form
     miniature_id = data.get("miniature_id")
 
     if not miniature_id:
-        return jsonify({"success": False, "error": "Missing miniature_id"}), 400
+        if is_json:
+            return jsonify({"success": False, "error": "Missing miniature_id"}), 400
+        flash("Missing miniature ID", "danger")
+        return redirect(url_for("forces.detail", id=id))
 
     success = force_service.remove_miniature_from_force(int(miniature_id), id)
 
     if success:
-        return jsonify({"success": True}), 200
+        flash("Miniature Removed", "success")
     else:
-        return jsonify({"success": False, "error": "Miniature not found in force"}), 404
+        flash("Miniature not found in force", "danger")
+
+    if is_json:
+        if success:
+            return jsonify({"success": True}), 200
+        else:
+            return jsonify({"success": False, "error": "Miniature not found in force"}), 404
+    else:
+        return redirect(url_for("forces.detail", id=id))
 
 
 @bp.route("/<int:id>/lances/create", methods=["POST"])

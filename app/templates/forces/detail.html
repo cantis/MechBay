@@ -230,7 +230,8 @@
         })
             .then(response => {
                 if (response.ok) {
-                    location.reload();
+                    // Small delay to allow flash message to be set in session
+                    setTimeout(() => location.reload(), 100);
                 } else {
                     alert('Failed to remove miniature');
                 }

@@ -19,9 +19,21 @@
         {% if messages %}
         <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">
             {% for category, message in messages %}
-            <div class="alert alert-{{ category }} shadow-sm mb-2">{{ message }}</div>
+            <div class="alert alert-{{ category }} shadow-sm mb-2 alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
             {% endfor %}
         </div>
+        <script>
+            // Auto-fade alerts after 3 seconds
+            setTimeout(() => {
+                document.querySelectorAll('.alert').forEach(alert => {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                });
+            }, 3000);
+        </script>
         {% endif %}
         {% endwith %}
         {% block content %}{% endblock %}
