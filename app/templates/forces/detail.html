@@ -66,8 +66,10 @@
     <div class="col-md-6 col-lg-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="m-0 editable-lance-name" data-lance-id="{{ lance.id }}">
+                <h6 class="m-0 editable-lance-name" data-lance-id="{{ lance.id }}" style="cursor: pointer;"
+                    title="Double-click to rename">
                     {{ lance.name or 'Lance ' ~ loop.index }}
+                    <i class="fa-solid fa-pen-to-square fa-xs text-muted ms-1"></i>
                 </h6>
                 <form method="post" action="{{ url_for('forces.delete_lance', id=force.id, lance_id=lance.id) }}"
                     onsubmit="return confirm('Delete this lance?');" class="m-0">
