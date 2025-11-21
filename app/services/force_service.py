@@ -243,8 +243,12 @@ def get_miniatures_in_force(force_id: int) -> set[int]:
         return set(session.execute(stmt).scalars().all())
 
 
-def export_force_to_json(force_id: int, directory: str = "forces/") -> Path:
-    """Export force to JSON file with structure."""
+def export_force_to_json(force_id: int) -> tuple[str, str]:
+    """Export force to JSON string with generated filename.
+
+    Returns:
+        tuple: (json_string, filename)
+    """
     force = get_force_by_id(force_id)
     if not force:
         raise ValueError(f"Force {force_id} not found")
@@ -274,18 +278,14 @@ def export_force_to_json(force_id: int, directory: str = "forces/") -> Path:
 
         export_data["lances"].append(lance_data)
 
-    # Create directory if needed
-    Path(directory).mkdir(parents=True, exist_ok=True)
-
     # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in force.name)
-    filename = f"force-{safe_name}-{timestamp}.json"
-    filepath = Path(directory) / filename
+    filename = f"Force_{safe_name}_{timestamp}.json"
 
-    # Write file
-    filepath.write_text(json.dumps(export_data, indent=2), encoding="utf-8")
-    return filepath
+    # Return JSON string and filename
+    json_string = json.dumps(export_data, indent=2)
+    return json_string, filename
 
 
 def import_force_from_json(file_path: str) -> dict[str, Any]:

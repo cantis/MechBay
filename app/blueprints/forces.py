@@ -247,12 +247,12 @@ def move_miniature(id: int):  # noqa: A002
 def export(id: int):  # noqa: A002
     """Export force to JSON file."""
     try:
-        filepath = force_service.export_force_to_json(id)
+        json_string, filename = force_service.export_force_to_json(id)
         return send_file(
-            BytesIO(filepath.read_bytes()),
+            BytesIO(json_string.encode("utf-8")),
             mimetype="application/json",
             as_attachment=True,
-            download_name=filepath.name,
+            download_name=filename,
         )
     except ValueError as e:
         flash(str(e), "danger")

@@ -141,13 +141,13 @@ def match_template_miniatures(
     return {"matched": matched, "missing": missing, "template_name": template.name}
 
 
-def export_templates_to_json(directory: str = "lance_templates/") -> Path:
-    """Export all lance templates to a JSON file."""
-    templates = get_all_templates()
+def export_templates_to_json() -> tuple[str, str]:
+    """Export all lance templates to JSON string with generated filename.
 
-    # Create export directory if it doesn't exist
-    export_dir = Path(directory)
-    export_dir.mkdir(parents=True, exist_ok=True)
+    Returns:
+        tuple: (json_string, filename)
+    """
+    templates = get_all_templates()
 
     # Build export data
     export_data = {
@@ -167,13 +167,10 @@ def export_templates_to_json(directory: str = "lance_templates/") -> Path:
     # Generate filename with timestamp
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"LanceTemplates_{timestamp}.json"
-    filepath = export_dir / filename
 
-    # Write to file
-    with filepath.open("w", encoding="utf-8") as f:
-        json.dump(export_data, f, indent=2, ensure_ascii=False)
-
-    return filepath
+    # Return JSON string and filename
+    json_string = json.dumps(export_data, indent=2, ensure_ascii=False)
+    return json_string, filename
 
 
 def import_templates_from_json(file_path: str) -> dict[str, Any]:

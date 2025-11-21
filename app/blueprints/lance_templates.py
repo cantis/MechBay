@@ -109,12 +109,12 @@ def delete(id: int):  # noqa: A002
 def export():
     """Export all lance templates to JSON file."""
     try:
-        filepath = lance_template_service.export_templates_to_json()
+        json_string, filename = lance_template_service.export_templates_to_json()
         return send_file(
-            BytesIO(filepath.read_bytes()),
+            BytesIO(json_string.encode("utf-8")),
             mimetype="application/json",
             as_attachment=True,
-            download_name=filepath.name,
+            download_name=filename,
         )
     except Exception as e:
         flash(f"Export failed: {str(e)}", "danger")
