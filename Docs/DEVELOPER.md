@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-MechBay is a Flask web application for managing BattleTech miniature inventories and organizing forces. It provides tools to track individual miniatures, organize them into forces and lances, and use reusable lance templates for quick force building.
+MechBay is a Flask web application for managing BattleTech miniature inventories and organizing forces. It provides tools to track individual miniatures, organize them into forces and lances, and use reusable lance templates for quick force building. Focus is on physical miniature management rather than spicific mech versions that would be used in gameplay. 
 
 ### Core Entities
 
-- **Miniatures**: Individual models with properties like chassis, variant type, series ID, paint status, and storage location
+- **Miniatures**: Individual models with properties like chassis, series ID, paint status, and storage location
 - **Forces**: Collections of lances representing your army composition
 - **Lance Templates**: Reusable configurations of 4 mechs that can auto-match miniatures from inventory
 - **Lances**: Groups of miniatures within a force, with drag-and-drop ordering
