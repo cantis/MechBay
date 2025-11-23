@@ -6,11 +6,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, url_for
 
-# Load environment variables from .env file if present
 load_dotenv()
 
-from .config import Config
-from .extensions import init_db
+from .config import Config  # noqa: E402
+from .extensions import init_db  # noqa: E402
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:
