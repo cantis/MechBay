@@ -182,7 +182,7 @@ def create_lance_from_template(id: int):  # noqa: A002
         return jsonify({"success": False, "error": "Force not found"}), 404
 
     # Add matched miniatures
-    for idx, (pattern, mini_id, miniature) in enumerate(match_result["matched"]):
+    for idx, (_, mini_id, _) in enumerate(match_result["matched"]):
         force_service.add_miniature_to_lance(mini_id, lance.id, position=idx)
 
     flash(f"Lance '{lance_name}' created with {len(match_result['matched'])} miniatures", "success")
@@ -285,7 +285,8 @@ def import_route():
             result = force_service.import_force_from_json(str(temp_path))
 
             flash(
-                f"Imported force '{result['force_name']}' with {result['imported_count']} miniatures",
+                f"""Imported force '{result['force_name']}' with {result['imported_count']}
+                  miniatures""",
                 "success",
             )
 

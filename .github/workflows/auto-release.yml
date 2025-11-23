@@ -1,0 +1,56 @@
+name: Auto Release on Version Bump
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "pyproject.toml"
+
+jobs:
+    check-version:
+        name: Check Version and Create Release
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 2
+
+            - name: Extract current version
+              id: current_version
+              run: |
+                  VERSION=$(grep 'version = ' pyproject.toml | head -1 | cut -d'"' -f2)
+                  echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Current version: $VERSION"
+
+            - name: Check if version changed
+              id: version_changed
+              run: |
+                  git diff HEAD~1 HEAD pyproject.toml | grep -q 'version = ' && echo "CHANGED=true" >> $GITHUB_OUTPUT || echo "CHANGED=false" >> $GITHUB_OUTPUT
+
+            - name: Create release
+              if: steps.version_changed.outputs.CHANGED == 'true'
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ steps.current_version.outputs.VERSION }}
+                  name: Release v${{ steps.current_version.outputs.VERSION }}
+                  body: |
+                      ## MechBay v${{ steps.current_version.outputs.VERSION }}
+
+                      Automated release created from version bump in main branch.
+
+                      ### Installation
+                      1. Download the `MechBay_v${{ steps.current_version.outputs.VERSION }}-windows.zip` file below
+                      2. Extract the ZIP file
+                      3. Run `MechBay.exe`
+
+                      See README.txt in the package for detailed instructions.
+
+                      ### What's Changed
+                      - Version bumped to ${{ steps.current_version.outputs.VERSION }}
+
+                      Full Changelog: https://github.com/${{ github.repository }}/commits/v${{ steps.current_version.outputs.VERSION }}
+                  draft: false
+                  prerelease: false
+                  token: ${{ secrets.GITHUB_TOKEN }}

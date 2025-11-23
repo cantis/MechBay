@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import importlib.metadata
 from pathlib import Path
 
-from flask import Flask, redirect, url_for
+from dotenv import load_dotenv
+from flask import Flask, jsonify, redirect, render_template, url_for
 
-from .config import Config
-from .extensions import init_db
+load_dotenv()
+
+from .config import Config  # noqa: E402
+from .extensions import init_db  # noqa: E402
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:
@@ -18,12 +22,34 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     if config_overrides:
         app.config.update(config_overrides)
 
-    # Ensure instance/data directory exists (only relevant for file-based DBs)
-    data_dir = Path(__file__).resolve().parent
-    (data_dir).mkdir(parents=True, exist_ok=True)
+    # Load version dynamically from package metadata
+    try:
+        version = importlib.metadata.version("mechbay")
+    except importlib.metadata.PackageNotFoundError:
+        version = "0.1.0"  # Fallback for development
+    app.config["VERSION"] = version
+
+    # Ensure AppData MechBay directory exists (for Windows AppData-based DB)
+    db_url = app.config.get("DATABASE_URL", "")
+    if "AppData" in db_url or "mechbay.db" in db_url:
+        # Extract path from sqlite:/// URL
+        db_path = db_url.replace("sqlite:///", "")
+        db_dir = Path(db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize DB and create tables (uses possibly overridden DATABASE_URL)
     init_db(app)
+
+    # Auto-seed database on first run (skip for test environments)
+    if not app.config.get("TESTING"):
+        from .services.miniature_service import get_all_miniatures
+
+        miniatures = get_all_miniatures()
+        if len(miniatures) == 0:
+            from .seed import run
+
+            count = run()
+            print(f"Demo data loaded: {count} records created")
 
     # Register blueprints
     from .blueprints.forces import bp as forces_bp
@@ -38,13 +64,14 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     def index():
         return redirect(url_for("miniatures.list_miniatures"))
 
+    @app.route("/health")
+    def health():
+        """Health check endpoint for monitoring."""
+        return jsonify({"status": "ok", "version": app.config["VERSION"]})
+
     @app.route("/about")
     def about():
-        return (
-            "<div style='padding:2rem;font-family:system-ui'>"
-            "<h1>MechBay</h1>"
-            "<p>A simple BattleTech miniature inventory built with Flask.</p>"
-            "</div>"
-        )
+        """About page with version information."""
+        return render_template("about.html", version=app.config["VERSION"])
 
     return app
