@@ -1,0 +1,36 @@
+name: CI - Test and Lint
+
+on:
+    push:
+        branches: [main, PackageForDistro]
+    pull_request:
+        branches: [main]
+
+jobs:
+    test:
+        name: Test and Lint
+        runs-on: windows-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.13"
+
+            - name: Install UV
+              uses: astral-sh/setup-uv@v4
+
+            - name: Install dependencies
+              run: uv sync
+
+            - name: Run linter (Ruff)
+              run: uv run ruff check .
+
+            - name: Run tests
+              run: uv run pytest -v
+
+            - name: Test app initialization
+              run: uv run python -c "from app import create_app; app = create_app(); print('App initialized successfully')"

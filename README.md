@@ -2,6 +2,22 @@
 
 A Flask web application for managing BattleTech miniature inventories and organizing forces for gameplay.
 
+## Installation
+
+### For Users (Windows Executable)
+
+**Download the latest release:**
+1. Visit the [Releases page](https://github.com/cantis/MechBay/releases)
+2. Download `MechBay_vX.Y.Z-windows.zip`
+3. Extract and run `MechBay.exe`
+4. Browser opens automatically to http://127.0.0.1:5001
+
+No Python installation required!
+
+### For Developers
+
+See [DEVELOPER.md](Docs/DEVELOPER.md) for full setup instructions.
+
 ## Features
 
 ### Miniature Inventory Management

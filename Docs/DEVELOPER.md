@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-MechBay is a Flask web application for managing BattleTech miniature inventories and organizing forces. It provides tools to track individual miniatures, organize them into forces and lances, and use reusable lance templates for quick force building. Focus is on physical miniature management rather than spicific mech versions that would be used in gameplay. 
+MechBay is a Flask web application for managing BattleTech miniature inventories and organizing forces. It provides tools to track individual miniatures, organize them into forces and lances, and use reusable lance templates for quick force building. Focus is on physical miniature management rather than spicific mech versions that would be used in gameplay.
 
 ### Core Entities
 
@@ -296,6 +296,129 @@ uv run pyinstaller mechbay.spec --clean
 
 # Executable located in: dist/MechBay/MechBay.exe
 ```
+
+## Continuous Integration & Deployment
+
+MechBay uses GitHub Actions for automated testing, building, and releases.
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+**Triggers**: Push to `main` or `PackageForDistro` branches, or pull requests to `main`
+
+**Actions**:
+- ✅ Runs all pytest tests
+- ✅ Runs Ruff linter
+- ✅ Verifies app initialization
+- ❌ Fails build if any checks fail
+
+This ensures code quality and prevents regressions from being merged.
+
+### Release Workflow (`.github/workflows/release.yml`)
+
+**Triggers**: Creating a GitHub release or pushing a version tag (e.g., `v0.1.1`)
+
+**Actions**:
+1. Sets up Python 3.13 and UV environment
+2. Installs dependencies and PyInstaller
+3. Extracts version from git tag
+4. Builds Windows executable with PyInstaller
+5. Creates distribution folder with executable, `.env.example`, and user README
+6. Creates ZIP archive `MechBay_vX.Y.Z-windows.zip`
+7. Uploads ZIP to GitHub release as downloadable asset
+8. Stores build artifacts for 30 days
+
+### Auto-Release Workflow (`.github/workflows/auto-release.yml`)
+
+**Triggers**: Push to `main` branch with changes to `pyproject.toml` version field
+
+**Actions**:
+- Detects version bump in `pyproject.toml`
+- Automatically creates GitHub release with version tag
+- Release workflow then triggers to build and attach executable
+
+This enables a streamlined release process: just bump version and push to main.
+
+### Creating a Release
+
+**Option 1: Manual GitHub Release (Recommended)**
+
+```powershell
+# Bump version locally
+uv version --bump patch  # or 'minor' or 'major'
+
+# Commit version change
+git add pyproject.toml
+git commit -m "Bump version to $(Select-String -Path pyproject.toml -Pattern 'version = ""(.+)""' | ForEach-Object { $_.Matches.Groups[1].Value })"
+git push
+
+# Create release on GitHub.com:
+# 1. Go to Releases → Draft a new release
+# 2. Create tag: v0.1.1 (matching pyproject.toml version)
+# 3. Set title: Release v0.1.1
+# 4. Add release notes describing changes
+# 5. Click "Publish release"
+# GitHub Actions automatically builds and attaches Windows ZIP
+```
+
+**Option 2: Tag-Based Release**
+
+```powershell
+# Bump version and create tag in one workflow
+uv version --bump patch
+$version = (Select-String -Path pyproject.toml -Pattern 'version = ""(.+)""' | ForEach-Object { $_.Matches.Groups[1].Value })
+
+git add pyproject.toml
+git commit -m "Bump version to $version"
+git tag -a "v$version" -m "Release v$version"
+git push origin main --tags
+
+# GitHub Actions detects tag and builds release automatically
+```
+
+**Option 3: Auto-Release (Simplest)**
+
+```powershell
+# Just bump version and push to main
+uv version --bump patch
+git add pyproject.toml
+git commit -m "Bump version to $(Select-String -Path pyproject.toml -Pattern 'version = ""(.+)""' | ForEach-Object { $_.Matches.Groups[1].Value })"
+git push
+
+# Auto-release workflow creates tag and release automatically
+# Release workflow then builds and attaches executable
+```
+
+### Distributing to Users
+
+After release is published with attached ZIP:
+
+1. Share GitHub release URL with users (e.g., your brothers)
+2. They download `MechBay_vX.Y.Z-windows.zip` from release page
+3. Extract and run `MechBay.exe`
+4. Application runs with no additional setup required
+
+### Monitoring Builds
+
+- **Actions Tab**: View workflow runs and build logs
+- **Releases Page**: See all published releases with downloadable assets
+- **Build Artifacts**: Access 30-day stored builds even without creating releases
+
+### Troubleshooting CI/CD
+
+**Tests fail on push:**
+- Check Actions tab for detailed error logs
+- Run `uv run pytest -v` locally to reproduce
+- Fix issues before merging to main
+
+**Release build fails:**
+- Verify PyInstaller spec is correct
+- Check that all dependencies are in `pyproject.toml`
+- Test local build with `uv run pyinstaller mechbay.spec`
+
+**Auto-release not triggering:**
+- Ensure `pyproject.toml` version field actually changed
+- Check that push was to `main` branch
+- Verify `.github/workflows/auto-release.yml` exists and is enabled
 
 ## Code Quality
 
