@@ -1,127 +1,127 @@
 name: Release - Build and Publish
 
 on:
-    release:
-        types: [created]
+  release:
+    types: [created]
 
 jobs:
-    build-windows:
-        name: Build Windows Executable
-        runs-on: windows-latest
+  build-windows:
+    name: Build Windows Executable
+    runs-on: windows-latest
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
-            - name: Install UV
-              uses: astral-sh/setup-uv@v4
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
 
-            - name: Install dependencies
-              run: uv sync
+      - name: Install dependencies
+        run: uv sync
 
-            - name: Install PyInstaller
-              run: uv pip install pyinstaller>=6.0.0
+      - name: Install PyInstaller
+        run: uv pip install pyinstaller>=6.0.0
 
-            - name: Extract version from tag
-              id: get_version
-              shell: pwsh
-              run: |
-                  $version = "${{ github.ref_name }}" -replace '^v', ''
-                  echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-                  echo "Building version: $version"
+      - name: Extract version from tag
+        id: get_version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Building version: $version"
 
-            - name: Update version in pyproject.toml
-              shell: pwsh
-              run: |
-                  $version = "${{ steps.get_version.outputs.VERSION }}"
-                  $content = Get-Content pyproject.toml -Raw
-                  $content = $content -replace 'version = "[^"]+"', "version = `"$version`""
-                  Set-Content pyproject.toml $content
+      - name: Update version in pyproject.toml
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $content = Get-Content pyproject.toml -Raw
+          $content = $content -replace 'version = "[^"]+"', "version = `"$version`""
+          Set-Content pyproject.toml $content
 
-            - name: Build executable with PyInstaller
-              run: uv run pyinstaller mechbay.spec --clean
+      - name: Build executable with PyInstaller
+        run: uv run pyinstaller mechbay.spec --clean
 
-            - name: Create distribution folder
-              shell: pwsh
-              run: |
-                  $version = "${{ steps.get_version.outputs.VERSION }}"
-                  $distFolder = "dist/MechBay_v$version"
+      - name: Create distribution folder
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $distFolder = "dist/MechBay_v$version"
 
-                  # Create folder and copy files
-                  New-Item -ItemType Directory -Path $distFolder -Force | Out-Null
-                  Copy-Item -Recurse "dist/MechBay/*" $distFolder
-                  Copy-Item ".env.example" "$distFolder/.env.example"
+          # Create folder and copy files
+          New-Item -ItemType Directory -Path $distFolder -Force | Out-Null
+          Copy-Item -Recurse "dist/MechBay/*" $distFolder
+          Copy-Item ".env.example" "$distFolder/.env.example"
 
-                  # Generate README.txt (use PowerShell here-string in script)
-                  $readme = "MechBay v$version`n" +
-                    "================`n`n" +
-                    "GETTING STARTED`n" +
-                    "---------------`n" +
-                    "1. Double-click MechBay.exe to start the application`n" +
-                    "2. Your web browser will automatically open to http://127.0.0.1:5001`n" +
-                    "3. The application runs locally on your computer (no internet required)`n" +
-                    "4. Close the terminal window to stop the server`n`n" +
-                    "DATABASE LOCATION`n" +
-                    "-----------------`n" +
-                    "Your miniature inventory is stored in:`n" +
-                    "  %APPDATA%\MechBay\mechbay.db`n`n" +
-                    "This is typically located at:`n" +
-                    "  C:\Users\<YourUsername>\AppData\Roaming\MechBay\mechbay.db`n`n" +
-                    "BACKING UP YOUR DATA`n" +
-                    "--------------------`n" +
-                    "Method 1 - Direct Database Backup (Recommended):`n" +
-                    "  1. Close MechBay if it's running`n" +
-                    "  2. Copy the mechbay.db file from %APPDATA%\MechBay\ to a safe location`n" +
-                    "  3. To restore, copy the backup file back to %APPDATA%\MechBay\`n`n" +
-                    "Method 2 - JSON Export/Import:`n" +
-                    "  1. In the web interface, go to Miniatures, Forces, or Lance Templates`n" +
-                    "  2. Click 'Export JSON' to download your data`n" +
-                    "  3. Save the JSON file in a safe location`n" +
-                    "  4. To restore, use the 'Import JSON' feature`n`n" +
-                    "UPDATING TO A NEW VERSION`n" +
-                    "--------------------------`n" +
-                    "1. Backup your database (see above)`n" +
-                    "2. Download the new version`n" +
-                    "3. Extract and run - your data in %APPDATA% will be preserved`n" +
-                    "4. If you encounter issues, restore from your backup`n`n" +
-                    "TROUBLESHOOTING`n" +
-                    "---------------`n" +
-                    "- If the browser doesn't open automatically, navigate to http://127.0.0.1:5001`n" +
-                    "- If port 5001 is already in use, close other applications`n" +
-                    "- For issues, check the terminal window for error messages`n" +
-                    "- Visit https://github.com/cantis/MechBay for support`n`n" +
-                    "CONFIGURATION (Advanced)`n" +
-                    "------------------------`n" +
-                    "Create a .env file in the same folder as MechBay.exe to customize settings.`n" +
-                    "See .env.example for available options."
+          # Generate README.txt (use PowerShell here-string in script)
+          $readme = "MechBay v$version`n" +
+            "================`n`n" +
+            "GETTING STARTED`n" +
+            "---------------`n" +
+            "1. Double-click MechBay.exe to start the application`n" +
+            "2. Your web browser will automatically open to http://127.0.0.1:5001`n" +
+            "3. The application runs locally on your computer (no internet required)`n" +
+            "4. Close the terminal window to stop the server`n`n" +
+            "DATABASE LOCATION`n" +
+            "-----------------`n" +
+            "Your miniature inventory is stored in:`n" +
+            "  %APPDATA%\MechBay\mechbay.db`n`n" +
+            "This is typically located at:`n" +
+            "  C:\Users\<YourUsername>\AppData\Roaming\MechBay\mechbay.db`n`n" +
+            "BACKING UP YOUR DATA`n" +
+            "--------------------`n" +
+            "Method 1 - Direct Database Backup (Recommended):`n" +
+            "  1. Close MechBay if it's running`n" +
+            "  2. Copy the mechbay.db file from %APPDATA%\MechBay\ to a safe location`n" +
+            "  3. To restore, copy the backup file back to %APPDATA%\MechBay\`n`n" +
+            "Method 2 - JSON Export/Import:`n" +
+            "  1. In the web interface, go to Miniatures, Forces, or Lance Templates`n" +
+            "  2. Click 'Export JSON' to download your data`n" +
+            "  3. Save the JSON file in a safe location`n" +
+            "  4. To restore, use the 'Import JSON' feature`n`n" +
+            "UPDATING TO A NEW VERSION`n" +
+            "--------------------------`n" +
+            "1. Backup your database (see above)`n" +
+            "2. Download the new version`n" +
+            "3. Extract and run - your data in %APPDATA% will be preserved`n" +
+            "4. If you encounter issues, restore from your backup`n`n" +
+            "TROUBLESHOOTING`n" +
+            "---------------`n" +
+            "- If the browser doesn't open automatically, navigate to http://127.0.0.1:5001`n" +
+            "- If port 5001 is already in use, close other applications`n" +
+            "- For issues, check the terminal window for error messages`n" +
+            "- Visit https://github.com/cantis/MechBay for support`n`n" +
+            "CONFIGURATION (Advanced)`n" +
+            "------------------------`n" +
+            "Create a .env file in the same folder as MechBay.exe to customize settings.`n" +
+            "See .env.example for available options."
 
-                  Set-Content -Path "$distFolder/README.txt" -Value $readme
+          Set-Content -Path "$distFolder/README.txt" -Value $readme
 
-            - name: Create ZIP archive
-              shell: pwsh
-              run: |
-                  $version = "${{ steps.get_version.outputs.VERSION }}"
-                  $distFolder = "dist/MechBay_v$version"
-                  $zipFile = "MechBay_v$version-windows.zip"
+      - name: Create ZIP archive
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $distFolder = "dist/MechBay_v$version"
+          $zipFile = "MechBay_v$version-windows.zip"
 
-                  Compress-Archive -Path $distFolder -DestinationPath $zipFile
-                  echo "ZIP_FILE=$zipFile" >> $env:GITHUB_OUTPUT
-              id: create_zip
+          Compress-Archive -Path $distFolder -DestinationPath $zipFile
+          echo "ZIP_FILE=$zipFile" >> $env:GITHUB_OUTPUT
+        id: create_zip
 
-            - name: Upload release asset
-              uses: softprops/action-gh-release@v1
-              with:
-                  files: MechBay_v${{ steps.get_version.outputs.VERSION }}-windows.zip
-                  token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: MechBay_v${{ steps.get_version.outputs.VERSION }}-windows.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Upload build artifacts
-              uses: actions/upload-artifact@v4
-              with:
-                  name: mechbay-windows-${{ steps.get_version.outputs.VERSION }}
-                  path: dist/MechBay_v${{ steps.get_version.outputs.VERSION }}/
-                  retention-days: 30
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mechbay-windows-${{ steps.get_version.outputs.VERSION }}
+          path: dist/MechBay_v${{ steps.get_version.outputs.VERSION }}/
+          retention-days: 30
