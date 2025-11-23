@@ -92,12 +92,15 @@ def delete_miniature(id: int) -> bool:  # noqa: A002
         return True
 
 
-def export_to_json(path: str) -> Path:
+def export_to_json() -> str:
+    """Export all miniatures to JSON string.
+
+    Returns:
+        str: JSON string of all miniatures
+    """
     minis = get_all_miniatures()
     data = [m.to_dict() for m in minis]
-    target = Path(path)
-    target.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return target
+    return json.dumps(data, indent=2)
 
 
 def import_from_json(path: str, merge: bool = False) -> int:

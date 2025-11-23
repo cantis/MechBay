@@ -212,14 +212,14 @@ def delete(id: int):  # noqa: A002
 
 @bp.route("/export")
 def export():
-    temp_path = Path("miniatures_export.json")
-    export_to_json(str(temp_path))
+    # Generate JSON in memory
+    json_string = export_to_json()
     # Generate timestamped filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     download_filename = f"Miniature_Inventory_{timestamp}.json"
     # Serve as attachment
     return send_file(
-        BytesIO(temp_path.read_bytes()),
+        BytesIO(json_string.encode("utf-8")),
         mimetype="application/json",
         as_attachment=True,
         download_name=download_filename,
