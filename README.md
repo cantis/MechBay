@@ -129,7 +129,7 @@ MechBay/
 
 MechBay is open source software licensed under the [MIT License](LICENSE).
 
-Copyright (c) 2025 cantis
+Copyright (c) 2025 Evan Young, Winnipeg, Canada
 
 ## Contributing
 
