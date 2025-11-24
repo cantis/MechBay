@@ -125,3 +125,13 @@ MechBay/
 - **Testing**: pytest with in-memory SQLite
 - **Code Quality**: Ruff linter
 
+## License
+
+MechBay is open source software licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2025 cantis
+
+## Contributing
+
+This project is currently in beta testing. Contributions, bug reports, and feature requests are welcome! Please feel free to open an issue or submit a pull request.
+

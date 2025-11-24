@@ -1,9 +1,27 @@
 [project]
 name = "mechbay"
 version = "0.1.1"
-description = "Add your description here"
+description = "BattleTech miniature inventory manager - Track, organize, and build forces with your physical miniature collection"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Evan A. Young", email = "cantis@gmail.com" }]
+keywords = [
+    "battletech",
+    "alpha-strike",
+    "miniatures",
+    "inventory",
+    "tabletop-gaming",
+    "force-builder",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment :: Board Games",
+]
 dependencies = [
     "flask>=3.1.2",
     "python-dotenv>=1.2.1",

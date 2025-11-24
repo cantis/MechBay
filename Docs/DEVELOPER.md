@@ -539,7 +539,7 @@ This is currently a personal project, but contributions are welcome! When contri
 
 ## License
 
-[Add license information here]
+MechBay is open source software licensed under the MIT License. See the [LICENSE](../LICENSE) file for details.
 
 ---
 
