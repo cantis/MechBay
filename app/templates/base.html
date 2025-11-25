@@ -26,13 +26,13 @@
             {% endfor %}
         </div>
         <script>
-            // Auto-fade alerts after 3 seconds
+            // Auto-fade alerts after 6 seconds
             setTimeout(() => {
                 document.querySelectorAll('.alert').forEach(alert => {
                     const bsAlert = new bootstrap.Alert(alert);
                     bsAlert.close();
                 });
-            }, 3000);
+            }, 6000);
         </script>
         {% endif %}
         {% endwith %}
