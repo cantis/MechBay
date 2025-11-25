@@ -83,7 +83,7 @@ def add():
             "notes": form.get("notes"),
         }
         # Prevent duplicate (series, unique_id) combination
-        from sqlalchemy import and_
+        from sqlalchemy import and_, func
 
         from ..extensions import session_scope
         from ..models.miniature import Miniature
@@ -95,8 +95,30 @@ def add():
                 .first()
             )
             if existing:
-                flash(f"Unique ID {unique_id} already exists in Series {series}", "danger")
-                return render_template("miniatures/add.html")
+                # Calculate next available unique_id in this series
+                max_unique = (
+                    session.query(func.max(Miniature.unique_id))
+                    .filter(Miniature.series == series)
+                    .scalar()
+                ) or 0
+                next_unique = max_unique + 1
+
+                # Preserve all form fields and suggest next ID
+                prefill = {
+                    "series": series,
+                    "unique_id": next_unique,
+                    "prefix": form.get("prefix"),
+                    "chassis": form.get("chassis"),
+                    "type": form.get("type"),
+                    "status": form.get("status"),
+                    "tray_id": form.get("tray_id"),
+                    "notes": form.get("notes"),
+                }
+                flash(
+                    f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}",
+                    "danger",
+                )
+                return render_template("miniatures/add.html", prefill=prefill)
 
         add_miniature(data)
         flash("Miniature added", "success")
