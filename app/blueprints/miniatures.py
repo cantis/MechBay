@@ -102,7 +102,7 @@ def add():
                     .scalar()
                 ) or 0
                 next_unique = max_unique + 1
-                
+
                 # Preserve all form fields and suggest next ID
                 prefill = {
                     "series": series,
@@ -114,7 +114,10 @@ def add():
                     "tray_id": form.get("tray_id"),
                     "notes": form.get("notes"),
                 }
-                flash(f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}", "danger")
+                flash(
+                    f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}",
+                    "danger",
+                )
                 return render_template("miniatures/add.html", prefill=prefill)
 
         add_miniature(data)
