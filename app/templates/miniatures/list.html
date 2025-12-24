@@ -22,9 +22,25 @@
 <div class="mb-3">
     <div class="btn-group" role="group" aria-label="Series filter">
         {% for s in ['All', 'A', 'B', 'C'] %}
-        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s) }}"
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s, faction=faction_filter) }}"
             class="btn btn-outline-primary {% if series_filter == s %}active{% endif %}">
             {% if s == 'All' %}All Series{% else %}Series {{ s }}{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Faction Filter -->
+<div class="mb-3">
+    <div class="btn-group" role="group" aria-label="Faction filter">
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction='All') }}"
+            class="btn btn-outline-secondary {% if faction_filter == 'All' %}active{% endif %}">
+            All Factions
+        </a>
+        {% for faction in factions %}
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction) }}"
+            class="btn btn-outline-secondary {% if faction_filter == faction %}active{% endif %}">
+            {{ faction }}
         </a>
         {% endfor %}
     </div>
@@ -38,6 +54,7 @@
     <input type="hidden" name="sort" value="{{ sort or '' }}" />
     <input type="hidden" name="direction" value="{{ direction or '' }}" />
     <input type="hidden" name="series" value="{{ series_filter or 'All' }}" />
+    <input type="hidden" name="faction" value="{{ faction_filter or 'All' }}" />
     <div class="col-auto">
         <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
@@ -53,12 +70,13 @@
                 ('prefix', 'Prefix'),
                 ('chassis', 'Chassis'),
                 ('type', 'Type'),
+                ('faction', 'Faction'),
                 ('status', 'Status'),
                 ('tray_id', 'Tray')
                 ] %}
                 {% for col, label in columns %}
                 <th style="cursor:pointer">
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
                         style="text-decoration:none; color:inherit;">
                         {{ label }}
                         {% if sort == col %}
@@ -70,7 +88,7 @@
                         {% endif %}
                     </a>
                     {% if sort == col %}
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter) }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter) }}"
                         title="Clear sort">
                         <i class="fa-solid fa-xmark" style="color:#888"></i>
                     </a>
@@ -90,6 +108,7 @@
                 <td>{{ m.prefix }}</td>
                 <td>{{ m.chassis }}</td>
                 <td>{{ m.type }}</td>
+                <td>{{ m.faction or '-' }}</td>
                 <td>{{ m.status or '' }}</td>
                 <td>{{ m.tray_id or '' }}</td>
                 <td>{{ m.notes or '' }}</td>
@@ -119,6 +138,12 @@
                                         action="{{ url_for('forces.add_miniature', id=active_force.id) }}" class="m-0">
                                         <input type="hidden" name="miniature_id" value="{{ m.id }}">
                                         <input type="hidden" name="lance_id" value="{{ lance.id }}">
+                                        <input type="hidden" name="return_q" value="{{ query or '' }}">
+                                        <input type="hidden" name="return_sort" value="{{ sort or '' }}">
+                                        <input type="hidden" name="return_direction" value="{{ direction or '' }}">
+                                        <input type="hidden" name="return_series" value="{{ series_filter or 'All' }}">
+                                        <input type="hidden" name="return_faction"
+                                            value="{{ faction_filter or 'All' }}">
                                         <button type="submit" class="dropdown-item">
                                             <i class="fa-solid fa-plus"></i> {{ lance.name or 'Lance ' ~ loop.index }}
                                         </button>
@@ -144,7 +169,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" class="text-center text-muted">No miniatures yet.</td>
+                <td colspan="10" class="text-center text-muted">No miniatures yet.</td>
             </tr>
             {% endfor %}
         </tbody>

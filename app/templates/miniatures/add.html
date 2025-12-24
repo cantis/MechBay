@@ -37,6 +37,17 @@
         </select>
     </div>
     <div class="col-md-3">
+        <label class="form-label">Faction</label>
+        {% set faction_prefill = (prefill.faction if prefill is defined else '') %}
+        <select name="faction" class="form-select" id="factionSelect">
+            <option value="">-- none --</option>
+            {% for f in available_factions %}
+            <option value="{{ f }}" {% if faction_prefill==f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+            <option value="__custom__">+ Add Custom...</option>
+        </select>
+    </div>
+    <div class="col-md-3">
         <label class="form-label">Status</label>
         {% set status_prefill = (prefill.status if prefill is defined else '') %}
         <select name="status" class="form-select">
@@ -60,4 +71,24 @@
         <a class="btn btn-secondary" href="{{ url_for('miniatures.list_miniatures') }}">Cancel</a>
     </div>
 </form>
+
+<script>
+    document.getElementById('factionSelect').addEventListener('change', function () {
+        if (this.value === '__custom__') {
+            const customFaction = prompt('Enter custom faction name:');
+            if (customFaction && customFaction.trim()) {
+                // Create new option with the custom value
+                const newOption = document.createElement('option');
+                newOption.value = customFaction.trim();
+                newOption.textContent = customFaction.trim();
+                newOption.selected = true;
+                // Insert before the "+ Add Custom..." option
+                this.insertBefore(newOption, this.options[this.options.length - 1]);
+            } else {
+                // Reset to empty if cancelled or empty
+                this.value = '';
+            }
+        }
+    });
+</script>
 {% endblock %}

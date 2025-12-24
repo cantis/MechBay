@@ -15,6 +15,7 @@ def get_all_miniatures(
     sort: str | None = None,
     direction: str | None = None,
     series_filter: str | None = None,
+    faction_filter: str | None = None,
 ) -> Sequence[Miniature]:
     with session_scope() as session:
         stmt = select(Miniature)
@@ -22,6 +23,10 @@ def get_all_miniatures(
         # Series filter
         if series_filter and series_filter != "All":
             stmt = stmt.where(Miniature.series == series_filter)
+
+        # Faction filter
+        if faction_filter and faction_filter != "All":
+            stmt = stmt.where(Miniature.faction == faction_filter)
 
         # Search query
         if search_query:
@@ -44,6 +49,7 @@ def get_all_miniatures(
             "prefix": Miniature.prefix,
             "chassis": Miniature.chassis,
             "type": Miniature.type,
+            "faction": Miniature.faction,
             "status": Miniature.status,
             "tray_id": Miniature.tray_id,
         }
@@ -58,6 +64,24 @@ def get_all_miniatures(
             stmt = stmt.order_by(Miniature.series.asc(), Miniature.unique_id.asc())
 
         return session.execute(stmt).scalars().all()
+
+
+def get_distinct_factions() -> list[str]:
+    """Get list of unique faction values (excluding nulls and empty strings).
+
+    Returns:
+        list[str]: Sorted list of faction names
+    """
+    with session_scope() as session:
+        stmt = (
+            select(Miniature.faction)
+            .distinct()
+            .where(Miniature.faction.isnot(None))
+            .where(Miniature.faction != "")
+            .order_by(Miniature.faction)
+        )
+        result = session.execute(stmt).scalars().all()
+        return list(result)
 
 
 def add_miniature(data: dict) -> Miniature:
@@ -149,6 +173,7 @@ def import_from_json(path: str, merge: bool = False) -> int:
                 prefix=item.get("prefix"),
                 chassis=item.get("chassis"),
                 type=item.get("type"),
+                faction=item.get("faction"),
                 status=item.get("status"),
                 tray_id=item.get("tray_id"),
                 notes=item.get("notes"),

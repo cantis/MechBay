@@ -20,6 +20,7 @@ from ..services.miniature_service import (
     delete_miniature,
     export_to_json,
     get_all_miniatures,
+    get_distinct_factions,
     import_from_json,
     update_miniature,
 )
@@ -33,7 +34,18 @@ def list_miniatures():
     sort = request.args.get("sort")
     direction = request.args.get("direction")
     series_filter = request.args.get("series", "All")
-    minis = get_all_miniatures(q, sort=sort, direction=direction, series_filter=series_filter)
+    faction_filter = request.args.get("faction", "All")
+
+    # Get available factions for filter UI
+    factions = get_distinct_factions()
+
+    minis = get_all_miniatures(
+        q,
+        sort=sort,
+        direction=direction,
+        series_filter=series_filter,
+        faction_filter=faction_filter,
+    )
 
     # Get active force info for UI
     active_force = force_service.get_active_force()
@@ -51,6 +63,8 @@ def list_miniatures():
         sort=sort,
         direction=direction,
         series_filter=series_filter,
+        faction_filter=faction_filter,
+        factions=factions,
         active_force=active_force,
         assigned_miniature_ids=assigned_miniature_ids,
         lances=lances,
@@ -110,6 +124,7 @@ def add():
                     "prefix": form.get("prefix"),
                     "chassis": form.get("chassis"),
                     "type": form.get("type"),
+                    "faction": form.get("faction"),
                     "status": form.get("status"),
                     "tray_id": form.get("tray_id"),
                     "notes": form.get("notes"),
@@ -118,12 +133,17 @@ def add():
                     f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}",
                     "danger",
                 )
-                return render_template("miniatures/add.html", prefill=prefill)
+                available_factions = get_distinct_factions()
+                return render_template(
+                    "miniatures/add.html", prefill=prefill, available_factions=available_factions
+                )
 
         add_miniature(data)
         flash("Miniature added", "success")
         return redirect(url_for("miniatures.list_miniatures"))
-    return render_template("miniatures/add.html")
+
+    available_factions = get_distinct_factions()
+    return render_template("miniatures/add.html", available_factions=available_factions)
 
 
 @bp.route("/<int:id>/duplicate")
@@ -158,12 +178,19 @@ def duplicate(id: int):  # noqa: A002
             "prefix": mini.prefix,
             "chassis": mini.chassis,
             "type": mini.type,
+            "faction": mini.faction,
             "status": mini.status,
             "tray_id": mini.tray_id,
             "notes": mini.notes,
         }
     flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
-    return render_template("miniatures/add.html", prefill=prefill, duplicate_of=mini)
+    available_factions = get_distinct_factions()
+    return render_template(
+        "miniatures/add.html",
+        prefill=prefill,
+        duplicate_of=mini,
+        available_factions=available_factions,
+    )
 
 
 @bp.route("/<int:id>/edit", methods=["GET", "POST"])
@@ -194,6 +221,7 @@ def edit(id: int):  # noqa: A002
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
             "type": form.get("type"),
+            "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
@@ -201,7 +229,9 @@ def edit(id: int):  # noqa: A002
         update_miniature(id, data)
         flash("Miniature updated", "success")
         return redirect(url_for("miniatures.list_miniatures"))
-    return render_template("miniatures/edit.html", mini=mini)
+
+    available_factions = get_distinct_factions()
+    return render_template("miniatures/edit.html", mini=mini, available_factions=available_factions)
 
 
 @bp.route("/<int:id>/delete", methods=["POST"])
