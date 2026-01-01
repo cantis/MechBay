@@ -1,3 +1,22 @@
+"""Force management service for MechBay.
+
+Provides CRUD operations for forces, lances, and miniature assignments.
+Handles active force management and import/export functionality.
+
+KNOWN LIMITATION - Thread Safety:
+The active force invariant (only one Force.is_active=True) is enforced by
+application logic without database-level constraints. Concurrent calls to
+create_force() or switch_active_force() in a multi-threaded or multi-process
+environment may result in multiple active forces due to race conditions.
+
+Future considerations:
+- SQLite limitation: Cannot enforce single-row constraint across table
+- PostgreSQL solution: CREATE UNIQUE INDEX idx_one_active ON forces (is_active) WHERE is_active=true
+- Add pessimistic row locking with SELECT FOR UPDATE when switching active
+- Consider application-level distributed lock for multi-instance deployments
+- Add database migration to create partial unique index when migrating to PostgreSQL
+"""
+
 from __future__ import annotations
 
 import json
@@ -37,6 +56,11 @@ def get_all_forces() -> list[Force]:
         forces = list(session.execute(stmt).scalars().all())
         # Make all objects accessible outside session
         for force in forces:
+            # Eager load relationships by accessing them within session
+            for lance in force.lances:
+                _ = lance.miniatures
+                for fm in lance.miniatures:
+                    _ = fm.miniature
             session.expunge(force)
         return forces
 
@@ -66,6 +90,12 @@ def create_force(name: str) -> Force:
         force = Force(name=name, is_active=True)
         session.add(force)
         session.flush()
+
+        # Eager load relationships (even if empty) so object is accessible outside session
+        _ = force.lances  # Access to load even if empty list
+
+        # Expunge to make accessible outside session
+        session.expunge(force)
         return force
 
 
@@ -223,6 +253,12 @@ def create_empty_lance(force_id: int, name: str | None = None) -> Lance | None:
         lance = Lance(force_id=force_id, name=name, order=max_order + 1)
         session.add(lance)
         session.flush()
+
+        # Eager load relationships (even if empty list) so object is accessible outside session
+        _ = lance.miniatures
+
+        # Expunge to make accessible outside session
+        session.expunge(lance)
         return lance
 
 
@@ -251,12 +287,12 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
     """
     force = get_force_by_id(force_id)
     if not force:
-        raise ValueError(f"Force {force_id} not found")
+        raise ValueError("Force not found")
 
     # Build export structure
     export_data = {
         "force_name": force.name,
-        "exported_at": datetime.utcnow().isoformat(),
+        "export_timestamp": datetime.utcnow().isoformat(),
         "lances": [],
     }
 
@@ -271,6 +307,8 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
                     "unique_id": mini.unique_id,
                     "prefix": mini.prefix,
                     "chassis": mini.chassis,
+                    "type": mini.type,
+                    "faction": mini.faction,
                     "tray_id": mini.tray_id,
                     "order": fm.order,
                 }
@@ -291,7 +329,11 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
 def import_force_from_json(file_path: str) -> dict[str, Any]:
     """Import force from JSON file, matching miniatures by series+unique_id."""
     filepath = Path(file_path)
-    data = json.loads(filepath.read_text(encoding="utf-8"))
+
+    try:
+        data = json.loads(filepath.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise ValueError(f"File not found: {file_path}")
 
     force_name = data.get("force_name", "Imported Force")
 
@@ -333,9 +375,7 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
                     session.add(fm)
                     imported_count += 1
                 else:
-                    missing_miniatures.append(
-                        f"{mini_data['series']}-{mini_data['unique_id']} ({mini_data['chassis']})"
-                    )
+                    missing_miniatures.append((mini_data["series"], mini_data["unique_id"]))
 
         session.flush()
 
@@ -343,6 +383,6 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
             "success": True,
             "force_id": force.id,
             "force_name": force.name,
-            "imported_count": imported_count,
+            "imported_miniatures": imported_count,
             "missing_miniatures": missing_miniatures,
         }
