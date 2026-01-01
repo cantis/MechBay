@@ -34,12 +34,14 @@ from tests.conftest import validate_expunged_object
 
 def test_create_template_order_preserved(client):
     """Test creating template preserves chassis pattern order."""
+    # Act
     template = create_template(
         name="Test Lance",
         chassis_patterns=["Atlas", "Warhammer", "Timber Wolf", "Mad Cat"],
         description="Test description",
     )
 
+    # Assert
     assert template is not None
     assert template.name == "Test Lance"
     assert template.description == "Test description"
@@ -71,19 +73,28 @@ def test_create_template_order_preserved(client):
 
 def test_get_template_details_not_found(client):
     """Test getting non-existent template returns None."""
+    # Act
     template = get_template_details(99999)
+
+    # Assert
     assert template is None
 
 
 def test_delete_template_not_found(client):
     """Test deleting non-existent template returns False."""
+    # Act
     result = delete_template(99999)
+
+    # Assert
     assert result is False
 
 
 def test_get_all_templates_empty(client):
     """Test getting templates when none exist."""
+    # Act
     templates = get_all_templates()
+
+    # Assert
     assert templates == []
 
 
@@ -94,18 +105,24 @@ def test_get_all_templates_empty(client):
 
 def test_find_matching_miniature_no_match(client, sample_miniatures):
     """Test finding non-existent pattern returns None."""
+    # Act
     result = find_matching_miniature("NonexistentMech", set())
+
+    # Assert
     assert result is None
 
 
 def test_match_template_empty_inventory(client):
     """Test matching template with no miniatures available."""
+    # Arrange
     template = create_template(
         name="Test Lance", chassis_patterns=["Atlas", "Warhammer", "Timber Wolf", "Mad Cat"]
     )
 
+    # Act
     result = match_template_miniatures(template.id, set())
 
+    # Assert
     assert result["matched"] == []
     assert len(result["missing"]) == 4
     assert "Atlas" in result["missing"]

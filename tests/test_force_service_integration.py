@@ -47,11 +47,13 @@ from tests.conftest import (
 @pytest.mark.slow
 def test_get_all_forces_ordering(client, multiple_forces):
     """Test forces are ordered by is_active desc, created_at desc."""
-    # Switch active to middle force
+    # Arrange - Switch active to middle force
     switch_force(multiple_forces["Wolf Hunters"])
 
+    # Act
     forces = get_all_forces()
 
+    # Assert
     assert len(forces) == 3
     # First should be active Wolf Hunters
     assert forces[0].name == "Wolf Hunters"
@@ -70,12 +72,14 @@ def test_delete_force_cascades_to_lances_and_assignments(client, realistic_force
     from app.models.lance import Lance
     from app.models.miniature import Miniature
 
-    # Verify starting state
+    # Arrange - Verify starting state
     force = get_force_by_id(realistic_force)
     assert_force_structure(force, expected_lance_count=4, expected_miniature_count=16)
 
-    # Delete force
+    # Act
     result = delete_force(realistic_force)
+
+    # Assert
     assert result is True
 
     # Verify cascade deletion
@@ -94,9 +98,10 @@ def test_delete_force_cascades_to_lances_and_assignments(client, realistic_force
 @pytest.mark.slow
 def test_switch_active_force_single_active_invariant(client, multiple_forces):
     """Test switching active force maintains single-active invariant."""
+    # Arrange
     force_ids = list(multiple_forces.values())
 
-    # Switch between forces multiple times
+    # Act & Assert - Switch between forces multiple times
     for force_id in [force_ids[1], force_ids[2], force_ids[0], force_ids[1]]:
         switch_force(force_id)
 
@@ -112,12 +117,14 @@ def test_switch_active_force_single_active_invariant(client, multiple_forces):
 @pytest.mark.slow
 def test_create_lance_auto_calculates_order(client, realistic_force):
     """Test creating new lance calculates correct order."""
+    # Arrange
     force = get_force_by_id(realistic_force)
     assert len(force.lances) == 4
 
-    # Create 5th lance
+    # Act - Create 5th lance
     new_lance = create_empty_lance(realistic_force, "Echo Lance")
 
+    # Assert
     assert new_lance.order == 5
 
 
@@ -128,6 +135,7 @@ def test_delete_lance_cascades_to_force_miniatures(client, realistic_force):
     from app.models.force_miniature import ForceMiniature
     from app.models.miniature import Miniature
 
+    # Arrange
     force = get_force_by_id(realistic_force)
     lance_to_delete = force.lances[1]  # Second lance
     lance_id = lance_to_delete.id
@@ -139,8 +147,10 @@ def test_delete_lance_cascades_to_force_miniatures(client, realistic_force):
         )
         assert fm_count_before == 4
 
-    # Delete lance
+    # Act
     result = delete_lance(lance_id)
+
+    # Assert
     assert result is True
 
     # Verify ForceMiniatures deleted but Miniatures remain

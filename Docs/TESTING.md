@@ -149,21 +149,32 @@ uv run pytest tests/test_force_service_unit.py -k "active"
 
 ## Writing New Tests
 
-### Test Structure
+### Test Structure (Arrange-Act-Assert Pattern)
+
+All tests follow the **Arrange-Act-Assert (AAA)** pattern for clarity and consistency:
 
 ```python
 def test_descriptive_name(client, fixture_name):
-    \"\"\"Brief description of what this test validates.\"\"\"
-    # Arrange: Set up test data
+    """Brief description of what this test validates."""
+    # Arrange: Set up test data and prerequisites
     force = create_force("Test Force")
+    lance = create_empty_lance(force.id, "Alpha Lance")
 
-    # Act: Perform the operation
-    result = some_operation(force.id)
+    # Act: Perform the operation being tested
+    result = some_operation(force.id, lance.id)
 
-    # Assert: Verify expectations
+    # Assert: Verify expectations and side effects
     assert result is not None
     assert result.id > 0
+    assert result.status == "success"
 ```
+
+**Pattern Guidelines**:
+- **Arrange**: Create fixtures, set up test state, prepare data
+- **Act**: Call the function/method under test (usually a single line)
+- **Assert**: Verify return values, state changes, and side effects
+- Use comments (`# Arrange`, `# Act`, `# Assert`) to mark each section
+- For tests that only act and assert (e.g., testing exceptions), use `# Act & Assert`
 
 ### When to Use Unit vs Integration Tests
 

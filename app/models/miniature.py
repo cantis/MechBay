@@ -15,7 +15,6 @@ class Miniature(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     series: Mapped[str] = mapped_column(String(16), nullable=False, default="A")
-    # Changed to Integer per new requirement
     unique_id: Mapped[int] = mapped_column(Integer, nullable=False)
     prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     chassis: Mapped[str] = mapped_column(String(128), nullable=False)
