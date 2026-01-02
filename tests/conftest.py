@@ -21,12 +21,15 @@ def app():
     Using an in-memory database ensures tests never touch or clear production data.
     The schema is created at app init and discarded automatically when the engine
     is disposed at test end.
+
+    Note: Uses file::memory:?cache=shared to allow multiple connections to share
+    the same in-memory database within a single test.
     """
     test_app = create_app(
         {
             "TESTING": True,
-            # pysqlite driver explicit for consistency; plain sqlite:///:memory: also works
-            "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+            # Use shared cache mode for in-memory database to allow multiple connections
+            "DATABASE_URL": "sqlite+pysqlite:///file::memory:?cache=shared&uri=true",
         }
     )
     return test_app
