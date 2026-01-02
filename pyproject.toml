@@ -1,6 +1,6 @@
 [project]
 name = "mechbay"
-version = "1.0.0"
+version = "1.0.1"
 description = "BattleTech miniature inventory manager - Track, organize, and build forces with your physical miniature collection"
 readme = "README.md"
 requires-python = ">=3.13"
