@@ -14,8 +14,8 @@
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
         <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001"
-            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% elif next_id is defined %}{{ next_id }}{% endif %}" />
-        <small class="form-text text-muted">First available ID (editable)</small>
+            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% elif next_id is defined %}{{ next_id }}{% endif %}" aria-describedby="uniqueIdHelp" />
+        <small id="uniqueIdHelp" class="form-text text-muted">First available ID (editable)</small>
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
