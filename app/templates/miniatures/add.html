@@ -14,7 +14,8 @@
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
         <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001"
-            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% endif %}" />
+            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% elif next_id is defined %}{{ next_id }}{% endif %}" />
+        <small class="form-text text-muted">First available ID (editable)</small>
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
@@ -49,7 +50,7 @@
     </div>
     <div class="col-md-3">
         <label class="form-label">Status</label>
-        {% set status_prefill = (prefill.status if prefill is defined else '') %}
+        {% set status_prefill = (prefill.status if prefill is defined else 'New') %}
         <select name="status" class="form-select">
             {% for s in ['','New','Primed','Drybush','Detail','Base','Finished'] %}
             <option value="{{ s }}" {% if status_prefill==s %}selected{% endif %}>{{ s or '--' }}</option>

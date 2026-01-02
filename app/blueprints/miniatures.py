@@ -21,6 +21,7 @@ from ..services.miniature_service import (
     export_to_json,
     get_all_miniatures,
     get_distinct_factions,
+    get_next_unique_id,
     import_from_json,
     update_miniature,
 )
@@ -92,12 +93,13 @@ def add():
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
             "type": form.get("type"),
+            "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
         }
         # Prevent duplicate (series, unique_id) combination
-        from sqlalchemy import and_, func
+        from sqlalchemy import and_
 
         from ..extensions import session_scope
         from ..models.miniature import Miniature
@@ -110,12 +112,7 @@ def add():
             )
             if existing:
                 # Calculate next available unique_id in this series
-                max_unique = (
-                    session.query(func.max(Miniature.unique_id))
-                    .filter(Miniature.series == series)
-                    .scalar()
-                ) or 0
-                next_unique = max_unique + 1
+                next_unique = get_next_unique_id(series)
 
                 # Preserve all form fields and suggest next ID
                 prefill = {
@@ -142,8 +139,12 @@ def add():
         flash("Miniature added", "success")
         return redirect(url_for("miniatures.list_miniatures"))
 
+    # Calculate next available unique_id for default series A
+    next_id = get_next_unique_id("A")
     available_factions = get_distinct_factions()
-    return render_template("miniatures/add.html", available_factions=available_factions)
+    return render_template(
+        "miniatures/add.html", next_id=next_id, available_factions=available_factions
+    )
 
 
 @bp.route("/<int:id>/duplicate")
@@ -153,7 +154,6 @@ def duplicate(id: int):  # noqa: A002
     The unique_id will be set to the next available integer within the same series
     (max existing unique_id for that series + 1).
     """
-    from sqlalchemy import func
 
     from ..extensions import session_scope
     from ..models.miniature import Miniature
@@ -165,24 +165,23 @@ def duplicate(id: int):  # noqa: A002
             return redirect(url_for("miniatures.list_miniatures"))
 
         # Compute next unique_id within same series
-        max_unique = (
-            session.query(func.max(Miniature.unique_id))
-            .filter(Miniature.series == mini.series)
-            .scalar()
-        ) or 0
-        next_unique = max_unique + 1
+        series = mini.series
+        session.expunge(mini)  # Detach before closing session
 
-        prefill = {
-            "series": mini.series,
-            "unique_id": next_unique,
-            "prefix": mini.prefix,
-            "chassis": mini.chassis,
-            "type": mini.type,
-            "faction": mini.faction,
-            "status": mini.status,
-            "tray_id": mini.tray_id,
-            "notes": mini.notes,
-        }
+    # Calculate next available unique_id (outside session)
+    next_unique = get_next_unique_id(series)
+
+    prefill = {
+        "series": mini.series,
+        "unique_id": next_unique,
+        "prefix": mini.prefix,
+        "chassis": mini.chassis,
+        "type": mini.type,
+        "faction": mini.faction,
+        "status": mini.status,
+        "tray_id": mini.tray_id,
+        "notes": mini.notes,
+    }
     flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
     available_factions = get_distinct_factions()
     return render_template(

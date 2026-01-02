@@ -10,6 +10,42 @@ from ..extensions import session_scope
 from ..models.miniature import Miniature
 
 
+def get_next_unique_id(series: str) -> int:
+    """Find the first unused unique_id in the given series.
+
+    Returns the first gap in the sequence starting from 1, or max+1 if no gaps exist.
+    Examples:
+    - Empty series: returns 1
+    - [1, 2, 3]: returns 4
+    - [1, 2, 4, 5]: returns 3 (fills gap)
+    - [2, 3, 4]: returns 1 (fills start)
+
+    Args:
+        series: Series identifier (e.g., 'A', 'B', 'C')
+
+    Returns:
+        First unused unique_id integer
+    """
+    with session_scope() as session:
+        # Get all existing unique_ids for this series, sorted
+        existing_ids = (
+            session.query(Miniature.unique_id)
+            .filter(Miniature.series == series)
+            .order_by(Miniature.unique_id)
+            .all()
+        )
+
+        # Extract integers from query result tuples
+        existing_set = {row[0] for row in existing_ids}
+
+        # Find first gap starting from 1
+        candidate = 1
+        while candidate in existing_set:
+            candidate += 1
+
+        return candidate
+
+
 def get_all_miniatures(
     search_query: str | None = None,
     sort: str | None = None,
