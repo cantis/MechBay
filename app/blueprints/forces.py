@@ -56,6 +56,14 @@ def activate(id: int):  # noqa: A002
     return redirect(url_for("forces.list_forces"))
 
 
+@bp.route("/deactivate-all", methods=["POST"])
+def deactivate_all():
+    """Deactivate all forces (clear active selection)."""
+    force_service.deactivate_all_forces()
+    flash("Active force cleared", "info")
+    return redirect(url_for("forces.list_forces"))
+
+
 @bp.route("/<int:id>/rename", methods=["POST"])
 def rename(id: int):  # noqa: A002
     """Rename a force."""

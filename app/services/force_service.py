@@ -116,6 +116,12 @@ def switch_force(force_id: int) -> Force | None:
         return force
 
 
+def deactivate_all_forces() -> None:
+    """Deactivate all forces (clear active selection)."""
+    with session_scope() as session:
+        session.query(Force).update({"is_active": False})
+
+
 def rename_force(force_id: int, new_name: str) -> Force | None:
     """Rename a force."""
     with session_scope() as session:

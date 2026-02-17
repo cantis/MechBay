@@ -4,6 +4,13 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="m-0">Forces</h2>
     <div>
+        {% if active_force %}
+        <form method="post" action="{{ url_for('forces.deactivate_all') }}" class="d-inline">
+            <button type="submit" class="btn btn-outline-warning" title="Clear active force selection">
+                <i class="fa-solid fa-xmark"></i> Clear Active Force
+            </button>
+        </form>
+        {% endif %}
         <a class="btn btn-outline-secondary" href="{{ url_for('forces.import_route') }}">Import Force</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createForceModal">Create Force</button>
     </div>

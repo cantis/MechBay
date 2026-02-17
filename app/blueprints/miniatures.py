@@ -48,19 +48,9 @@ def list_miniatures():
         faction_filter=faction_filter,
     )
 
-    # Empty filter fallback: if filtered results are empty but filters are active,
-    # reset to "All" and show all miniatures to avoid confusion
-    if not minis and (series_filter != "All" or faction_filter != "All"):
-        flash("Selected filter returned no results, showing all miniatures", "info")
-        series_filter = "All"
-        faction_filter = "All"
-        minis = get_all_miniatures(
-            q,
-            sort=sort,
-            direction=direction,
-            series_filter="All",
-            faction_filter="All",
-        )
+    # Show message if filtered results are empty
+    if not minis and (series_filter != "All" or faction_filter != "All" or q):
+        flash("No records found matching filter", "info")
 
     # Get active force info for UI
     active_force = force_service.get_active_force()
@@ -95,7 +85,17 @@ def add():
             unique_id = int(unique_id_raw)
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
-            return redirect(url_for("miniatures.add"))
+            # Preserve filter state on error
+            return redirect(
+                url_for(
+                    "miniatures.add",
+                    series=form.get("return_series", "All"),
+                    faction=form.get("return_faction", "All"),
+                    q=form.get("return_q", ""),
+                    sort=form.get("return_sort", ""),
+                    direction=form.get("return_direction", ""),
+                )
+            )
 
         series = form.get("series", "A")
         if not series:
@@ -261,7 +261,17 @@ def edit(id: int):  # noqa: A002
     mini = next((m for m in get_all_miniatures() if m.id == id), None)
     if not mini:
         flash("Miniature not found", "danger")
-        return redirect(url_for("miniatures.list_miniatures"))
+        # Preserve filter state from query params
+        return redirect(
+            url_for(
+                "miniatures.list_miniatures",
+                series=request.args.get("series", "All"),
+                faction=request.args.get("faction", "All"),
+                q=request.args.get("q", ""),
+                sort=request.args.get("sort", ""),
+                direction=request.args.get("direction", ""),
+            )
+        )
     if request.method == "POST":
         form = request.form
         unique_id_raw = form.get("unique_id")
@@ -269,7 +279,18 @@ def edit(id: int):  # noqa: A002
             unique_id = int(unique_id_raw)
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
-            return redirect(url_for("miniatures.edit", id=id))
+            # Preserve filter state from hidden form fields
+            return redirect(
+                url_for(
+                    "miniatures.edit",
+                    id=id,
+                    series=form.get("return_series", "All"),
+                    faction=form.get("return_faction", "All"),
+                    q=form.get("return_q", ""),
+                    sort=form.get("return_sort", ""),
+                    direction=form.get("return_direction", ""),
+                )
+            )
 
         series = form.get("series", "A")
         if not series:
