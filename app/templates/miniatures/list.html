@@ -102,7 +102,7 @@
         <tbody>
             {% for m in miniatures %}
             <tr style="cursor: pointer; {% if m.id in assigned_miniature_ids %}border-left: 4px solid #198754;{% endif %}"
-                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id) }}';">
+                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';">
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
@@ -114,12 +114,12 @@
                 <td>{{ m.notes or '' }}</td>
                 <td>
                     <div class="d-flex gap-3 align-items-center">
-                        <a href="{{ url_for('miniatures.edit', id=m.id) }}" title="Edit" class="text-primary"
-                            style="cursor: pointer;">
+                        <a href="{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
+                            title="Edit" class="text-primary" style="cursor: pointer;">
                             <i class="fa-solid fa-pen"></i>
                         </a>
-                        <a href="{{ url_for('miniatures.duplicate', id=m.id) }}" title="Duplicate" class="text-success"
-                            style="cursor: pointer;">
+                        <a href="{{ url_for('miniatures.duplicate', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
+                            title="Duplicate" class="text-success" style="cursor: pointer;">
                             <i class="fa-solid fa-copy"></i>
                         </a>
                         <div class="dropdown">
@@ -155,7 +155,8 @@
                                 </li>
                                 {% endif %}
                                 <li>
-                                    <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
+                                    <form method="post"
+                                        action="{{ url_for('miniatures.delete', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
                                         onsubmit="return confirm('Delete this miniature?');" class="m-0">
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="fa-solid fa-trash"></i> Delete
