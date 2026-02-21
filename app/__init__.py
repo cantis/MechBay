@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
 
@@ -21,6 +22,9 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     # Apply any explicit overrides (used by tests to inject in-memory DB)
     if config_overrides:
         app.config.update(config_overrides)
+
+    # Configure ProxyFix middleware for reverse proxy support
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # Load version dynamically from package metadata
     try:

@@ -27,6 +27,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "sqlalchemy>=2.0.44",
     "waitress>=3.0.0",
+    "gunicorn>=23.0.0",
 ]
 
 [dependency-groups]
