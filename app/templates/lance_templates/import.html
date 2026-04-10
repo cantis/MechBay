@@ -7,6 +7,7 @@
 <div class="card mt-4">
     <div class="card-body">
         <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label class="form-label">Select Lance Templates JSON File</label>
                 <input type="file" name="file" accept=".json" required class="form-control">

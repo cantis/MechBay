@@ -52,7 +52,14 @@ def get_all_miniatures(
     direction: str | None = None,
     series_filter: str | None = None,
     faction_filter: str | None = None,
-) -> Sequence[Miniature]:
+    page: int | None = None,
+    per_page: int = 50,
+) -> Sequence[Miniature] | tuple[Sequence[Miniature], int]:
+    """Return miniatures matching the given filters.
+
+    When *page* is provided returns a ``(items, total_count)`` tuple suitable
+    for pagination.  When *page* is ``None`` (default) the full result set is
+    returned as a plain sequence (preserves backward compatibility)."""
     with session_scope() as session:
         stmt = select(Miniature)
 
@@ -64,14 +71,15 @@ def get_all_miniatures(
         if faction_filter and faction_filter != "All":
             stmt = stmt.where(Miniature.faction == faction_filter)
 
-        # Search query
+        # Search query (case-insensitive)
         if search_query:
             like = f"%{search_query}%"
             conditions = [
-                Miniature.prefix.like(like),
-                Miniature.chassis.like(like),
-                Miniature.type.like(like),
-                Miniature.series.like(like),
+                Miniature.prefix.ilike(like),
+                Miniature.chassis.ilike(like),
+                Miniature.type.ilike(like),
+                Miniature.faction.ilike(like),
+                Miniature.notes.ilike(like),
             ]
             # If the search query is an integer, match unique_id exactly
             if search_query.isdigit():
@@ -98,6 +106,15 @@ def get_all_miniatures(
         else:
             # Default sort: series ASC, then unique_id ASC
             stmt = stmt.order_by(Miniature.series.asc(), Miniature.unique_id.asc())
+
+        if page is not None:
+            from sqlalchemy import func as sa_func
+
+            count_stmt = select(sa_func.count()).select_from(stmt.subquery())
+            total = session.execute(count_stmt).scalar_one()
+            offset = (page - 1) * per_page
+            items = session.execute(stmt.offset(offset).limit(per_page)).scalars().all()
+            return items, total
 
         return session.execute(stmt).scalars().all()
 
@@ -143,6 +160,30 @@ def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
         return mini
 
 
+BULK_ALLOWED_FIELDS = {"status", "faction"}
+
+
+def bulk_update_miniatures(ids: list[int], field: str, value: str) -> int:
+    """Update a single field on multiple miniatures.
+
+    Only *status* and *faction* are permitted to prevent unsafe mass-edits.
+
+    Returns:
+        int: Number of records updated.
+    """
+    if field not in BULK_ALLOWED_FIELDS:
+        raise ValueError(f"Bulk update not permitted for field '{field}'")
+    if not ids:
+        return 0
+    with session_scope() as session:
+        updated = (
+            session.query(Miniature)
+            .filter(Miniature.id.in_(ids))
+            .update({field: value or None}, synchronize_session="fetch")
+        )
+        return updated
+
+
 def delete_miniature(id: int) -> bool:  # noqa: A002
     with session_scope() as session:
         mini = session.get(Miniature, id)
@@ -152,21 +193,37 @@ def delete_miniature(id: int) -> bool:  # noqa: A002
         return True
 
 
+MINIATURE_SCHEMA_VERSION = 1
+
+
 def export_to_json() -> str:
     """Export all miniatures to JSON string.
 
     Returns:
-        str: JSON string of all miniatures
+        str: JSON string with schema_version and miniatures array
     """
     minis = get_all_miniatures()
-    data = [m.to_dict() for m in minis]
-    return json.dumps(data, indent=2)
+    export_data = {
+        "schema_version": MINIATURE_SCHEMA_VERSION,
+        "miniatures": [m.to_dict() for m in minis],
+    }
+    return json.dumps(export_data, indent=2)
+
+
+def _upgrade_miniature_schema(data: list | dict) -> list:
+    """Normalise any schema version to a plain list of miniature dicts."""
+    if isinstance(data, list):
+        # v0: bare array (no schema_version)
+        return data
+    # v1+: object with schema_version + miniatures key
+    return data.get("miniatures", [])
 
 
 def import_from_json(path: str, merge: bool = False) -> int:
     file_path = Path(path)
     raw = json.loads(file_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, Iterable):  # basic sanity
+    items = _upgrade_miniature_schema(raw)
+    if not isinstance(items, Iterable):  # basic sanity
         raise ValueError("JSON must be a list of miniature objects")
 
     imported = 0
@@ -175,7 +232,7 @@ def import_from_json(path: str, merge: bool = False) -> int:
             # Clear existing
             session.query(Miniature).delete()
 
-        for item in raw:
+        for item in items:
             raw_unique_id = item.get("unique_id")
             # Coerce to int; skip if cannot convert
             try:

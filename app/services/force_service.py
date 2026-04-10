@@ -295,8 +295,11 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
     if not force:
         raise ValueError("Force not found")
 
+    FORCE_SCHEMA_VERSION = 1
+
     # Build export structure
     export_data = {
+        "schema_version": FORCE_SCHEMA_VERSION,
         "force_name": force.name,
         "export_timestamp": datetime.utcnow().isoformat(),
         "lances": [],

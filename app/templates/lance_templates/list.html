@@ -53,6 +53,7 @@
                 </a>
                 <form method="post" action="{{ url_for('lance_templates.delete', id=template.id) }}"
                     onsubmit="return confirm('Delete this template?');" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">
                         <i class="fa-solid fa-trash"></i>
                     </button>

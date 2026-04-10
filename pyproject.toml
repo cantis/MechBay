@@ -28,6 +28,7 @@ dependencies = [
     "sqlalchemy>=2.0.44",
     "waitress>=3.0.0",
     "gunicorn>=23.0.0",
+    "flask-wtf>=1.2.2",
 ]
 
 [dependency-groups]

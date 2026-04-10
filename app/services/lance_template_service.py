@@ -153,8 +153,11 @@ def export_templates_to_json() -> tuple[str, str]:
     """
     templates = get_all_templates()
 
+    TEMPLATE_SCHEMA_VERSION = 1
+
     # Build export data
     export_data = {
+        "schema_version": TEMPLATE_SCHEMA_VERSION,
         "export_timestamp": datetime.utcnow().isoformat(),
         "template_count": len(templates),
         "templates": [],

@@ -1,7 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>Add Miniature{% if duplicate_of %} (Duplicated from ID {{ duplicate_of.id }}){% endif %}</h2>
-<form method="post" action="{{ url_for('miniatures.add') }}" class="row g-3">
+<form method="post" action="{{ url_for('miniatures.add') }}" class="row g-3" id="miniatureForm"
+    data-prefilled="{{ (prefill is defined)|tojson }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Hidden fields to preserve filter state -->
     <input type="hidden" name="return_series" value="{{ filter_params.series if filter_params else 'All' }}">
     <input type="hidden" name="return_faction" value="{{ filter_params.faction if filter_params else 'All' }}">
@@ -20,30 +22,48 @@
     </div>
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
-        <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001"
+        <input name="unique_id" type="number" min="1" required
+            class="form-control {% if errors is defined and errors.unique_id %}is-invalid{% endif %}"
+            placeholder="e.g. 1001"
             value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% elif next_id is defined %}{{ next_id }}{% endif %}"
             aria-describedby="uniqueIdHelp" />
         <small id="uniqueIdHelp" class="form-text text-muted">First available ID (editable)</small>
+        {% if errors is defined and errors.unique_id %}
+        <div class="invalid-feedback">{{ errors.unique_id }}</div>
+        {% endif %}
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
-        <input name="prefix" required class="form-control" placeholder="WHM"
+        <input name="prefix" required
+            class="form-control {% if errors is defined and errors.prefix %}is-invalid{% endif %}" placeholder="WHM"
             value="{% if prefill is defined and prefill.prefix %}{{ prefill.prefix }}{% endif %}" />
+        {% if errors is defined and errors.prefix %}
+        <div class="invalid-feedback">{{ errors.prefix }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Chassis *</label>
-        <input name="chassis" required class="form-control" placeholder="Warhammer"
+        <input name="chassis" required
+            class="form-control {% if errors is defined and errors.chassis %}is-invalid{% endif %}"
+            placeholder="Warhammer"
             value="{% if prefill is defined and prefill.chassis %}{{ prefill.chassis }}{% endif %}" />
+        {% if errors is defined and errors.chassis %}
+        <div class="invalid-feedback">{{ errors.chassis }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Type *</label>
-        <select name="type" required class="form-select">
+        <select name="type" required
+            class="form-select {% if errors is defined and errors.type %}is-invalid{% endif %}">
             <option value="">-- choose --</option>
             {% set type_prefill = (prefill.type if prefill is defined else '') %}
             {% for t in ['Mech','Vehicle','Infantry','VTOL','Support'] %}
             <option value="{{ t }}" {% if type_prefill==t %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
         </select>
+        {% if errors is defined and errors.type %}
+        <div class="invalid-feedback">{{ errors.type }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Faction</label>
@@ -82,49 +102,5 @@
     </div>
 </form>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // Handle custom faction input
-        const factionSelect = document.getElementById('factionSelect');
-        if (factionSelect) {
-            factionSelect.addEventListener('change', function () {
-                if (this.value === '__custom__') {
-                    const customFaction = prompt('Enter custom faction name:');
-                    if (customFaction && customFaction.trim()) {
-                        // Create new option with the custom value
-                        const newOption = document.createElement('option');
-                        newOption.value = customFaction.trim();
-                        newOption.textContent = customFaction.trim();
-                        newOption.selected = true;
-                        // Insert before the "+ Add Custom..." option
-                        this.insertBefore(newOption, this.options[this.options.length - 1]);
-                    } else {
-                        // Reset to empty if cancelled or empty
-                        this.value = '';
-                    }
-                }
-            });
-        }
-
-        // Handle series change to update unique_id dynamically
-        const seriesSelect = document.querySelector('select[name="series"]');
-        const uniqueIdInput = document.querySelector('input[name="unique_id"]');
-
-        // Only update if not prefilled (no duplicate scenario)
-        const isPrefilled = {{ (prefill is defined)|tojson }};
-
-        if (seriesSelect && uniqueIdInput && !isPrefilled) {
-            seriesSelect.addEventListener('change', function () {
-                const series = this.value;
-
-                fetch('/miniatures/next-id/' + series)
-                    .then(response => response.json())
-                    .then(data => {
-                        uniqueIdInput.value = data.next_id;
-                    })
-                    .catch(error => console.error('Error fetching next ID:', error));
-            });
-        }
-    });
-</script>
+<script src="{{ url_for('static', filename='js/miniatures.js') }}"></script>
 {% endblock %}

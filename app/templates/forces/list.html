@@ -19,6 +19,7 @@
     <div>
         {% if active_force %}
         <form method="post" action="{{ url_for('forces.deactivate_all') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-warning" title="Clear active force selection">
                 <i class="fa-solid fa-xmark"></i> Clear Active Force
             </button>
@@ -66,6 +67,7 @@
                         </a>
                         {% if not force.is_active %}
                         <form method="post" action="{{ url_for('forces.activate', id=force.id) }}" class="m-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-link p-0 text-decoration-none text-success"
                                 title="Activate">
                                 <i class="fa-solid fa-toggle-on"></i>
@@ -94,6 +96,7 @@
                                 <li>
                                     <form method="post" action="{{ url_for('forces.delete', id=force.id) }}"
                                         onsubmit="return confirm('Delete this force and all its lances?');" class="m-0">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="fa-solid fa-trash"></i> Delete
                                         </button>
@@ -119,6 +122,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="{{ url_for('forces.create') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-header">
                     <h5 class="modal-title">Create New Force</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -138,28 +142,51 @@
     </div>
 </div>
 
-<script>
-    function renameForce(forceId, currentName) {
-        const newName = prompt('Enter new force name:', currentName);
+<!-- Rename Force Modal -->
+<div class="modal fade" id="renameForceModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Rename Force</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="renameForceInput" class="form-control" placeholder="Force name">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="renameForceSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-        if (newName !== null && newName.trim() !== '' && newName !== currentName) {
+<script>
+    const _csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+    function renameForce(forceId, currentName) {
+        const input = document.getElementById('renameForceInput');
+        input.value = currentName;
+
+        const modal = new bootstrap.Modal(document.getElementById('renameForceModal'));
+        document.getElementById('renameForceSaveBtn').onclick = function () {
+            const newName = input.value.trim();
+            if (!newName || newName === currentName) { modal.hide(); return; }
+
             fetch(`/forces/${forceId}/rename`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName.trim() })
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf },
+                body: JSON.stringify({ name: newName })
             })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
-                        location.reload();
-                    } else {
-                        alert('Failed to rename force: ' + (data.error || 'Unknown error'));
-                    }
+                    if (data.success) { location.reload(); }
+                    else { alert('Failed to rename force: ' + (data.error || 'Unknown error')); }
                 })
-                .catch(error => {
-                    alert('Failed to rename force');
-                });
-        }
+                .catch(() => { alert('Failed to rename force'); });
+        };
+        modal.show();
+        document.getElementById('renameForceModal').addEventListener('shown.bs.modal', () => input.select(), { once: true });
     }
 </script>
 

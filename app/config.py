@@ -8,6 +8,8 @@ BASE_DIR = Path(__file__).resolve().parent
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
+    WTF_CSRF_SECRET_KEY = os.environ.get("WTF_CSRF_SECRET_KEY", SECRET_KEY)
+    WTF_CSRF_ENABLED = True
     # Database URL, default to Windows AppData location for desktop, /data for Docker
     # For development or custom location, set DATABASE_URL environment variable
     _docker_db_path = Path("/data/mechbay.db")
@@ -26,5 +28,6 @@ class Config:
 
 class TestingConfig(Config):
     TESTING = True
+    WTF_CSRF_ENABLED = False
     # Use in-memory SQLite for tests
     DATABASE_URL = "sqlite+pysqlite:///:memory:"

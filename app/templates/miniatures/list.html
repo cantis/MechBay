@@ -24,26 +24,43 @@
 </div>
 
 <!-- Series Filter -->
-<div class="mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <div class="btn-group" role="group" aria-label="Series filter">
         {% for s in ['All', 'A', 'B', 'C'] %}
-        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s, faction=faction_filter) }}"
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s, faction=faction_filter, per_page=per_page) }}"
             class="btn btn-outline-primary {% if series_filter == s %}active{% endif %}">
             {% if s == 'All' %}All Series{% else %}Series {{ s }}{% endif %}
         </a>
         {% endfor %}
+    </div>
+    <!-- Page size selector -->
+    <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown"
+            aria-expanded="false">
+            Per page: {{ per_page }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            {% for size in valid_page_sizes %}
+            <li>
+                <a class="dropdown-item {% if size == per_page %}active{% endif %}"
+                    href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, per_page=size, page=1) }}">
+                    {{ size }}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
     </div>
 </div>
 
 <!-- Faction Filter -->
 <div class="mb-3">
     <div class="btn-group" role="group" aria-label="Faction filter">
-        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction='All') }}"
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction='All', per_page=per_page) }}"
             class="btn btn-outline-secondary {% if faction_filter == 'All' %}active{% endif %}">
             All Factions
         </a>
         {% for faction in factions %}
-        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction) }}"
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction, per_page=per_page) }}"
             class="btn btn-outline-secondary {% if faction_filter == faction %}active{% endif %}">
             {{ faction }}
         </a>
@@ -60,15 +77,48 @@
     <input type="hidden" name="direction" value="{{ direction or '' }}" />
     <input type="hidden" name="series" value="{{ series_filter or 'All' }}" />
     <input type="hidden" name="faction" value="{{ faction_filter or 'All' }}" />
+    <input type="hidden" name="per_page" value="{{ per_page }}" />
     <div class="col-auto">
         <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
 </form>
 
 <div class="table-responsive">
-    <table class="table table-striped align-middle">
+    <!-- Bulk action toolbar (hidden until rows selected) -->
+    <div id="bulkToolbar" class="d-none mb-2 d-flex align-items-center gap-2 p-2 bg-light border rounded">
+        <span id="bulkCount" class="text-muted me-2">0 selected</span>
+        <div class="d-flex gap-2">
+            <div class="input-group input-group-sm" style="width:220px">
+                <select id="bulkStatusSelect" class="form-select form-select-sm">
+                    <option value="">-- Set Status --</option>
+                    {% for s in ['New','Primed','Drybush','Detail','Base','Finished'] %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-outline-secondary"
+                    onclick="applyBulkAction('set_status', document.getElementById('bulkStatusSelect').value)">Apply</button>
+            </div>
+            <div class="input-group input-group-sm" style="width:220px">
+                <select id="bulkFactionSelect" class="form-select form-select-sm">
+                    <option value="">-- Set Faction --</option>
+                    {% for f in factions %}
+                    <option value="{{ f }}">{{ f }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-outline-secondary"
+                    onclick="applyBulkAction('set_faction', document.getElementById('bulkFactionSelect').value)">Apply</button>
+            </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()"><i
+                class="fa-solid fa-xmark"></i> Clear</button>
+    </div>
+
+    <table class="table table-striped align-middle" id="miniatureTable">
         <thead>
             <tr>
+                <th style="width:36px">
+                    <input type="checkbox" id="selectAll" class="form-check-input" title="Select all on this page">
+                </th>
                 {% set columns = [
                 ('series', 'Series'),
                 ('unique_id', 'Unique ID'),
@@ -81,7 +131,7 @@
                 ] %}
                 {% for col, label in columns %}
                 <th style="cursor:pointer">
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc', per_page=per_page) }}"
                         style="text-decoration:none; color:inherit;">
                         {{ label }}
                         {% if sort == col %}
@@ -93,7 +143,7 @@
                         {% endif %}
                     </a>
                     {% if sort == col %}
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter) }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, per_page=per_page) }}"
                         title="Clear sort">
                         <i class="fa-solid fa-xmark" style="color:#888"></i>
                     </a>
@@ -107,7 +157,11 @@
         <tbody>
             {% for m in miniatures %}
             <tr style="cursor: pointer; {% if m.id in assigned_miniature_ids %}border-left: 4px solid #198754;{% endif %}"
-                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';">
+                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';"
+                data-id="{{ m.id }}">
+                <td onclick="event.stopPropagation()">
+                    <input type="checkbox" class="form-check-input row-check" value="{{ m.id }}">
+                </td>
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
@@ -141,6 +195,7 @@
                                 <li>
                                     <form method="post"
                                         action="{{ url_for('forces.add_miniature', id=active_force.id) }}" class="m-0">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="miniature_id" value="{{ m.id }}">
                                         <input type="hidden" name="lance_id" value="{{ lance.id }}">
                                         <input type="hidden" name="return_q" value="{{ query or '' }}">
@@ -163,6 +218,7 @@
                                     <form method="post"
                                         action="{{ url_for('miniatures.delete', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
                                         onsubmit="return confirm('Delete this miniature?');" class="m-0">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="fa-solid fa-trash"></i> Delete
                                         </button>
@@ -175,14 +231,46 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="10" class="text-center text-muted">No miniatures yet.</td>
+                <td colspan="11" class="text-center text-muted">No miniatures yet.</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    <div class="mt-3">
-        <a class="btn btn-outline-success" href="{{ url_for('miniatures.export') }}">Export JSON</a>
-        <a class="btn btn-outline-secondary" href="{{ url_for('miniatures.import_route') }}">Import JSON</a>
+    <div class="mt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <a class="btn btn-outline-success" href="{{ url_for('miniatures.export') }}">Export JSON</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('miniatures.import_route') }}">Import JSON</a>
+        </div>
+        {% if total_pages > 1 %}
+        <nav aria-label="Inventory pagination">
+            <ul class="pagination mb-0">
+                <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                    <a class="page-link"
+                        href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=page-1, per_page=per_page) }}">
+                        &laquo;
+                    </a>
+                </li>
+                {% for p in range(1, total_pages + 1) %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link"
+                        href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=p, per_page=per_page) }}">{{
+                        p }}</a>
+                </li>
+                {% endfor %}
+                <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+                    <a class="page-link"
+                        href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=page+1, per_page=per_page) }}">
+                        &raquo;
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        <small class="text-muted">{{ total_count }} total &mdash; page {{ page }} of {{ total_pages }}</small>
+        {% else %}
+        <small class="text-muted">{{ total_count }} miniature(s)</small>
+        {% endif %}
     </div>
 </div>
+
+<script src="{{ url_for('static', filename='js/miniatures.js') }}"></script>
 {% endblock %}

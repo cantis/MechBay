@@ -30,6 +30,15 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     if app.config["TRUST_PROXY_HEADERS"]:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+    # CSRF protection — always init so csrf_token() Jinja2 global is available,
+    # but disable CSRF validation in test mode so test client POSTs work without tokens
+    if app.config.get("TESTING"):
+        app.config["WTF_CSRF_ENABLED"] = False
+
+    from flask_wtf.csrf import CSRFProtect
+
+    CSRFProtect(app)
+
     # Load version dynamically from package metadata
     try:
         version = importlib.metadata.version("mechbay")

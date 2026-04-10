@@ -9,6 +9,7 @@
 <hr />
 
 <form method="post" enctype="multipart/form-data" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="col-12">
         <label class="form-label">Import JSON file</label>
         <input type="file" name="file" accept="application/json,.json" class="form-control" required />
