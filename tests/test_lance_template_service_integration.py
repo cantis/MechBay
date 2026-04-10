@@ -245,7 +245,7 @@ def test_import_creates_from_export(client):
         temp_path = f.name
 
     try:
-        result = import_templates_from_json(temp_path)
+        import_templates_from_json(temp_path)
 
         templates = get_all_templates()
         assert len(templates) == 3
@@ -297,7 +297,7 @@ def test_import_merge_updates_existing(client):
         temp_path = f.name
 
     try:
-        result = import_templates_from_json(temp_path)
+        import_templates_from_json(temp_path)
 
         templates = get_all_templates()
         assert len(templates) == 2  # No new templates created

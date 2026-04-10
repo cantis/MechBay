@@ -166,7 +166,7 @@ def test_import_skips_invalid_entries(client):
         temp_path = f.name
 
     try:
-        result = import_templates_from_json(temp_path)
+        import_templates_from_json(temp_path)
 
         # Only 2 valid templates should be imported
         templates = get_all_templates()

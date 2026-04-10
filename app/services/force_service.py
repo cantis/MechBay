@@ -338,8 +338,8 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
 
     try:
         data = json.loads(filepath.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise ValueError(f"File not found: {file_path}")
+    except FileNotFoundError as err:
+        raise ValueError(f"File not found: {file_path}") from err
 
     force_name = data.get("force_name", "Imported Force")
 

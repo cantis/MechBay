@@ -405,11 +405,13 @@ def validate_expunged_object(obj, *attributes):
     """
     from sqlalchemy.orm.exc import DetachedInstanceError
 
-    try:
-        for attr in attributes:
+    for attr in attributes:
+        try:
             _ = getattr(obj, attr)
-    except DetachedInstanceError as e:
-        raise AssertionError(f"Object {obj} not properly expunged - cannot access {attr}: {e}")
+        except DetachedInstanceError as e:
+            raise AssertionError(
+                f"Object {obj} not properly expunged - cannot access {attr}: {e}"
+            ) from e
 
 
 def assert_single_active_force(forces):

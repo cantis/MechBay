@@ -141,7 +141,8 @@ def add():
                     "notes": form.get("notes"),
                 }
                 flash(
-                    f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}",
+                    f"""Unique ID {unique_id} already exists in Series {series}.
+                      Suggested next ID: {next_unique}""",
                     "danger",
                 )
                 available_factions = get_distinct_factions()
