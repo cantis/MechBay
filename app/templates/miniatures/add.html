@@ -111,7 +111,8 @@
         const uniqueIdInput = document.querySelector('input[name="unique_id"]');
 
         // Only update if not prefilled (no duplicate scenario)
-        const isPrefilled = {{ 'true' if prefill is defined else 'false' }};
+        const isPrefilled = {{ 'true' if prefill is defined else 'false' }
+    };
 
 
     if (seriesSelect && uniqueIdInput && !isPrefilled) {
