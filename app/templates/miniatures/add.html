@@ -111,22 +111,20 @@
         const uniqueIdInput = document.querySelector('input[name="unique_id"]');
 
         // Only update if not prefilled (no duplicate scenario)
-        const isPrefilled = {{ 'true' if prefill is defined else 'false' }
-    };
+        const isPrefilled = {{ (prefill is defined)|tojson }};
 
+        if (seriesSelect && uniqueIdInput && !isPrefilled) {
+            seriesSelect.addEventListener('change', function () {
+                const series = this.value;
 
-    if (seriesSelect && uniqueIdInput && !isPrefilled) {
-        seriesSelect.addEventListener('change', function () {
-            const series = this.value;
-
-            fetch('/miniatures/next-id/' + series)
-                .then(response => response.json())
-                .then(data => {
-                    uniqueIdInput.value = data.next_id;
-                })
-                .catch(error => console.error('Error fetching next ID:', error));
-        });
-    }
+                fetch('/miniatures/next-id/' + series)
+                    .then(response => response.json())
+                    .then(data => {
+                        uniqueIdInput.value = data.next_id;
+                    })
+                    .catch(error => console.error('Error fetching next ID:', error));
+            });
+        }
     });
 </script>
 {% endblock %}
