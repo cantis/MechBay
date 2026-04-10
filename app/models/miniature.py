@@ -15,11 +15,11 @@ class Miniature(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     series: Mapped[str] = mapped_column(String(16), nullable=False, default="A")
-    # Changed to Integer per new requirement
     unique_id: Mapped[int] = mapped_column(Integer, nullable=False)
     prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     chassis: Mapped[str] = mapped_column(String(128), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
+    faction: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=True)
     tray_id: Mapped[str] = mapped_column(String(64), nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
@@ -33,6 +33,7 @@ class Miniature(Base):
             "prefix": self.prefix,
             "chassis": self.chassis,
             "type": self.type,
+            "faction": self.faction,
             "status": self.status,
             "tray_id": self.tray_id,
             "notes": self.notes,

@@ -2,6 +2,13 @@
 {% block content %}
 <h2>Edit Miniature</h2>
 <form method="post" class="row g-3">
+    <!-- Hidden fields to preserve filter state -->
+    <input type="hidden" name="return_series" value="{{ filter_params.series if filter_params else 'All' }}">
+    <input type="hidden" name="return_faction" value="{{ filter_params.faction if filter_params else 'All' }}">
+    <input type="hidden" name="return_q" value="{{ filter_params.q if filter_params else '' }}">
+    <input type="hidden" name="return_sort" value="{{ filter_params.sort if filter_params else '' }}">
+    <input type="hidden" name="return_direction" value="{{ filter_params.direction if filter_params else '' }}">
+
     <div class="col-md-2">
         <label class="form-label">Series *</label>
         <select name="series" required class="form-select">
@@ -33,6 +40,16 @@
         </select>
     </div>
     <div class="col-md-3">
+        <label class="form-label">Faction</label>
+        <select name="faction" class="form-select" id="factionSelect">
+            <option value="">-- none --</option>
+            {% for f in available_factions %}
+            <option value="{{ f }}" {% if (mini.faction or '' )==f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+            <option value="__custom__">+ Add Custom...</option>
+        </select>
+    </div>
+    <div class="col-md-3">
         <label class="form-label">Status</label>
         {% set statuses = ['','New','Primed','Drybush','Detail','Base','Finished'] %}
         <select name="status" class="form-select">
@@ -51,7 +68,28 @@
     </div>
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Save</button>
-        <a class="btn btn-secondary" href="{{ url_for('miniatures.list_miniatures') }}">Cancel</a>
+        <a class="btn btn-secondary"
+            href="{{ url_for('miniatures.list_miniatures', series=filter_params.series if filter_params else 'All', faction=filter_params.faction if filter_params else 'All', q=filter_params.q if filter_params else '', sort=filter_params.sort if filter_params else '', direction=filter_params.direction if filter_params else '') }}">Cancel</a>
     </div>
 </form>
+
+<script>
+    document.getElementById('factionSelect').addEventListener('change', function () {
+        if (this.value === '__custom__') {
+            const customFaction = prompt('Enter custom faction name:');
+            if (customFaction && customFaction.trim()) {
+                // Create new option with the custom value
+                const newOption = document.createElement('option');
+                newOption.value = customFaction.trim();
+                newOption.textContent = customFaction.trim();
+                newOption.selected = true;
+                // Insert before the "+ Add Custom..." option
+                this.insertBefore(newOption, this.options[this.options.length - 1]);
+            } else {
+                // Reset to current value if cancelled or empty
+                this.value = {{ (mini.faction or "") | tojson }};
+            }
+        }
+    });
+</script>
 {% endblock %}

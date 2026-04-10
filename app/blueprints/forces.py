@@ -56,6 +56,14 @@ def activate(id: int):  # noqa: A002
     return redirect(url_for("forces.list_forces"))
 
 
+@bp.route("/deactivate-all", methods=["POST"])
+def deactivate_all():
+    """Deactivate all forces (clear active selection)."""
+    force_service.deactivate_all_forces()
+    flash("Active force cleared", "info")
+    return redirect(url_for("forces.list_forces"))
+
+
 @bp.route("/<int:id>/rename", methods=["POST"])
 def rename(id: int):  # noqa: A002
     """Rename a force."""
@@ -98,7 +106,20 @@ def add_miniature(id: int):  # noqa: A002
             flash("Miniature added to lance", "success")
         else:
             flash(result.get("error", "Failed to add miniature"), "danger")
-        return redirect(url_for("miniatures.list_miniatures"))
+
+        # Preserve filter parameters when redirecting back to miniatures list
+        return_params = {}
+        if data.get("return_q"):
+            return_params["q"] = data.get("return_q")
+        if data.get("return_sort"):
+            return_params["sort"] = data.get("return_sort")
+        if data.get("return_direction"):
+            return_params["direction"] = data.get("return_direction")
+        # Always include series and faction, even if "All"
+        return_params["series"] = data.get("return_series", "All")
+        return_params["faction"] = data.get("return_faction", "All")
+
+        return redirect(url_for("miniatures.list_miniatures", **return_params))
 
 
 @bp.route("/<int:id>/remove-miniature", methods=["POST"])
@@ -285,7 +306,7 @@ def import_route():
             result = force_service.import_force_from_json(str(temp_path))
 
             flash(
-                f"""Imported force '{result['force_name']}' with {result['imported_count']}
+                f"""Imported force '{result["force_name"]}' with {result["imported_count"]}
                   miniatures""",
                 "success",
             )

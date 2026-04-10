@@ -8,23 +8,44 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h2 class="m-0">Miniatures</h2>
-        {% if active_force %}
         <small class="text-muted">
-            Active Force: <strong>{{ active_force.name }}</strong>
+            Active Force:
+            {% if active_force %}
+            <strong>{{ active_force.name }}</strong>
             <a href="{{ url_for('forces.detail', id=active_force.id) }}" class="text-decoration-none">[View]</a>
+            {% else %}
+            <em>&lt;none&gt;</em>
+            {% endif %}
         </small>
-        {% endif %}
     </div>
-    <a class="btn btn-primary" href="{{ url_for('miniatures.add') }}">Add Miniature</a>
+    <a class="btn btn-primary"
+        href="{{ url_for('miniatures.add', series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}">Add
+        Miniature</a>
 </div>
 
 <!-- Series Filter -->
 <div class="mb-3">
     <div class="btn-group" role="group" aria-label="Series filter">
         {% for s in ['All', 'A', 'B', 'C'] %}
-        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s) }}"
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=s, faction=faction_filter) }}"
             class="btn btn-outline-primary {% if series_filter == s %}active{% endif %}">
             {% if s == 'All' %}All Series{% else %}Series {{ s }}{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Faction Filter -->
+<div class="mb-3">
+    <div class="btn-group" role="group" aria-label="Faction filter">
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction='All') }}"
+            class="btn btn-outline-secondary {% if faction_filter == 'All' %}active{% endif %}">
+            All Factions
+        </a>
+        {% for faction in factions %}
+        <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction) }}"
+            class="btn btn-outline-secondary {% if faction_filter == faction %}active{% endif %}">
+            {{ faction }}
         </a>
         {% endfor %}
     </div>
@@ -38,6 +59,7 @@
     <input type="hidden" name="sort" value="{{ sort or '' }}" />
     <input type="hidden" name="direction" value="{{ direction or '' }}" />
     <input type="hidden" name="series" value="{{ series_filter or 'All' }}" />
+    <input type="hidden" name="faction" value="{{ faction_filter or 'All' }}" />
     <div class="col-auto">
         <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
@@ -53,12 +75,13 @@
                 ('prefix', 'Prefix'),
                 ('chassis', 'Chassis'),
                 ('type', 'Type'),
+                ('faction', 'Faction'),
                 ('status', 'Status'),
                 ('tray_id', 'Tray')
                 ] %}
                 {% for col, label in columns %}
                 <th style="cursor:pointer">
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc') }}"
                         style="text-decoration:none; color:inherit;">
                         {{ label }}
                         {% if sort == col %}
@@ -70,7 +93,7 @@
                         {% endif %}
                     </a>
                     {% if sort == col %}
-                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter) }}"
+                    <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter) }}"
                         title="Clear sort">
                         <i class="fa-solid fa-xmark" style="color:#888"></i>
                     </a>
@@ -84,23 +107,24 @@
         <tbody>
             {% for m in miniatures %}
             <tr style="cursor: pointer; {% if m.id in assigned_miniature_ids %}border-left: 4px solid #198754;{% endif %}"
-                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id) }}';">
+                ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';">
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>
                 <td>{{ m.prefix }}</td>
                 <td>{{ m.chassis }}</td>
                 <td>{{ m.type }}</td>
+                <td>{{ m.faction or '-' }}</td>
                 <td>{{ m.status or '' }}</td>
                 <td>{{ m.tray_id or '' }}</td>
                 <td>{{ m.notes or '' }}</td>
                 <td>
                     <div class="d-flex gap-3 align-items-center">
-                        <a href="{{ url_for('miniatures.edit', id=m.id) }}" title="Edit" class="text-primary"
-                            style="cursor: pointer;">
+                        <a href="{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
+                            title="Edit" class="text-primary" style="cursor: pointer;">
                             <i class="fa-solid fa-pen"></i>
                         </a>
-                        <a href="{{ url_for('miniatures.duplicate', id=m.id) }}" title="Duplicate" class="text-success"
-                            style="cursor: pointer;">
+                        <a href="{{ url_for('miniatures.duplicate', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
+                            title="Duplicate" class="text-success" style="cursor: pointer;">
                             <i class="fa-solid fa-copy"></i>
                         </a>
                         <div class="dropdown">
@@ -119,6 +143,12 @@
                                         action="{{ url_for('forces.add_miniature', id=active_force.id) }}" class="m-0">
                                         <input type="hidden" name="miniature_id" value="{{ m.id }}">
                                         <input type="hidden" name="lance_id" value="{{ lance.id }}">
+                                        <input type="hidden" name="return_q" value="{{ query or '' }}">
+                                        <input type="hidden" name="return_sort" value="{{ sort or '' }}">
+                                        <input type="hidden" name="return_direction" value="{{ direction or '' }}">
+                                        <input type="hidden" name="return_series" value="{{ series_filter or 'All' }}">
+                                        <input type="hidden" name="return_faction"
+                                            value="{{ faction_filter or 'All' }}">
                                         <button type="submit" class="dropdown-item">
                                             <i class="fa-solid fa-plus"></i> {{ lance.name or 'Lance ' ~ loop.index }}
                                         </button>
@@ -130,7 +160,8 @@
                                 </li>
                                 {% endif %}
                                 <li>
-                                    <form method="post" action="{{ url_for('miniatures.delete', id=m.id) }}"
+                                    <form method="post"
+                                        action="{{ url_for('miniatures.delete', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
                                         onsubmit="return confirm('Delete this miniature?');" class="m-0">
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="fa-solid fa-trash"></i> Delete
@@ -144,7 +175,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" class="text-center text-muted">No miniatures yet.</td>
+                <td colspan="10" class="text-center text-muted">No miniatures yet.</td>
             </tr>
             {% endfor %}
         </tbody>

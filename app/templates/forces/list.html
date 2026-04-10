@@ -1,9 +1,29 @@
 {% extends 'base.html' %}
 {% block content %}
 
+<style>
+    /* Fix dropdown clipping in table-responsive */
+    .table-responsive {
+        overflow: visible !important;
+    }
+
+    @media (max-width: 767.98px) {
+        .table-responsive {
+            overflow-x: auto;
+        }
+    }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="m-0">Forces</h2>
     <div>
+        {% if active_force %}
+        <form method="post" action="{{ url_for('forces.deactivate_all') }}" class="d-inline">
+            <button type="submit" class="btn btn-outline-warning" title="Clear active force selection">
+                <i class="fa-solid fa-xmark"></i> Clear Active Force
+            </button>
+        </form>
+        {% endif %}
         <a class="btn btn-outline-secondary" href="{{ url_for('forces.import_route') }}">Import Force</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createForceModal">Create Force</button>
     </div>
@@ -58,10 +78,10 @@
                         </a>
                         <div class="dropdown">
                             <button class="btn btn-link p-0 text-decoration-none" data-bs-toggle="dropdown"
-                                title="More actions">
+                                data-bs-boundary="viewport" aria-expanded="false" title="More actions">
                                 <i class="fa-solid fa-ellipsis-vertical"></i>
                             </button>
-                            <ul class="dropdown-menu">
+                            <ul class="dropdown-menu dropdown-menu-end">
                                 <li>
                                     <a class="dropdown-item" href="#"
                                         onclick="event.preventDefault(); renameForce({{ force.id }}, '{{ force.name }}')">

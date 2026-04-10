@@ -20,6 +20,8 @@ from ..services.miniature_service import (
     delete_miniature,
     export_to_json,
     get_all_miniatures,
+    get_distinct_factions,
+    get_next_unique_id,
     import_from_json,
     update_miniature,
 )
@@ -33,7 +35,22 @@ def list_miniatures():
     sort = request.args.get("sort")
     direction = request.args.get("direction")
     series_filter = request.args.get("series", "All")
-    minis = get_all_miniatures(q, sort=sort, direction=direction, series_filter=series_filter)
+    faction_filter = request.args.get("faction", "All")
+
+    # Get available factions for filter UI
+    factions = get_distinct_factions()
+
+    minis = get_all_miniatures(
+        q,
+        sort=sort,
+        direction=direction,
+        series_filter=series_filter,
+        faction_filter=faction_filter,
+    )
+
+    # Show message if filtered results are empty
+    if not minis and (series_filter != "All" or faction_filter != "All" or q):
+        flash("No records found matching filter", "info")
 
     # Get active force info for UI
     active_force = force_service.get_active_force()
@@ -51,6 +68,8 @@ def list_miniatures():
         sort=sort,
         direction=direction,
         series_filter=series_filter,
+        faction_filter=faction_filter,
+        factions=factions,
         active_force=active_force,
         assigned_miniature_ids=assigned_miniature_ids,
         lances=lances,
@@ -66,7 +85,17 @@ def add():
             unique_id = int(unique_id_raw)
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
-            return redirect(url_for("miniatures.add"))
+            # Preserve filter state on error
+            return redirect(
+                url_for(
+                    "miniatures.add",
+                    series=form.get("return_series", "All"),
+                    faction=form.get("return_faction", "All"),
+                    q=form.get("return_q", ""),
+                    sort=form.get("return_sort", ""),
+                    direction=form.get("return_direction", ""),
+                )
+            )
 
         series = form.get("series", "A")
         if not series:
@@ -78,12 +107,13 @@ def add():
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
             "type": form.get("type"),
+            "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
         }
         # Prevent duplicate (series, unique_id) combination
-        from sqlalchemy import and_, func
+        from sqlalchemy import and_
 
         from ..extensions import session_scope
         from ..models.miniature import Miniature
@@ -96,12 +126,7 @@ def add():
             )
             if existing:
                 # Calculate next available unique_id in this series
-                max_unique = (
-                    session.query(func.max(Miniature.unique_id))
-                    .filter(Miniature.series == series)
-                    .scalar()
-                ) or 0
-                next_unique = max_unique + 1
+                next_unique = get_next_unique_id(series)
 
                 # Preserve all form fields and suggest next ID
                 prefill = {
@@ -110,20 +135,67 @@ def add():
                     "prefix": form.get("prefix"),
                     "chassis": form.get("chassis"),
                     "type": form.get("type"),
+                    "faction": form.get("faction"),
                     "status": form.get("status"),
                     "tray_id": form.get("tray_id"),
                     "notes": form.get("notes"),
                 }
                 flash(
-                    f"Unique ID {unique_id} already exists in Series {series}. Suggested next ID: {next_unique}",
+                    f"""Unique ID {unique_id} already exists in Series {series}.
+                      Suggested next ID: {next_unique}""",
                     "danger",
                 )
-                return render_template("miniatures/add.html", prefill=prefill)
+                available_factions = get_distinct_factions()
+                return render_template(
+                    "miniatures/add.html", prefill=prefill, available_factions=available_factions
+                )
 
         add_miniature(data)
         flash("Miniature added", "success")
-        return redirect(url_for("miniatures.list_miniatures"))
-    return render_template("miniatures/add.html")
+
+        # Preserve filter state from hidden form fields
+        return_params = {}
+        if form.get("return_series"):
+            return_params["series"] = form.get("return_series")
+        if form.get("return_faction"):
+            return_params["faction"] = form.get("return_faction")
+        if form.get("return_q"):
+            return_params["q"] = form.get("return_q")
+        if form.get("return_sort"):
+            return_params["sort"] = form.get("return_sort")
+        if form.get("return_direction"):
+            return_params["direction"] = form.get("return_direction")
+
+        return redirect(url_for("miniatures.list_miniatures", **return_params))
+
+    # Calculate next available unique_id for default series A
+    next_id = get_next_unique_id("A")
+    available_factions = get_distinct_factions()
+
+    # Capture filter params to preserve state
+    filter_params = {
+        "series": request.args.get("series", "All"),
+        "faction": request.args.get("faction", "All"),
+        "q": request.args.get("q", ""),
+        "sort": request.args.get("sort", ""),
+        "direction": request.args.get("direction", ""),
+    }
+
+    return render_template(
+        "miniatures/add.html",
+        next_id=next_id,
+        available_factions=available_factions,
+        filter_params=filter_params,
+    )
+
+
+@bp.route("/next-id/<series>")
+def next_id_for_series(series: str):
+    """API endpoint to get the next available unique_id for a given series."""
+    from flask import jsonify
+
+    next_id = get_next_unique_id(series)
+    return jsonify({"next_id": next_id})
 
 
 @bp.route("/<int:id>/duplicate")
@@ -133,7 +205,6 @@ def duplicate(id: int):  # noqa: A002
     The unique_id will be set to the next available integer within the same series
     (max existing unique_id for that series + 1).
     """
-    from sqlalchemy import func
 
     from ..extensions import session_scope
     from ..models.miniature import Miniature
@@ -145,25 +216,42 @@ def duplicate(id: int):  # noqa: A002
             return redirect(url_for("miniatures.list_miniatures"))
 
         # Compute next unique_id within same series
-        max_unique = (
-            session.query(func.max(Miniature.unique_id))
-            .filter(Miniature.series == mini.series)
-            .scalar()
-        ) or 0
-        next_unique = max_unique + 1
+        series = mini.series
+        session.expunge(mini)  # Detach before closing session
 
-        prefill = {
-            "series": mini.series,
-            "unique_id": next_unique,
-            "prefix": mini.prefix,
-            "chassis": mini.chassis,
-            "type": mini.type,
-            "status": mini.status,
-            "tray_id": mini.tray_id,
-            "notes": mini.notes,
-        }
+    # Calculate next available unique_id (outside session)
+    next_unique = get_next_unique_id(series)
+
+    prefill = {
+        "series": mini.series,
+        "unique_id": next_unique,
+        "prefix": mini.prefix,
+        "chassis": mini.chassis,
+        "type": mini.type,
+        "faction": mini.faction,
+        "status": mini.status,
+        "tray_id": mini.tray_id,
+        "notes": mini.notes,
+    }
     flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
-    return render_template("miniatures/add.html", prefill=prefill, duplicate_of=mini)
+    available_factions = get_distinct_factions()
+
+    # Capture filter params to preserve state
+    filter_params = {
+        "series": request.args.get("series", "All"),
+        "faction": request.args.get("faction", "All"),
+        "q": request.args.get("q", ""),
+        "sort": request.args.get("sort", ""),
+        "direction": request.args.get("direction", ""),
+    }
+
+    return render_template(
+        "miniatures/add.html",
+        prefill=prefill,
+        duplicate_of=mini,
+        available_factions=available_factions,
+        filter_params=filter_params,
+    )
 
 
 @bp.route("/<int:id>/edit", methods=["GET", "POST"])
@@ -174,7 +262,17 @@ def edit(id: int):  # noqa: A002
     mini = next((m for m in get_all_miniatures() if m.id == id), None)
     if not mini:
         flash("Miniature not found", "danger")
-        return redirect(url_for("miniatures.list_miniatures"))
+        # Preserve filter state from query params
+        return redirect(
+            url_for(
+                "miniatures.list_miniatures",
+                series=request.args.get("series", "All"),
+                faction=request.args.get("faction", "All"),
+                q=request.args.get("q", ""),
+                sort=request.args.get("sort", ""),
+                direction=request.args.get("direction", ""),
+            )
+        )
     if request.method == "POST":
         form = request.form
         unique_id_raw = form.get("unique_id")
@@ -182,7 +280,18 @@ def edit(id: int):  # noqa: A002
             unique_id = int(unique_id_raw)
         except (TypeError, ValueError):
             flash("Unique ID must be an integer", "danger")
-            return redirect(url_for("miniatures.edit", id=id))
+            # Preserve filter state from hidden form fields
+            return redirect(
+                url_for(
+                    "miniatures.edit",
+                    id=id,
+                    series=form.get("return_series", "All"),
+                    faction=form.get("return_faction", "All"),
+                    q=form.get("return_q", ""),
+                    sort=form.get("return_sort", ""),
+                    direction=form.get("return_direction", ""),
+                )
+            )
 
         series = form.get("series", "A")
         if not series:
@@ -194,14 +303,46 @@ def edit(id: int):  # noqa: A002
             "prefix": form.get("prefix"),
             "chassis": form.get("chassis"),
             "type": form.get("type"),
+            "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
         }
         update_miniature(id, data)
         flash("Miniature updated", "success")
-        return redirect(url_for("miniatures.list_miniatures"))
-    return render_template("miniatures/edit.html", mini=mini)
+
+        # Preserve filter state from hidden form fields
+        return_params = {}
+        if form.get("return_series"):
+            return_params["series"] = form.get("return_series")
+        if form.get("return_faction"):
+            return_params["faction"] = form.get("return_faction")
+        if form.get("return_q"):
+            return_params["q"] = form.get("return_q")
+        if form.get("return_sort"):
+            return_params["sort"] = form.get("return_sort")
+        if form.get("return_direction"):
+            return_params["direction"] = form.get("return_direction")
+
+        return redirect(url_for("miniatures.list_miniatures", **return_params))
+
+    available_factions = get_distinct_factions()
+
+    # Capture filter params to preserve state
+    filter_params = {
+        "series": request.args.get("series", "All"),
+        "faction": request.args.get("faction", "All"),
+        "q": request.args.get("q", ""),
+        "sort": request.args.get("sort", ""),
+        "direction": request.args.get("direction", ""),
+    }
+
+    return render_template(
+        "miniatures/edit.html",
+        mini=mini,
+        available_factions=available_factions,
+        filter_params=filter_params,
+    )
 
 
 @bp.route("/<int:id>/delete", methods=["POST"])
@@ -229,7 +370,21 @@ def delete(id: int):  # noqa: A002
         flash("Miniature deleted", "info")
     else:
         flash("Miniature not found", "warning")
-    return redirect(url_for("miniatures.list_miniatures"))
+
+    # Preserve filter state from query parameters
+    return_params = {}
+    if request.args.get("series"):
+        return_params["series"] = request.args.get("series")
+    if request.args.get("faction"):
+        return_params["faction"] = request.args.get("faction")
+    if request.args.get("q"):
+        return_params["q"] = request.args.get("q")
+    if request.args.get("sort"):
+        return_params["sort"] = request.args.get("sort")
+    if request.args.get("direction"):
+        return_params["direction"] = request.args.get("direction")
+
+    return redirect(url_for("miniatures.list_miniatures", **return_params))
 
 
 @bp.route("/export")

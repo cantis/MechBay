@@ -2,6 +2,13 @@
 {% block content %}
 <h2>Add Miniature{% if duplicate_of %} (Duplicated from ID {{ duplicate_of.id }}){% endif %}</h2>
 <form method="post" action="{{ url_for('miniatures.add') }}" class="row g-3">
+    <!-- Hidden fields to preserve filter state -->
+    <input type="hidden" name="return_series" value="{{ filter_params.series if filter_params else 'All' }}">
+    <input type="hidden" name="return_faction" value="{{ filter_params.faction if filter_params else 'All' }}">
+    <input type="hidden" name="return_q" value="{{ filter_params.q if filter_params else '' }}">
+    <input type="hidden" name="return_sort" value="{{ filter_params.sort if filter_params else '' }}">
+    <input type="hidden" name="return_direction" value="{{ filter_params.direction if filter_params else '' }}">
+
     <div class="col-md-2">
         <label class="form-label">Series *</label>
         {% set series_prefill = (prefill.series if prefill is defined and prefill.series is not none else 'A') %}
@@ -14,7 +21,9 @@
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
         <input name="unique_id" type="number" min="1" required class="form-control" placeholder="e.g. 1001"
-            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% endif %}" />
+            value="{% if prefill is defined and prefill.unique_id is not none %}{{ prefill.unique_id }}{% elif next_id is defined %}{{ next_id }}{% endif %}"
+            aria-describedby="uniqueIdHelp" />
+        <small id="uniqueIdHelp" class="form-text text-muted">First available ID (editable)</small>
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
@@ -37,8 +46,19 @@
         </select>
     </div>
     <div class="col-md-3">
+        <label class="form-label">Faction</label>
+        {% set faction_prefill = (prefill.faction if prefill is defined else '') %}
+        <select name="faction" class="form-select" id="factionSelect">
+            <option value="">-- none --</option>
+            {% for f in available_factions %}
+            <option value="{{ f }}" {% if faction_prefill==f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+            <option value="__custom__">+ Add Custom...</option>
+        </select>
+    </div>
+    <div class="col-md-3">
         <label class="form-label">Status</label>
-        {% set status_prefill = (prefill.status if prefill is defined else '') %}
+        {% set status_prefill = (prefill.status if prefill is defined else 'New') %}
         <select name="status" class="form-select">
             {% for s in ['','New','Primed','Drybush','Detail','Base','Finished'] %}
             <option value="{{ s }}" {% if status_prefill==s %}selected{% endif %}>{{ s or '--' }}</option>
@@ -57,7 +77,54 @@
     </div>
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Add</button>
-        <a class="btn btn-secondary" href="{{ url_for('miniatures.list_miniatures') }}">Cancel</a>
+        <a class="btn btn-secondary"
+            href="{{ url_for('miniatures.list_miniatures', series=filter_params.series if filter_params else 'All', faction=filter_params.faction if filter_params else 'All', q=filter_params.q if filter_params else '', sort=filter_params.sort if filter_params else '', direction=filter_params.direction if filter_params else '') }}">Cancel</a>
     </div>
 </form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Handle custom faction input
+        const factionSelect = document.getElementById('factionSelect');
+        if (factionSelect) {
+            factionSelect.addEventListener('change', function () {
+                if (this.value === '__custom__') {
+                    const customFaction = prompt('Enter custom faction name:');
+                    if (customFaction && customFaction.trim()) {
+                        // Create new option with the custom value
+                        const newOption = document.createElement('option');
+                        newOption.value = customFaction.trim();
+                        newOption.textContent = customFaction.trim();
+                        newOption.selected = true;
+                        // Insert before the "+ Add Custom..." option
+                        this.insertBefore(newOption, this.options[this.options.length - 1]);
+                    } else {
+                        // Reset to empty if cancelled or empty
+                        this.value = '';
+                    }
+                }
+            });
+        }
+
+        // Handle series change to update unique_id dynamically
+        const seriesSelect = document.querySelector('select[name="series"]');
+        const uniqueIdInput = document.querySelector('input[name="unique_id"]');
+
+        // Only update if not prefilled (no duplicate scenario)
+        const isPrefilled = {{ (prefill is defined)|tojson }};
+
+        if (seriesSelect && uniqueIdInput && !isPrefilled) {
+            seriesSelect.addEventListener('change', function () {
+                const series = this.value;
+
+                fetch('/miniatures/next-id/' + series)
+                    .then(response => response.json())
+                    .then(data => {
+                        uniqueIdInput.value = data.next_id;
+                    })
+                    .catch(error => console.error('Error fetching next ID:', error));
+            });
+        }
+    });
+</script>
 {% endblock %}

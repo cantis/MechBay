@@ -10,11 +10,48 @@ from ..extensions import session_scope
 from ..models.miniature import Miniature
 
 
+def get_next_unique_id(series: str) -> int:
+    """Find the first unused unique_id in the given series.
+
+    Returns the first gap in the sequence starting from 1, or max+1 if no gaps exist.
+    Examples:
+    - Empty series: returns 1
+    - [1, 2, 3]: returns 4
+    - [1, 2, 4, 5]: returns 3 (fills gap)
+    - [2, 3, 4]: returns 1 (fills start)
+
+    Args:
+        series: Series identifier (e.g., 'A', 'B', 'C')
+
+    Returns:
+        First unused unique_id integer
+    """
+    with session_scope() as session:
+        # Get all existing unique_ids for this series, sorted
+        existing_ids = (
+            session.query(Miniature.unique_id)
+            .filter(Miniature.series == series)
+            .order_by(Miniature.unique_id)
+            .all()
+        )
+
+        # Extract integers from query result tuples
+        existing_set = {row[0] for row in existing_ids}
+
+        # Find first gap starting from 1
+        candidate = 1
+        while candidate in existing_set:
+            candidate += 1
+
+        return candidate
+
+
 def get_all_miniatures(
     search_query: str | None = None,
     sort: str | None = None,
     direction: str | None = None,
     series_filter: str | None = None,
+    faction_filter: str | None = None,
 ) -> Sequence[Miniature]:
     with session_scope() as session:
         stmt = select(Miniature)
@@ -22,6 +59,10 @@ def get_all_miniatures(
         # Series filter
         if series_filter and series_filter != "All":
             stmt = stmt.where(Miniature.series == series_filter)
+
+        # Faction filter
+        if faction_filter and faction_filter != "All":
+            stmt = stmt.where(Miniature.faction == faction_filter)
 
         # Search query
         if search_query:
@@ -44,6 +85,7 @@ def get_all_miniatures(
             "prefix": Miniature.prefix,
             "chassis": Miniature.chassis,
             "type": Miniature.type,
+            "faction": Miniature.faction,
             "status": Miniature.status,
             "tray_id": Miniature.tray_id,
         }
@@ -58,6 +100,24 @@ def get_all_miniatures(
             stmt = stmt.order_by(Miniature.series.asc(), Miniature.unique_id.asc())
 
         return session.execute(stmt).scalars().all()
+
+
+def get_distinct_factions() -> list[str]:
+    """Get list of unique faction values (excluding nulls and empty strings).
+
+    Returns:
+        list[str]: Sorted list of faction names
+    """
+    with session_scope() as session:
+        stmt = (
+            select(Miniature.faction)
+            .distinct()
+            .where(Miniature.faction.isnot(None))
+            .where(Miniature.faction != "")
+            .order_by(Miniature.faction)
+        )
+        result = session.execute(stmt).scalars().all()
+        return list(result)
 
 
 def add_miniature(data: dict) -> Miniature:
@@ -149,6 +209,7 @@ def import_from_json(path: str, merge: bool = False) -> int:
                 prefix=item.get("prefix"),
                 chassis=item.get("chassis"),
                 type=item.get("type"),
+                faction=item.get("faction"),
                 status=item.get("status"),
                 tray_id=item.get("tray_id"),
                 notes=item.get("notes"),

@@ -1,0 +1,115 @@
+name: Tests
+
+on:
+    push:
+        branches: [main, develop, "cantis/**"]
+    pull_request:
+        branches: [main, develop]
+    workflow_dispatch:
+
+jobs:
+    unit-tests:
+        name: Unit Tests
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+                python-version: ["3.14"]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+              with:
+                  version: "latest"
+
+            - name: Set up Python ${{ matrix.python-version }}
+              run: uv python install ${{ matrix.python-version }}
+
+            - name: Install dependencies
+              run: uv sync
+
+            - name: Run unit tests
+              run: uv run pytest tests/*_unit.py -v --tb=short
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: unit-test-results-${{ matrix.os }}
+                  path: |
+                      .pytest_cache/
+                      test-results.xml
+                  retention-days: 7
+
+    integration-tests:
+        name: Integration Tests
+        runs-on: ubuntu-latest
+        needs: unit-tests
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+              with:
+                  version: "latest"
+
+            - name: Set up Python 3.14
+              run: uv python install 3.14
+
+            - name: Install dependencies
+              run: uv sync
+
+            - name: Run integration tests
+              run: uv run pytest tests/*_integration.py -v --tb=short -m slow
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: integration-test-results
+                  path: |
+                      .pytest_cache/
+                      test-results.xml
+                  retention-days: 7
+
+    parallel-tests:
+        name: Parallel Test Suite
+        runs-on: ubuntu-latest
+        needs: [unit-tests, integration-tests]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+              with:
+                  version: "latest"
+
+            - name: Set up Python 3.14
+              run: uv python install 3.14
+
+            - name: Install dependencies
+              run: uv sync
+
+            - name: Run all tests in parallel
+              run: uv run pytest tests/ -n auto --tb=short --dist=loadgroup
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: parallel-test-results
+                  path: |
+                      .pytest_cache/
+                      test-results.xml
+                  retention-days: 7
+
+            - name: Generate test summary
+              if: always()
+              run: |
+                  echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+                  echo "Parallel test execution completed" >> $GITHUB_STEP_SUMMARY

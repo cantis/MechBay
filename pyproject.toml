@@ -1,6 +1,6 @@
 [project]
 name = "mechbay"
-version = "1.0.0"
+version = "1.0.1"
 description = "BattleTech miniature inventory manager - Track, organize, and build forces with your physical miniature collection"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -27,7 +27,32 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "sqlalchemy>=2.0.44",
     "waitress>=3.0.0",
+    "gunicorn>=23.0.0",
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.0.0", "ruff>=0.14.4", "pyinstaller>=6.0.0"]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.14.4",
+    "pyinstaller>=6.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.pytest.ini_options]
+# Test discovery and execution settings
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-v",               # Verbose output
+    "--strict-markers", # Error on unknown markers
+]
+
+# Custom markers for test categorization
+markers = [
+    "slow: marks tests as slow (integration tests with realistic data structures)",
+]
+
+# Note: For parallel execution, run with: pytest -n auto
+# This uses all CPU cores. Override with pytest -n 0 for sequential debugging.
+# CI pipelines should use: pytest -n auto for faster execution.

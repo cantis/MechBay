@@ -153,3 +153,155 @@ def test_duplicate_prefill(client):
     assert 'value="3"' in html or ">3<" in html
     # Prefilled chassis
     assert "Banshee" in html
+
+
+def test_get_next_unique_id_empty_series():
+    """Test get_next_unique_id returns 1 for empty series."""
+    # Arrange
+    from app.services.miniature_service import get_next_unique_id
+
+    # Act
+    next_id = get_next_unique_id("Z")  # Series with no miniatures
+
+    # Assert
+    assert next_id == 1
+
+
+def test_get_next_unique_id_sequential():
+    """Test get_next_unique_id returns max+1 for sequential IDs."""
+    # Arrange
+    from app.services.miniature_service import add_miniature, get_next_unique_id
+
+    add_miniature(
+        {"series": "B", "unique_id": 1, "prefix": "TEST", "chassis": "Test1", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "B", "unique_id": 2, "prefix": "TEST", "chassis": "Test2", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "B", "unique_id": 3, "prefix": "TEST", "chassis": "Test3", "type": "Mech"}
+    )
+
+    # Act
+    next_id = get_next_unique_id("B")
+
+    # Assert
+    assert next_id == 4
+
+
+def test_get_next_unique_id_with_gap():
+    """Test get_next_unique_id fills gaps in sequence."""
+    # Arrange
+    from app.services.miniature_service import add_miniature, get_next_unique_id
+
+    add_miniature(
+        {"series": "C", "unique_id": 1, "prefix": "TEST", "chassis": "Test1", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "C", "unique_id": 2, "prefix": "TEST", "chassis": "Test2", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "C", "unique_id": 4, "prefix": "TEST", "chassis": "Test4", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "C", "unique_id": 5, "prefix": "TEST", "chassis": "Test5", "type": "Mech"}
+    )
+
+    # Act
+    next_id = get_next_unique_id("C")
+
+    # Assert
+    assert next_id == 3  # Fills the gap, not max+1
+
+
+def test_get_next_unique_id_missing_start():
+    """Test get_next_unique_id returns 1 when sequence doesn't start at 1."""
+    # Arrange
+    from app.services.miniature_service import add_miniature, get_next_unique_id
+
+    add_miniature(
+        {"series": "D", "unique_id": 2, "prefix": "TEST", "chassis": "Test2", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "D", "unique_id": 3, "prefix": "TEST", "chassis": "Test3", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "D", "unique_id": 4, "prefix": "TEST", "chassis": "Test4", "type": "Mech"}
+    )
+
+    # Act
+    next_id = get_next_unique_id("D")
+
+    # Assert
+    assert next_id == 1  # Fills from the start
+
+
+def test_get_next_unique_id_multiple_gaps():
+    """Test get_next_unique_id returns first gap when multiple exist."""
+    # Arrange
+    from app.services.miniature_service import add_miniature, get_next_unique_id
+
+    add_miniature(
+        {"series": "E", "unique_id": 1, "prefix": "TEST", "chassis": "Test1", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "E", "unique_id": 3, "prefix": "TEST", "chassis": "Test3", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "E", "unique_id": 5, "prefix": "TEST", "chassis": "Test5", "type": "Mech"}
+    )
+    add_miniature(
+        {"series": "E", "unique_id": 7, "prefix": "TEST", "chassis": "Test7", "type": "Mech"}
+    )
+
+    # Act
+    next_id = get_next_unique_id("E")
+
+    # Assert
+    assert next_id == 2  # First gap, not any later gap
+
+
+def test_add_form_prefills_next_id(client):
+    """Test add form GET request includes next_id in template."""
+    # Arrange
+    # Empty database, expect next_id=1 for series A
+
+    # Act
+    resp = client.get("/miniatures/add")
+
+    # Assert
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'value="1"' in html  # Default next_id for empty series A
+    assert "First available ID" in html  # Helper text
+
+
+def test_add_miniature_saves_faction(client):
+    """Test that faction field is properly saved when adding a miniature."""
+    # Arrange
+    data = {
+        "series": "A",
+        "unique_id": 1,
+        "prefix": "WHM",
+        "chassis": "Warhammer",
+        "type": "Mech",
+        "faction": "Clan Wolf",
+        "status": "Finished",
+        "tray_id": "T2",
+        "notes": "Test faction save",
+    }
+
+    # Act
+    resp = client.post("/miniatures/add", data=data, follow_redirects=True)
+
+    # Assert
+    assert resp.status_code == 200
+
+    # Verify faction was saved by querying the database
+    from app.services.miniature_service import get_all_miniatures
+
+    minis = get_all_miniatures()
+    assert len(minis) == 1
+    assert minis[0].faction == "Clan Wolf"
+    assert minis[0].chassis == "Warhammer"
+    assert minis[0].status == "Finished"

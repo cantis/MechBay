@@ -80,6 +80,10 @@ def update_template(
             session.add(mini)
 
         session.flush()
+
+        # Eager load relationships before expunge
+        _ = template.miniatures
+
         session.expunge(template)
         return template
 
@@ -151,7 +155,7 @@ def export_templates_to_json() -> tuple[str, str]:
 
     # Build export data
     export_data = {
-        "exported_at": datetime.utcnow().isoformat(),
+        "export_timestamp": datetime.utcnow().isoformat(),
         "template_count": len(templates),
         "templates": [],
     }
