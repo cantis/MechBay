@@ -87,7 +87,7 @@
                 this.insertBefore(newOption, this.options[this.options.length - 1]);
             } else {
                 // Reset to current value if cancelled or empty
-                this.value = '{{ mini.faction or "" }}';
+                this.value = {{ (mini.faction or "") | tojson }};
             }
         }
     });

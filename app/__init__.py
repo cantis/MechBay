@@ -23,8 +23,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     if config_overrides:
         app.config.update(config_overrides)
 
-    # Configure ProxyFix middleware for reverse proxy support
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    # Only trust X-Forwarded-* headers when explicitly enabled for a
+    # deployment behind a trusted reverse proxy that strips any client-
+    # supplied forwarded headers and sets its own.
+    app.config.setdefault("TRUST_PROXY_HEADERS", False)
+    if app.config["TRUST_PROXY_HEADERS"]:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # Load version dynamically from package metadata
     try:
