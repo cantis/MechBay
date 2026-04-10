@@ -32,15 +32,26 @@ def run_migrations():
     Base.metadata.create_all(bind=engine)
 
     # Enforce single-active-force constraint at the database level.
-    # SQLite supports partial unique indexes: only one row may have is_active = 1.
-    with engine.connect() as conn:
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force "
-                "ON force(is_active) WHERE is_active = 1"
-            )
+    # Create a partial unique index on the Force table so only one row may
+    # have is_active set. Use dialect-specific SQL for supported engines.
+    dialect_name = engine.dialect.name
+    index_sql = None
+
+    if dialect_name == "sqlite":
+        index_sql = (
+            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
+            'ON "forces"(is_active) WHERE is_active = 1'
         )
-        conn.commit()
+    elif dialect_name == "postgresql":
+        index_sql = (
+            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
+            'ON "forces"(is_active) WHERE is_active IS TRUE'
+        )
+
+    if index_sql is not None:
+        with engine.connect() as conn:
+            conn.execute(text(index_sql))
+            conn.commit()
 
     print("Database tables created successfully")
 
