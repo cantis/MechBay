@@ -65,9 +65,22 @@ def list_miniatures():
     )
     minis, total_count = result  # type: ignore[misc]
     total_pages = max(1, (total_count + per_page - 1) // per_page)
-    # Clamp page to valid range
+
+    # Clamp page to valid range. If the original page was out of bounds the query
+    # returned an empty offset slice — re-run it against the clamped page so the
+    # rendered rows and pagination stay consistent.
     if page > total_pages:
         page = total_pages
+        result = get_all_miniatures(
+            q,
+            sort=sort,
+            direction=direction,
+            series_filter=series_filter,
+            faction_filter=faction_filter,
+            page=page,
+            per_page=per_page,
+        )
+        minis, _ = result  # type: ignore[misc]
 
     # Show message if filtered results are empty
     if not minis and (series_filter != "All" or faction_filter != "All" or q):

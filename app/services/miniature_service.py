@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 from sqlalchemy import and_, or_, select
@@ -110,7 +110,9 @@ def get_all_miniatures(
         if page is not None:
             from sqlalchemy import func as sa_func
 
-            count_stmt = select(sa_func.count()).select_from(stmt.subquery())
+            # Strip ordering from the count subquery — ORDER BY is meaningless
+            # for counting and causes unnecessary work on some backends.
+            count_stmt = select(sa_func.count()).select_from(stmt.order_by(None).subquery())
             total = session.execute(count_stmt).scalar_one()
             offset = (page - 1) * per_page
             items = session.execute(stmt.offset(offset).limit(per_page)).scalars().all()
@@ -222,8 +224,10 @@ def _upgrade_miniature_schema(data: list | dict) -> list:
 def import_from_json(path: str, merge: bool = False) -> int:
     file_path = Path(path)
     raw = json.loads(file_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, (list, dict)):
+        raise ValueError("JSON must be a list or object containing a miniatures list")
     items = _upgrade_miniature_schema(raw)
-    if not isinstance(items, Iterable):  # basic sanity
+    if not isinstance(items, list):
         raise ValueError("JSON must be a list of miniature objects")
 
     imported = 0

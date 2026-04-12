@@ -78,7 +78,7 @@
                 <form method="post" action="{{ url_for('forces.delete_lance', id=force.id, lance_id=lance.id) }}"
                     class="m-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="button" class="btn btn-sm btn-link text-danger p-0 delete-lance-btn">
+                    <button type="submit" class="btn btn-sm btn-link text-danger p-0 delete-lance-btn">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </form>

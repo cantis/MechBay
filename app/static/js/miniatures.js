@@ -64,6 +64,8 @@
     if (factionSelect) {
         factionSelect.addEventListener('change', function () {
             if (this.value === '__custom__') {
+                // Capture the previous value before the prompt so we can restore it on cancel
+                const previousValue = this.dataset.previousValue || '';
                 const custom = prompt('Enter custom faction name:');
                 if (custom && custom.trim()) {
                     const opt = document.createElement('option');
@@ -72,10 +74,16 @@
                     opt.selected = true;
                     this.insertBefore(opt, this.options[this.options.length - 1]);
                 } else {
-                    this.value = '';
+                    // Restore the selection that was active before "+ Add Custom…" was chosen
+                    this.value = previousValue;
                 }
+            } else {
+                // Track the last non-custom selection so we can restore it when needed
+                this.dataset.previousValue = this.value;
             }
         });
+        // Initialise previousValue to whatever is already selected on page load
+        factionSelect.dataset.previousValue = factionSelect.value;
     }
 
     // ── Dynamic next unique_id on series change (add form only) ──────────────
