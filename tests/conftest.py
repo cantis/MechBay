@@ -34,7 +34,14 @@ def app():
             "DATABASE_URL": "sqlite+pysqlite:///file::memory:?cache=shared&uri=true",
         }
     )
-    return test_app
+    yield test_app
+
+    # Dispose engine to close all pooled connections and prevent ResourceWarning
+    from app.extensions import db_session, engine
+
+    db_session.remove()
+    if engine is not None:
+        engine.dispose()
 
 
 @pytest.fixture()

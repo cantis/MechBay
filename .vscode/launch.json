@@ -11,7 +11,7 @@
             "request": "launch",
             "module": "flask",
             "env": {
-                "FLASK_APP": "main.py",
+                "FLASK_APP": "server:app",
                 "FLASK_DEBUG": "1"
             },
             "args": [
