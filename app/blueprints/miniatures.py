@@ -4,6 +4,7 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import structlog
 from flask import (
     Blueprint,
     flash,
@@ -27,6 +28,8 @@ from ..services.miniature_service import (
     import_from_json,
     update_miniature,
 )
+
+logger = structlog.get_logger()
 
 bp = Blueprint("miniatures", __name__, url_prefix="/miniatures")
 
@@ -452,6 +455,7 @@ def delete(id: int):  # noqa: A002
             flash(f"Warning: Miniature removed from forces: {force_names}", "warning")
 
     if delete_miniature(id):
+        logger.info("miniature_deleted_via_ui", miniature_id=id)
         flash("Miniature deleted", "info")
     else:
         flash("Miniature not found", "warning")
@@ -482,6 +486,7 @@ def bulk_action():
 
     data = request.get_json(silent=True)
     if not data:
+        logger.warning("bulk_action_bad_request", reason="missing action or ids")
         return jsonify({"success": False, "error": "No data"}), 400
 
     action = data.get("action", "")
@@ -489,6 +494,7 @@ def bulk_action():
     value = data.get("value", "")
 
     if not ids or not isinstance(ids, list):
+        logger.warning("bulk_action_bad_request", reason="missing action or ids")
         return jsonify({"success": False, "error": "No miniatures selected"}), 400
 
     field_map = {"set_status": "status", "set_faction": "faction"}
@@ -500,6 +506,7 @@ def bulk_action():
     except (ValueError, TypeError) as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
+    flash(f"Updated {count} miniature(s)", "success")
     return jsonify({"success": True, "updated": count})
 
 
@@ -527,6 +534,7 @@ def import_route():
         if not uploaded or uploaded.filename == "":
             flash("No file selected", "warning")
             return redirect(url_for("miniatures.import_route"))
+        logger.info("miniature_import_started", filename=uploaded.filename, merge=merge_flag)
 
         temp_path = Path("_upload.json")
         uploaded.save(temp_path)
@@ -534,6 +542,7 @@ def import_route():
             count = import_from_json(str(temp_path), merge=merge_flag)
             flash(f"Imported {count} miniatures", "success")
         except Exception as exc:  # noqa: BLE001
+            logger.warning("miniature_import_failed", exc_info=True)
             flash(f"Import failed: {exc}", "danger")
         finally:
             if temp_path.exists():

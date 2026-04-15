@@ -4,10 +4,13 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import structlog
 from sqlalchemy import and_, or_, select
 
 from ..extensions import session_scope
 from ..models.miniature import Miniature
+
+logger = structlog.get_logger()
 
 
 def get_next_unique_id(series: str) -> int:
@@ -147,7 +150,37 @@ def add_miniature(data: dict) -> Miniature:
         mini = Miniature(**data)
         session.add(mini)
         session.flush()  # populate PK
+        logger.info(
+            "miniature_created",
+            miniature_id=mini.id,
+            series=data.get("series"),
+            chassis=data.get("chassis"),
+        )
         return mini
+
+
+ALLOWED_UPDATE_FIELDS = {
+    "series",
+    "unique_id",
+    "prefix",
+    "chassis",
+    "type",
+    "faction",
+    "status",
+    "tray_id",
+    "notes",
+}
+
+ALLOWED_IMPORT_FIELDS = {
+    "series",
+    "prefix",
+    "chassis",
+    "type",
+    "faction",
+    "status",
+    "tray_id",
+    "notes",
+}
 
 
 def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
@@ -156,7 +189,7 @@ def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
         if not mini:
             return None
         for k, v in data.items():
-            if hasattr(mini, k):
+            if k in ALLOWED_UPDATE_FIELDS:
                 setattr(mini, k, v)
         session.flush()
         return mini
@@ -174,6 +207,7 @@ def bulk_update_miniatures(ids: list[int], field: str, value: str) -> int:
         int: Number of records updated.
     """
     if field not in BULK_ALLOWED_FIELDS:
+        logger.warning("bulk_update_rejected", field=field)
         raise ValueError(f"Bulk update not permitted for field '{field}'")
     if not ids:
         return 0
@@ -192,6 +226,7 @@ def delete_miniature(id: int) -> bool:  # noqa: A002
         if not mini:
             return False
         session.delete(mini)
+        logger.info("miniature_deleted", miniature_id=id)
         return True
 
 
@@ -209,6 +244,7 @@ def export_to_json() -> str:
         "schema_version": MINIATURE_SCHEMA_VERSION,
         "miniatures": [m.to_dict() for m in minis],
     }
+    logger.info("miniatures_exported", count=len(minis))
     return json.dumps(export_data, indent=2)
 
 
@@ -258,10 +294,7 @@ def import_from_json(path: str, merge: bool = False) -> int:
                 )
                 if existing:
                     for k, v in item.items():
-                        if hasattr(existing, k):
-                            # Ensure we don't accidentally write string unique_id back
-                            if k == "unique_id":
-                                continue
+                        if k in ALLOWED_IMPORT_FIELDS:
                             setattr(existing, k, v)
                     continue
             mini = Miniature(
@@ -278,4 +311,10 @@ def import_from_json(path: str, merge: bool = False) -> int:
             session.add(mini)
             imported += 1
         session.flush()
+    logger.info(
+        "miniatures_imported",
+        imported_count=imported,
+        total_in_file=len(items),
+        merge=merge,
+    )
     return imported

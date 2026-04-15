@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import structlog
 from sqlalchemy import and_, func, select
 
 from ..extensions import session_scope
@@ -31,6 +32,8 @@ from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
 from ..models.miniature import Miniature
+
+logger = structlog.get_logger()
 
 
 def get_active_force() -> Force | None:
@@ -90,6 +93,7 @@ def create_force(name: str) -> Force:
         force = Force(name=name, is_active=True)
         session.add(force)
         session.flush()
+        logger.info("force_created", force_id=force.id, name=name)
 
         # Eager load relationships (even if empty) so object is accessible outside session
         _ = force.lances  # Access to load even if empty list
@@ -142,6 +146,7 @@ def delete_force(force_id: int) -> bool:
         if not force:
             return False
         session.delete(force)
+        logger.info("force_deleted", force_id=force_id)
         return True
 
 
@@ -169,6 +174,9 @@ def add_miniature_to_lance(
         )
 
         if existing:
+            logger.warning(
+                "miniature_already_in_force", miniature_id=miniature_id, force_id=lance.force_id
+            )
             return {
                 "success": False,
                 "error": f"Miniature already in force (Lance: {existing.lance.name or 'Unnamed'})",
@@ -275,6 +283,7 @@ def delete_lance(lance_id: int) -> bool:
         if not lance:
             return False
         session.delete(lance)
+        logger.info("lance_deleted", lance_id=lance_id)
         return True
 
 
@@ -324,6 +333,8 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
             )
 
         export_data["lances"].append(lance_data)
+
+    logger.info("force_exported", force_id=force_id, force_name=force.name)
 
     # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -387,6 +398,12 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
                     missing_miniatures.append((mini_data["series"], mini_data["unique_id"]))
 
         session.flush()
+        logger.info(
+            "force_imported",
+            force_name=force.name,
+            lance_count=imported_count,
+            missing_count=len(missing_miniatures),
+        )
 
         return {
             "success": True,

@@ -50,6 +50,7 @@
         <label class="form-label">Type *</label>
         <select name="type" required
             class="form-select {% if errors is defined and errors.type %}is-invalid{% endif %}">
+            <option value="">-- choose --</option>
             {% set types = ['Mech','Vehicle','Infantry','VTOL','Support'] %}
             {% for t in types %}
             <option value="{{ t }}" {% if mini.type==t %}selected{% endif %}>{{ t }}</option>

@@ -23,6 +23,9 @@
         <a href="{{ url_for('forces.export', id=force.id) }}" class="btn btn-outline-success">
             <i class="fa-solid fa-download"></i> Export
         </a>
+        <a href="{{ url_for('miniatures.list_miniatures') }}" class="btn btn-outline-secondary">
+            <i class="fa-solid fa-list"></i> Inventory
+        </a>
         <a href="{{ url_for('forces.list_forces') }}" class="btn btn-outline-secondary">Back to Forces</a>
     </div>
 </div>
@@ -54,7 +57,7 @@
             </li>
             {% for template in templates %}
             <li>
-                <button class="dropdown-item" onclick="applyTemplate({{ template.id }}, '{{ template.name }}')">
+                <button class="dropdown-item" onclick="applyTemplate({{ template.id }})">
                     {{ template.name }}
                 </button>
             </li>
@@ -76,7 +79,7 @@
                     <i class="fa-solid fa-pen-to-square fa-xs text-muted ms-1"></i>
                 </h6>
                 <form method="post" action="{{ url_for('forces.delete_lance', id=force.id, lance_id=lance.id) }}"
-                    class="m-0">
+                    class="m-0" onsubmit="return confirm('Delete this lance and all its miniature assignments?');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-link text-danger p-0 delete-lance-btn">
                         <i class="fa-solid fa-trash"></i>

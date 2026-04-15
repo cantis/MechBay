@@ -5,12 +5,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import structlog
 from sqlalchemy import select
 
 from ..extensions import session_scope
 from ..models.lance_template import LanceTemplate
 from ..models.lance_template_miniature import LanceTemplateMiniature
 from ..models.miniature import Miniature
+
+logger = structlog.get_logger()
 
 
 def get_all_templates() -> list[LanceTemplate]:
@@ -51,6 +54,12 @@ def create_template(
             session.add(mini)
 
         session.flush()
+        logger.info(
+            "template_created",
+            template_id=template.id,
+            name=name,
+            pattern_count=len(chassis_patterns),
+        )
         session.expunge(template)
         return template
 
@@ -95,6 +104,7 @@ def delete_template(template_id: int) -> bool:
         if not template:
             return False
         session.delete(template)
+        logger.info("template_deleted", template_id=template_id)
         return True
 
 
@@ -171,6 +181,8 @@ def export_templates_to_json() -> tuple[str, str]:
         }
         export_data["templates"].append(template_data)
 
+    logger.info("templates_exported", count=len(templates))
+
     # Generate filename with timestamp
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"LanceTemplates_{timestamp}.json"
@@ -240,6 +252,12 @@ def import_templates_from_json(file_path: str) -> dict[str, Any]:
                     session.add(mini)
 
             imported_count += 1
+
+    logger.info(
+        "templates_imported",
+        imported_count=imported_count,
+        skipped_count=skipped_count,
+    )
 
     return {
         "imported_count": imported_count,

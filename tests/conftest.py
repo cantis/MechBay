@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import structlog
 
 # Ensure project root is on sys.path for 'import app'
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +26,7 @@ def app():
     Note: Uses file::memory:?cache=shared to allow multiple connections to share
     the same in-memory database within a single test.
     """
+    structlog.reset_defaults()
     test_app = create_app(
         {
             "TESTING": True,

@@ -3,9 +3,12 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+import structlog
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 
 from ..services import lance_template_service
+
+logger = structlog.get_logger()
 
 bp = Blueprint("lance_templates", __name__, url_prefix="/lance-templates")
 
@@ -98,6 +101,7 @@ def delete(id: int):  # noqa: A002
     """Delete a lance template."""
     success = lance_template_service.delete_template(id)
     if success:
+        logger.info("template_deleted_via_ui", template_id=id)
         flash("Template deleted", "info")
     else:
         flash("Template not found", "danger")
@@ -130,6 +134,8 @@ def import_route():
             flash("No file selected", "warning")
             return redirect(url_for("lance_templates.import_route"))
 
+        logger.info("template_import_started", filename=uploaded.filename)
+
         temp_path = Path("_upload_templates.json")
         uploaded.save(temp_path)
         try:
@@ -142,6 +148,7 @@ def import_route():
             )
             return redirect(url_for("lance_templates.list_templates"))
         except ValueError as e:
+            logger.warning("template_import_failed", exc_info=True)
             flash(f"Import failed: {str(e)}", "danger")
         finally:
             if temp_path.exists():

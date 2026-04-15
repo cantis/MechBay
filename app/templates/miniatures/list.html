@@ -1,10 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
 
-<!-- FontAwesome CDN for icons -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    crossorigin="anonymous" referrerpolicy="no-referrer" />
-
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h2 class="m-0">Miniatures</h2>
@@ -217,7 +213,8 @@
                                 <li>
                                     <form method="post"
                                         action="{{ url_for('miniatures.delete', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}"
-                                        onsubmit="return confirm('Delete this miniature?');" class="m-0">
+                                        onsubmit="return confirm('Delete {{ m.prefix }} {{ m.chassis }} ({{ m.series }}-{{ m.unique_id }})?');"
+                                        class="m-0">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="fa-solid fa-trash"></i> Delete
@@ -251,18 +248,22 @@
                     </a>
                 </li>
                 {% for p in range(1, total_pages + 1) %}
-                <li class="page-item {% if p == page %}active{% endif %}">
+                {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %} <li
+                    class="page-item {% if p == page %}active{% endif %}">
                     <a class="page-link"
                         href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=p, per_page=per_page) }}">{{
                         p }}</a>
-                </li>
-                {% endfor %}
-                <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                    <a class="page-link"
-                        href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=page+1, per_page=per_page) }}">
-                        &raquo;
-                    </a>
-                </li>
+                    </li>
+                    {% elif p == 2 or p == total_pages - 1 %}
+                    <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                    {% endif %}
+                    {% endfor %}
+                    <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+                        <a class="page-link"
+                            href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=faction_filter, page=page+1, per_page=per_page) }}">
+                            &raquo;
+                        </a>
+                    </li>
             </ul>
         </nav>
         <small class="text-muted">{{ total_count }} total &mdash; page {{ page }} of {{ total_pages }}</small>

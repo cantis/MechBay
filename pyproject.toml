@@ -29,6 +29,7 @@ dependencies = [
     "waitress>=3.0.0",
     "gunicorn>=23.0.0",
     "flask-wtf>=1.2.2",
+    "structlog>=25.5.0",
 ]
 
 [dependency-groups]

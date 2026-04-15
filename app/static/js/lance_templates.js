@@ -8,12 +8,24 @@
         const container = document.getElementById('chassis-list');
         const div = document.createElement('div');
         div.className = 'input-group mb-2';
-        div.innerHTML = `
-            <input type="text" name="chassis_${chassisCount}" class="form-control" placeholder="Chassis pattern" required>
-            <button type="button" class="btn btn-outline-danger" onclick="removeChassisField(this)">
-                <i class="fa-solid fa-times"></i>
-            </button>
-        `;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.name = `chassis_${chassisCount}`;
+        input.className = 'form-control';
+        input.placeholder = 'Chassis pattern';
+        input.required = true;
+        div.appendChild(input);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline-danger';
+        btn.onclick = function () { removeChassisField(this); };
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-times';
+        btn.appendChild(icon);
+        div.appendChild(btn);
+
         container.appendChild(div);
         chassisCount++;
     };

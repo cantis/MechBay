@@ -11,4 +11,4 @@ app = create_app()
 if __name__ == "__main__":
     # This branch is only used for development testing with Flask's built-in server
     # In production, Gunicorn will import the 'app' object directly
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=app.config.get("DEBUG", False))

@@ -50,17 +50,42 @@
                     location.reload();
                 } else if (data.needs_confirmation) {
                     const body = document.getElementById('templateConfirmBody');
-                    body.innerHTML = `
-                        <p>Template: <strong>${data.template_name}</strong></p>
-                        <p>Found ${data.matched_count} of ${data.matched_count + data.missing.length} miniatures.</p>
-                        ${data.missing.length > 0 ? `
-                            <p class="text-warning"><strong>Missing:</strong></p>
-                            <ul class="list-group">
-                                ${data.missing.map(m => `<li class="list-group-item">${m}</li>`).join('')}
-                            </ul>
-                            <p class="mt-2">Create partial lance with available miniatures?</p>
-                        ` : ''}
-                    `;
+                    body.textContent = '';
+
+                    const templateP = document.createElement('p');
+                    templateP.append('Template: ');
+                    const templateStrong = document.createElement('strong');
+                    templateStrong.textContent = data.template_name;
+                    templateP.append(templateStrong);
+                    body.append(templateP);
+
+                    const countP = document.createElement('p');
+                    countP.textContent = `Found ${data.matched_count} of ${data.matched_count + data.missing.length} miniatures.`;
+                    body.append(countP);
+
+                    if (data.missing.length > 0) {
+                        const missingP = document.createElement('p');
+                        missingP.className = 'text-warning';
+                        const missingStrong = document.createElement('strong');
+                        missingStrong.textContent = 'Missing:';
+                        missingP.append(missingStrong);
+                        body.append(missingP);
+
+                        const missingList = document.createElement('ul');
+                        missingList.className = 'list-group';
+                        data.missing.forEach(m => {
+                            const item = document.createElement('li');
+                            item.className = 'list-group-item';
+                            item.textContent = m;
+                            missingList.append(item);
+                        });
+                        body.append(missingList);
+
+                        const partialP = document.createElement('p');
+                        partialP.className = 'mt-2';
+                        partialP.textContent = 'Create partial lance with available miniatures?';
+                        body.append(partialP);
+                    }
                     new bootstrap.Modal(document.getElementById('templateConfirmModal')).show();
                 } else {
                     alert(data.error || 'Failed to apply template');

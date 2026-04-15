@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import structlog
 from flask import Flask
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, scoped_session, sessionmaker
@@ -10,6 +11,9 @@ from sqlalchemy.orm import DeclarativeBase, scoped_session, sessionmaker
 
 class Base(DeclarativeBase):
     pass
+
+
+logger = structlog.get_logger()
 
 
 engine = None
@@ -42,6 +46,7 @@ def session_scope() -> Iterator:
         session.commit()
     except Exception:  # noqa: BLE001
         session.rollback()
+        logger.error("db_rollback", exc_info=True)
         raise
     finally:
         session.close()

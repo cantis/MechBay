@@ -43,7 +43,7 @@
         })
         .then(r => r.json())
         .then(data => {
-            if (data.success) { location.reload(); }
+            if (data.success) { setTimeout(() => location.reload(), 100); }
             else { alert('Bulk action failed: ' + (data.error || 'Unknown error')); }
         });
     };
