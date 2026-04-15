@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -168,7 +168,7 @@ def export_templates_to_json() -> tuple[str, str]:
     # Build export data
     export_data = {
         "schema_version": TEMPLATE_SCHEMA_VERSION,
-        "export_timestamp": datetime.utcnow().isoformat(),
+        "export_timestamp": datetime.now(UTC).isoformat(),
         "template_count": len(templates),
         "templates": [],
     }
@@ -184,7 +184,7 @@ def export_templates_to_json() -> tuple[str, str]:
     logger.info("templates_exported", count=len(templates))
 
     # Generate filename with timestamp
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"LanceTemplates_{timestamp}.json"
 
     # Return JSON string and filename

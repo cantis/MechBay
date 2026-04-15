@@ -20,7 +20,7 @@ Future considerations:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -115,7 +115,7 @@ def switch_force(force_id: int) -> Force | None:
 
         # Activate selected force
         force.is_active = True
-        force.updated_at = datetime.utcnow()
+        force.updated_at = datetime.now(UTC)
         session.flush()
         return force
 
@@ -134,7 +134,7 @@ def rename_force(force_id: int, new_name: str) -> Force | None:
             return None
 
         force.name = new_name.strip()
-        force.updated_at = datetime.utcnow()
+        force.updated_at = datetime.now(UTC)
         session.flush()
         return force
 
@@ -310,7 +310,7 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
     export_data = {
         "schema_version": FORCE_SCHEMA_VERSION,
         "force_name": force.name,
-        "export_timestamp": datetime.utcnow().isoformat(),
+        "export_timestamp": datetime.now(UTC).isoformat(),
         "lances": [],
     }
 

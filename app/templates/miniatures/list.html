@@ -113,7 +113,8 @@
         <thead>
             <tr>
                 <th style="width:36px">
-                    <input type="checkbox" id="selectAll" class="form-check-input" title="Select all on this page">
+                    <input type="checkbox" id="selectAll" class="form-check-input" title="Select all on this page"
+                        aria-label="Select all miniatures on this page">
                 </th>
                 {% set columns = [
                 ('series', 'Series'),
@@ -126,7 +127,8 @@
                 ('tray_id', 'Tray')
                 ] %}
                 {% for col, label in columns %}
-                <th style="cursor:pointer">
+                <th style="cursor:pointer" {% if sort==col %}
+                    aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}" {% endif %}>
                     <a href="{{ url_for('miniatures.list_miniatures', q=query, series=series_filter, faction=faction_filter, sort=col, direction='asc' if sort != col or direction == 'desc' else 'desc', per_page=per_page) }}"
                         style="text-decoration:none; color:inherit;">
                         {{ label }}
@@ -156,7 +158,8 @@
                 ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';"
                 data-id="{{ m.id }}">
                 <td onclick="event.stopPropagation()">
-                    <input type="checkbox" class="form-check-input row-check" value="{{ m.id }}">
+                    <input type="checkbox" class="form-check-input row-check" value="{{ m.id }}"
+                        aria-label="Select {{ m.prefix }} {{ m.chassis }}">
                 </td>
                 <td><span class="badge bg-secondary">{{ m.series }}</span></td>
                 <td>{{ m.unique_id }}</td>

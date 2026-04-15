@@ -28,7 +28,7 @@
                     body: JSON.stringify({ miniature_id: miniatureId, target_lance_id: targetLanceId, position })
                 }).then(response => {
                     if (!response.ok) { alert('Failed to move miniature'); location.reload(); }
-                });
+                }).catch(() => { alert('Network error moving miniature'); location.reload(); });
             }
         });
     });
@@ -90,7 +90,8 @@
                 } else {
                     alert(data.error || 'Failed to apply template');
                 }
-            });
+            })
+            .catch(() => alert('Network error applying template'));
     };
 
     const confirmBtn = document.getElementById('confirmTemplateBtn');
@@ -105,7 +106,8 @@
                 .then(data => {
                     if (data.success) { location.reload(); }
                     else { alert(data.error || 'Failed to create lance'); }
-                });
+                })
+                .catch(() => alert('Network error confirming template'));
         };
     }
 
@@ -121,7 +123,7 @@
             }).then(response => {
                 if (response.ok) { setTimeout(() => location.reload(), 100); }
                 else { alert('Failed to remove miniature'); }
-            });
+            }).catch(() => { alert('Network error removing miniature'); location.reload(); });
         };
         modal.show();
     };
@@ -154,7 +156,8 @@
                         } else {
                             alert('Failed to rename lance');
                         }
-                    });
+                    })
+                    .catch(() => alert('Failed to rename lance'));
             };
             bsModal.show();
             // Focus input after modal shown

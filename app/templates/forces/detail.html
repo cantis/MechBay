@@ -122,11 +122,12 @@
 </div>
 
 <!-- Template Confirmation Modal -->
-<div class="modal fade" id="templateConfirmModal" tabindex="-1">
+<div class="modal fade" id="templateConfirmModal" tabindex="-1" aria-labelledby="templateConfirmModalLabel"
+    aria-modal="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Apply Lance Template</h5>
+                <h5 class="modal-title" id="templateConfirmModalLabel">Apply Lance Template</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="templateConfirmBody">
@@ -141,11 +142,12 @@
 </div>
 
 <!-- Remove Miniature Confirmation Modal -->
-<div class="modal fade" id="confirmRemoveModal" tabindex="-1">
+<div class="modal fade" id="confirmRemoveModal" tabindex="-1" aria-labelledby="confirmRemoveModalLabel"
+    aria-modal="true">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Remove Miniature</h5>
+                <h5 class="modal-title" id="confirmRemoveModalLabel">Remove Miniature</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">Remove this miniature from the force?</div>
@@ -158,11 +160,11 @@
 </div>
 
 <!-- Rename Lance Modal -->
-<div class="modal fade" id="renameLanceModal" tabindex="-1">
+<div class="modal fade" id="renameLanceModal" tabindex="-1" aria-labelledby="renameLanceModalLabel" aria-modal="true">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Rename Lance</h5>
+                <h5 class="modal-title" id="renameLanceModalLabel">Rename Lance</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -177,11 +179,12 @@
 </div>
 
 <!-- Delete Lance Confirmation Modal -->
-<div class="modal fade" id="confirmDeleteLanceModal" tabindex="-1">
+<div class="modal fade" id="confirmDeleteLanceModal" tabindex="-1" aria-labelledby="confirmDeleteLanceModalLabel"
+    aria-modal="true">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Delete Lance</h5>
+                <h5 class="modal-title" id="confirmDeleteLanceModalLabel">Delete Lance</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">Delete this lance and all its miniature assignments?</div>

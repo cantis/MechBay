@@ -45,7 +45,8 @@
         .then(data => {
             if (data.success) { setTimeout(() => location.reload(), 100); }
             else { alert('Bulk action failed: ' + (data.error || 'Unknown error')); }
-        });
+        })
+        .catch(() => alert('Network error during bulk action'));
     };
 
     const selectAll = document.getElementById('selectAll');

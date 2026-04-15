@@ -24,6 +24,7 @@ from ..services.miniature_service import (
     export_to_json,
     get_all_miniatures,
     get_distinct_factions,
+    get_miniature_by_id,
     get_next_unique_id,
     import_from_json,
     update_miniature,
@@ -32,6 +33,20 @@ from ..services.miniature_service import (
 logger = structlog.get_logger()
 
 bp = Blueprint("miniatures", __name__, url_prefix="/miniatures")
+
+_FILTER_KEYS = ("series", "faction", "q", "sort", "direction")
+_FILTER_DEFAULTS = {"series": "All", "faction": "All", "q": "", "sort": "", "direction": ""}
+
+
+def _filter_params_with_defaults(source=None, prefix=""):
+    """Extract filter params with defaults for template re-rendering."""
+    src = source or request.args
+    return {k: src.get(f"{prefix}{k}", _FILTER_DEFAULTS[k]) for k in _FILTER_KEYS}
+
+
+def _preserve_filters(source, prefix="return_"):
+    """Extract non-empty filter params from form data for redirect URLs."""
+    return {k: v for k in _FILTER_KEYS if (v := source.get(f"{prefix}{k}"))}
 
 
 @bp.route("")
@@ -183,13 +198,7 @@ def add():
                 "tray_id": form.get("tray_id"),
                 "notes": form.get("notes"),
             }
-            filter_params = {
-                "series": form.get("return_series", "All"),
-                "faction": form.get("return_faction", "All"),
-                "q": form.get("return_q", ""),
-                "sort": form.get("return_sort", ""),
-                "direction": form.get("return_direction", ""),
-            }
+            filter_params = _filter_params_with_defaults(form, prefix="return_")
             available_factions = get_distinct_factions()
             return render_template(
                 "miniatures/add.html",
@@ -213,18 +222,7 @@ def add():
         add_miniature(data)
         flash("Miniature added", "success")
 
-        # Preserve filter state from hidden form fields
-        return_params = {}
-        if form.get("return_series"):
-            return_params["series"] = form.get("return_series")
-        if form.get("return_faction"):
-            return_params["faction"] = form.get("return_faction")
-        if form.get("return_q"):
-            return_params["q"] = form.get("return_q")
-        if form.get("return_sort"):
-            return_params["sort"] = form.get("return_sort")
-        if form.get("return_direction"):
-            return_params["direction"] = form.get("return_direction")
+        return_params = _preserve_filters(form)
 
         return redirect(url_for("miniatures.list_miniatures", **return_params))
 
@@ -232,14 +230,7 @@ def add():
     next_id = get_next_unique_id("A")
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/add.html",
@@ -296,14 +287,7 @@ def duplicate(id: int):  # noqa: A002
     flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/add.html",
@@ -316,23 +300,10 @@ def duplicate(id: int):  # noqa: A002
 
 @bp.route("/<int:id>/edit", methods=["GET", "POST"])
 def edit(id: int):  # noqa: A002
-    from ..services.miniature_service import get_all_miniatures
-
-    # Simple lookup; could optimize with direct get
-    mini = next((m for m in get_all_miniatures() if m.id == id), None)
+    mini = get_miniature_by_id(id)
     if not mini:
         flash("Miniature not found", "danger")
-        # Preserve filter state from query params
-        return redirect(
-            url_for(
-                "miniatures.list_miniatures",
-                series=request.args.get("series", "All"),
-                faction=request.args.get("faction", "All"),
-                q=request.args.get("q", ""),
-                sort=request.args.get("sort", ""),
-                direction=request.args.get("direction", ""),
-            )
-        )
+        return redirect(url_for("miniatures.list_miniatures", **_filter_params_with_defaults()))
     if request.method == "POST":
         form = request.form
         errors: dict[str, str] = {}
@@ -359,13 +330,7 @@ def edit(id: int):  # noqa: A002
             errors["type"] = "Type is required"
 
         if errors:
-            filter_params = {
-                "series": form.get("return_series", "All"),
-                "faction": form.get("return_faction", "All"),
-                "q": form.get("return_q", ""),
-                "sort": form.get("return_sort", ""),
-                "direction": form.get("return_direction", ""),
-            }
+            filter_params = _filter_params_with_defaults(form, prefix="return_")
             # Merge form values into mini object for re-display
             mini.series = series
             mini.unique_id = unique_id_raw  # type: ignore[assignment]
@@ -399,31 +364,13 @@ def edit(id: int):  # noqa: A002
         update_miniature(id, data)
         flash("Miniature updated", "success")
 
-        # Preserve filter state from hidden form fields
-        return_params = {}
-        if form.get("return_series"):
-            return_params["series"] = form.get("return_series")
-        if form.get("return_faction"):
-            return_params["faction"] = form.get("return_faction")
-        if form.get("return_q"):
-            return_params["q"] = form.get("return_q")
-        if form.get("return_sort"):
-            return_params["sort"] = form.get("return_sort")
-        if form.get("return_direction"):
-            return_params["direction"] = form.get("return_direction")
+        return_params = _preserve_filters(form)
 
         return redirect(url_for("miniatures.list_miniatures", **return_params))
 
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/edit.html",
@@ -460,18 +407,7 @@ def delete(id: int):  # noqa: A002
     else:
         flash("Miniature not found", "warning")
 
-    # Preserve filter state from query parameters
-    return_params = {}
-    if request.args.get("series"):
-        return_params["series"] = request.args.get("series")
-    if request.args.get("faction"):
-        return_params["faction"] = request.args.get("faction")
-    if request.args.get("q"):
-        return_params["q"] = request.args.get("q")
-    if request.args.get("sort"):
-        return_params["sort"] = request.args.get("sort")
-    if request.args.get("direction"):
-        return_params["direction"] = request.args.get("direction")
+    return_params = _preserve_filters(request.args, prefix="")
 
     return redirect(url_for("miniatures.list_miniatures", **return_params))
 

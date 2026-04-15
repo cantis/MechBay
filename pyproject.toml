@@ -1,3 +1,4 @@
+#:schema https://json.schemastore.org/pyproject.json
 [project]
 name = "mechbay"
 version = "1.0.5"

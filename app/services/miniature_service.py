@@ -49,6 +49,15 @@ def get_next_unique_id(series: str) -> int:
         return candidate
 
 
+def get_miniature_by_id(miniature_id: int) -> Miniature | None:
+    """Get a single miniature by primary key."""
+    with session_scope() as session:
+        mini = session.get(Miniature, miniature_id)
+        if mini:
+            session.expunge(mini)
+        return mini
+
+
 def get_all_miniatures(
     search_query: str | None = None,
     sort: str | None = None,
@@ -156,6 +165,7 @@ def add_miniature(data: dict) -> Miniature:
             series=data.get("series"),
             chassis=data.get("chassis"),
         )
+        session.expunge(mini)
         return mini
 
 
@@ -192,6 +202,7 @@ def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
             if k in ALLOWED_UPDATE_FIELDS:
                 setattr(mini, k, v)
         session.flush()
+        session.expunge(mini)
         return mini
 
 
