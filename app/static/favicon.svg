@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Torso -->
+  <rect x="10" y="4" width="12" height="13" rx="1.5" fill="#0d6efd"/>
+  <!-- Visor -->
+  <rect x="12" y="7" width="8" height="3" fill="#ffffff"/>
+  <!-- Left Arm (Gun) -->
+  <rect x="4" y="7" width="5" height="12" rx="1" fill="#0d6efd"/>
+  <rect x="5" y="19" width="3" height="4" fill="#0d6efd"/>
+  <!-- Right Arm (Gun) -->
+  <rect x="23" y="7" width="5" height="12" rx="1" fill="#0d6efd"/>
+  <rect x="24" y="19" width="3" height="4" fill="#0d6efd"/>
+  <!-- Left Leg -->
+  <rect x="11" y="18" width="4" height="12" rx="1" fill="#0d6efd"/>
+  <!-- Right Leg -->
+  <rect x="17" y="18" width="4" height="12" rx="1" fill="#0d6efd"/>
+</svg>
