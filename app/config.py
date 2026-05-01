@@ -38,6 +38,7 @@ class Config:
     DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{_db_path.as_posix()}")
     JSON_SORT_KEYS = False
     APPLICATION_ROOT = os.environ.get("APPLICATION_ROOT", "/")
+    TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes")
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10 MB upload limit
 
 
