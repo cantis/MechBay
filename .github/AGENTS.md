@@ -9,8 +9,7 @@ Follow those files when their `applyTo` patterns match the files being changed.
 - Read `docs/TESTING.md` before adding or changing tests.
 - Read `docs/SECURITY.md` before touching CSRF configuration, file uploads, input validation, logging, or secret key handling.
 - Read `docs/DEVELOPMENT.md` for local setup, migration commands, Docker workflow, and environment variables.
-- Read `docs/DESIGN.md` before changing colors, typography, spacing, or component visual styling (machine-readable design token spec).
-- Read `docs/UI-CONVENTIONS.md` before changing templates, Jinja structure, flash messages, icons, or JavaScript interaction patterns.
+- Read `docs/DESIGN.md` before changing UI layout, templates, flash messages, or reusable components.
 
 ## Overview
 
