@@ -10,7 +10,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
 
-from .config import Config  # noqa: E402
+from .config import Config, validate_runtime_config  # noqa: E402
 from .extensions import init_db  # noqa: E402
 
 
@@ -23,6 +23,8 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     # Apply any explicit overrides (used by tests to inject in-memory DB)
     if config_overrides:
         app.config.update(config_overrides)
+
+    validate_runtime_config(app.config)
 
     # Only trust X-Forwarded-* headers when explicitly enabled for a
     # deployment behind a trusted reverse proxy that strips any client-

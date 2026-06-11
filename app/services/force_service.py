@@ -5,16 +5,13 @@ Handles active force management and import/export functionality.
 
 KNOWN LIMITATION - Thread Safety:
 The active force invariant (only one Force.is_active=True) is enforced by
-application logic without database-level constraints. Concurrent calls to
-create_force() or switch_active_force() in a multi-threaded or multi-process
-environment may result in multiple active forces due to race conditions.
+application logic and a partial unique index (uix_one_active_force) on SQLite
+and PostgreSQL. Concurrent calls to create_force() or switch_active_force() may
+still race before commit; the index rejects a second active row at flush time.
 
 Future considerations:
-- SQLite limitation: Cannot enforce single-row constraint across table
-- PostgreSQL solution: CREATE UNIQUE INDEX idx_one_active ON forces (is_active) WHERE is_active=true
 - Add pessimistic row locking with SELECT FOR UPDATE when switching active
 - Consider application-level distributed lock for multi-instance deployments
-- Add database migration to create partial unique index when migrating to PostgreSQL
 """
 
 from __future__ import annotations

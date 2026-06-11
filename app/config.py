@@ -10,6 +10,30 @@ BASE_DIR = Path(__file__).resolve().parent
 logger = structlog.get_logger()
 
 
+def is_persistent_deployment() -> bool:
+    """Return True when the app runs in a server/Docker context that needs a stable secret."""
+    return Path("/data").exists() or os.environ.get("REQUIRE_SECRET_KEY", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def validate_runtime_config(config: dict) -> None:
+    """Fail fast when production deployments omit required configuration."""
+    if config.get("TESTING"):
+        return
+    if os.environ.get("SECRET_KEY"):
+        return
+    if config.get("DEBUG"):
+        return
+    if is_persistent_deployment():
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set for production deployments. "
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+
+
 class Config:
     _secret_key = os.environ.get("SECRET_KEY")
     if _secret_key:

@@ -83,6 +83,40 @@ def test_miniature_add_duplicate_unique_id(client):
     assert "already exists in series" in resp.get_data(as_text=True).lower()
 
 
+def test_miniature_edit_duplicate_unique_id(client):
+    """Test editing a miniature to a taken series+unique_id is rejected."""
+    first_data = {
+        "series": "A",
+        "unique_id": 1001,
+        "prefix": "WHM",
+        "chassis": "Warhammer",
+        "type": "Mech",
+    }
+    second_data = {
+        "series": "A",
+        "unique_id": 1002,
+        "prefix": "ATL",
+        "chassis": "Atlas",
+        "type": "Mech",
+    }
+
+    client.post("/miniatures/add", data=first_data, follow_redirects=True)
+    client.post("/miniatures/add", data=second_data, follow_redirects=True)
+
+    with client.application.app_context():
+        from app.services.miniature_service import get_all_miniatures
+
+        second = next(m for m in get_all_miniatures() if m.unique_id == 1002)
+
+    resp = client.post(
+        f"/miniatures/{second.id}/edit",
+        data={**second_data, "unique_id": 1001},
+    )
+
+    assert resp.status_code == 200
+    assert "already exists in series" in resp.get_data(as_text=True).lower()
+
+
 def test_miniature_edit_not_found(client):
     """Test edit route for missing miniature shows not found message."""
     resp = client.get("/miniatures/99999/edit", follow_redirects=True)

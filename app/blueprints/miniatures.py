@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -47,6 +48,30 @@ def _filter_params_with_defaults(source=None, prefix=""):
 def _preserve_filters(source, prefix="return_"):
     """Extract non-empty filter params from form data for redirect URLs."""
     return {k: v for k in _FILTER_KEYS if (v := source.get(f"{prefix}{k}"))}
+
+
+def _duplicate_unique_id_error(
+    series: str, unique_id: int, *, exclude_id: int | None = None
+) -> str | None:
+    """Return an error message when series+unique_id is taken by another record."""
+    from sqlalchemy import and_
+
+    from ..extensions import session_scope
+    from ..models.miniature import Miniature
+
+    with session_scope() as session:
+        query = session.query(Miniature).filter(
+            and_(Miniature.series == series, Miniature.unique_id == unique_id)
+        )
+        if exclude_id is not None:
+            query = query.filter(Miniature.id != exclude_id)
+        if query.first():
+            next_unique = get_next_unique_id(series)
+            return (
+                f"ID {unique_id} already exists in Series {series}. "
+                f"Next available: {next_unique}"
+            )
+    return None
 
 
 @bp.route("")
@@ -166,25 +191,9 @@ def add():
         if not mini_type:
             errors["type"] = "Type is required"
 
-        # Check duplicate (series, unique_id)
         if unique_id is not None and "unique_id" not in errors:
-            from sqlalchemy import and_
-
-            from ..extensions import session_scope
-            from ..models.miniature import Miniature
-
-            with session_scope() as session:
-                existing = (
-                    session.query(Miniature)
-                    .filter(and_(Miniature.series == series, Miniature.unique_id == unique_id))
-                    .first()
-                )
-                if existing:
-                    next_unique = get_next_unique_id(series)
-                    errors["unique_id"] = (
-                        f"ID {unique_id} already exists in Series {series}. "
-                        f"Next available: {next_unique}"
-                    )
+            if dup := _duplicate_unique_id_error(series, unique_id):
+                errors["unique_id"] = dup
 
         if errors:
             prefill = {
@@ -329,6 +338,10 @@ def edit(id: int):  # noqa: A002
         if not mini_type:
             errors["type"] = "Type is required"
 
+        if unique_id is not None and "unique_id" not in errors:
+            if dup := _duplicate_unique_id_error(series, unique_id, exclude_id=id):
+                errors["unique_id"] = dup
+
         if errors:
             filter_params = _filter_params_with_defaults(form, prefix="return_")
             # Merge form values into mini object for re-display
@@ -472,16 +485,18 @@ def import_route():
             return redirect(url_for("miniatures.import_route"))
         logger.info("miniature_import_started", filename=uploaded.filename, merge=merge_flag)
 
-        temp_path = Path("_upload.json")
-        uploaded.save(temp_path)
+        tmp_path = None
         try:
-            count = import_from_json(str(temp_path), merge=merge_flag)
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+                uploaded.save(tmp_path)
+            count = import_from_json(tmp_path, merge=merge_flag)
             flash(f"Imported {count} miniatures", "success")
         except Exception as exc:  # noqa: BLE001
             logger.warning("miniature_import_failed", exc_info=True)
             flash(f"Import failed: {exc}", "danger")
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
         return redirect(url_for("miniatures.list_miniatures"))
     return render_template("miniatures/import.html")

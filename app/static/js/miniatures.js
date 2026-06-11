@@ -99,7 +99,10 @@
             fetch('/miniatures/next-id/' + this.value)
                 .then(r => r.json())
                 .then(data => { uniqueIdInput.value = data.next_id; })
-                .catch(() => {});
+                .catch(() => {
+                    alert('Failed to fetch next ID. Please try again.');
+                    console.warn('next-id fetch failed');
+                });
         });
     }
 })();

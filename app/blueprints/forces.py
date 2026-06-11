@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -338,10 +339,12 @@ def import_route():
             return redirect(url_for("forces.import_route"))
 
         logger.info("force_import_started", filename=uploaded.filename)
-        temp_path = Path("_upload_force.json")
-        uploaded.save(temp_path)
+        tmp_path = None
         try:
-            result = force_service.import_force_from_json(str(temp_path))
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+                uploaded.save(tmp_path)
+            result = force_service.import_force_from_json(tmp_path)
 
             flash(
                 f"""Imported force '{result["force_name"]}' with {result["imported_count"]}
@@ -357,8 +360,8 @@ def import_route():
             logger.warning("force_import_failed", exc_info=True)
             flash(f"Import failed: {exc}", "danger")
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
 
         return redirect(url_for("forces.import_route"))
 

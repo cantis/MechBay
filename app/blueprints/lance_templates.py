@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from io import BytesIO
 from pathlib import Path
 
@@ -136,10 +137,12 @@ def import_route():
 
         logger.info("template_import_started", filename=uploaded.filename)
 
-        temp_path = Path("_upload_templates.json")
-        uploaded.save(temp_path)
+        tmp_path = None
         try:
-            result = lance_template_service.import_templates_from_json(str(temp_path))
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+                uploaded.save(tmp_path)
+            result = lance_template_service.import_templates_from_json(tmp_path)
 
             flash(
                 f"Imported {result['imported_count']} template(s). "
@@ -151,8 +154,8 @@ def import_route():
             logger.warning("template_import_failed", exc_info=True)
             flash(f"Import failed: {str(e)}", "danger")
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
 
         return redirect(url_for("lance_templates.import_route"))
 
