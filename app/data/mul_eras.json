@@ -1,0 +1,14 @@
+[
+  {"id": 9, "name": "Age of War"},
+  {"id": 10, "name": "Star League"},
+  {"id": 11, "name": "Early Succession Wars"},
+  {"id": 255, "name": "Late Succession War - LosTech"},
+  {"id": 256, "name": "Late Succession War - Renaissance"},
+  {"id": 13, "name": "Clan Invasion"},
+  {"id": 247, "name": "Civil War"},
+  {"id": 14, "name": "Jihad"},
+  {"id": 15, "name": "Early Republic"},
+  {"id": 254, "name": "Late Republic"},
+  {"id": 16, "name": "Dark Age"},
+  {"id": 257, "name": "ilClan"}
+]

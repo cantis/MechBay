@@ -30,6 +30,72 @@
     </div>
 </div>
 
+<!-- Alpha Strike Configuration -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fa-solid fa-crosshairs"></i> Alpha Strike</h5>
+        {% if as_config and as_summary %}
+        <span id="asBudgetBadge" class="badge {% if as_summary.status == 'over_hard' %}bg-danger{% elif as_summary.status == 'over_fudge' %}bg-warning text-dark{% elif as_summary.status == 'within' %}bg-success{% else %}bg-secondary{% endif %}">
+            {{ as_summary.total_pv }} PV
+            {% if as_config.point_budget %}/ {{ as_config.point_budget }}{% endif %}
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('alpha_strike.enable', force_id=force.id) }}" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label">Faction</label>
+                <select name="mul_faction_id" class="form-select" required>
+                    <option value="">Select faction…</option>
+                    {% for f in mul_factions %}
+                    <option value="{{ f.id }}" {% if as_config and as_config.mul_faction_id == f.id %}selected{% endif %}>
+                        {{ f.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Availability Era</label>
+                <select name="mul_era_id" class="form-select" required>
+                    <option value="">Select era…</option>
+                    {% for e in mul_eras %}
+                    <option value="{{ e.id }}" {% if as_config and as_config.mul_era_id == e.id %}selected{% endif %}>
+                        {{ e.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Point Budget</label>
+                <input type="number" name="point_budget" class="form-control" min="1"
+                    placeholder="Optional"
+                    value="{{ as_config.point_budget if as_config and as_config.point_budget else '' }}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    {% if as_config %}Update{% else %}Enable{% endif %}
+                </button>
+            </div>
+        </form>
+        {% if as_config %}
+        <div class="mt-2 small text-muted">
+            {{ as_config.faction_name }} · {{ as_config.era_name }}
+            {% if as_summary %}
+            · {{ as_summary.configured_count }} configured, {{ as_summary.unconfigured_count }} unconfigured
+            {% if as_config.point_budget %}
+            · budget allows +{{ as_config.fudge_percent }}% fudge (max {{ as_summary.effective_budget }} PV)
+            {% endif %}
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="mt-2 mb-0 small text-muted">
+            Configure era and faction to assign Alpha Strike variants and track point values.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
 <!-- Add Lance Dropdown -->
 <div class="mb-3">
     <div class="dropdown d-inline">
@@ -90,17 +156,37 @@
                 <ul class="list-group sortable-lance" data-lance-id="{{ lance.id }}">
                     {% for fm in lance.miniatures %}
                     {% set m = fm.miniature %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center"
-                        data-miniature-id="{{ m.id }}">
-                        <div>
-                            <i class="fa-solid fa-grip-vertical text-muted me-2" style="cursor: grab;"></i>
-                            <strong>{{ m.prefix }}</strong> {{ m.chassis }}
-                            <small class="text-muted">({{ m.series }}-{{ m.unique_id }})</small>
+                    {% set as_assign = as_assignments.get(fm.id) if as_assignments is defined else none %}
+                    <li class="list-group-item"
+                        data-miniature-id="{{ m.id }}"
+                        data-fm-id="{{ fm.id }}"
+                        data-chassis="{{ m.chassis }}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <i class="fa-solid fa-grip-vertical text-muted me-2" style="cursor: grab;"></i>
+                                <strong>{{ m.prefix }}</strong> {{ m.chassis }}
+                                <small class="text-muted">({{ m.series }}-{{ m.unique_id }})</small>
+                                {% if as_config %}
+                                <div class="ms-4 mt-1">
+                                    {% if as_assign %}
+                                    <span class="badge bg-primary">{{ as_assign.variant }}</span>
+                                    <span class="text-muted">{{ as_assign.tonnage }}T</span>
+                                    <span class="badge bg-success">{{ as_assign.point_value }} PV</span>
+                                    <button type="button" class="btn btn-link btn-sm p-0 ms-1 assign-variant-btn"
+                                        data-fm-id="{{ fm.id }}" data-chassis="{{ m.chassis }}">Change</button>
+                                    {% else %}
+                                    <span class="text-muted fst-italic">Variant not set</span>
+                                    <button type="button" class="btn btn-link btn-sm p-0 ms-1 assign-variant-btn"
+                                        data-fm-id="{{ fm.id }}" data-chassis="{{ m.chassis }}">Assign variant</button>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            <button class="btn btn-sm btn-link text-danger p-0"
+                                onclick="removeMiniature({{ m.id }}, {{ force.id }})">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
                         </div>
-                        <button class="btn btn-sm btn-link text-danger p-0"
-                            onclick="removeMiniature({{ m.id }}, {{ force.id }})">
-                            <i class="fa-solid fa-times"></i>
-                        </button>
                     </li>
                     {% else %}
                     <li class="list-group-item text-muted text-center empty-placeholder">Empty lance</li>
@@ -196,6 +282,45 @@
     </div>
 </div>
 
+<!-- Variant Picker Modal -->
+<div class="modal fade" id="variantPickerModal" tabindex="-1" aria-labelledby="variantPickerModalLabel"
+    aria-modal="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="variantPickerModalLabel">Assign Alpha Strike Variant</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-2" id="variantPickerSubtitle"></p>
+                <div id="variantPickerLoading" class="text-center py-3 d-none">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    Searching Master Unit List…
+                </div>
+                <div id="variantPickerError" class="alert alert-warning d-none"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover d-none" id="variantPickerTable">
+                        <thead>
+                            <tr>
+                                <th>Variant</th>
+                                <th>Class</th>
+                                <th>Type</th>
+                                <th>Tons</th>
+                                <th>PV</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="variantPickerBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/forces.js') }}"></script>
+{% if as_config %}
+<script src="{{ url_for('static', filename='js/alpha_strike.js') }}"></script>
+{% endif %}
 
 {% endblock %}

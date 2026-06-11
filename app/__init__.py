@@ -88,12 +88,14 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             logger.info("demo_data_loaded", record_count=count)
 
     # Register blueprints
+    from .blueprints.alpha_strike import bp as alpha_strike_bp
     from .blueprints.forces import bp as forces_bp
     from .blueprints.lance_templates import bp as lance_templates_bp
     from .blueprints.miniatures import bp as miniatures_bp
 
     app.register_blueprint(miniatures_bp)
     app.register_blueprint(forces_bp)
+    app.register_blueprint(alpha_strike_bp)
     app.register_blueprint(lance_templates_bp)
 
     @app.route("/")

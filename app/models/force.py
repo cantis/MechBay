@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..extensions import Base
 
 if TYPE_CHECKING:
+    from .alpha_strike_force import AlphaStrikeForce
     from .lance import Lance
 
 
@@ -26,6 +27,9 @@ class Force(Base):
     # Relationships
     lances: Mapped[list[Lance]] = relationship(
         "Lance", back_populates="force", cascade="all, delete-orphan", order_by="Lance.order"
+    )
+    alpha_strike: Mapped[AlphaStrikeForce | None] = relationship(
+        "AlphaStrikeForce", back_populates="force", uselist=False, cascade="all, delete-orphan"
     )
 
     def to_dict(self) -> dict:

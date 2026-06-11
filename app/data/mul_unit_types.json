@@ -1,0 +1,12 @@
+{
+  "Mech": {"id": 18, "name": "BattleMech"},
+  "BattleMech": {"id": 18, "name": "BattleMech"},
+  "Vehicle": {"id": 19, "name": "Combat Vehicle"},
+  "Combat Vehicle": {"id": 19, "name": "Combat Vehicle"},
+  "Aerospace": {"id": 17, "name": "Aerospace"},
+  "Infantry": {"id": 21, "name": "Infantry"},
+  "Industrial Mech": {"id": 20, "name": "Industrial Mech"},
+  "Protomech": {"id": 23, "name": "Protomech"},
+  "Support Vehicle": {"id": 24, "name": "Support Vehicle"},
+  "Advanced Aerospace": {"id": 81, "name": "Advanced Aerospace"}
+}

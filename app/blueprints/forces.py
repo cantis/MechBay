@@ -8,7 +8,8 @@ from pathlib import Path
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
-from ..services import force_service, lance_template_service
+from ..services import alpha_strike_service, force_service, lance_template_service
+from ..services.mul_service import get_eras, get_factions
 
 logger = structlog.get_logger()
 
@@ -45,8 +46,20 @@ def detail(id: int):  # noqa: A002
         return redirect(url_for("forces.list_forces"))
 
     templates = lance_template_service.get_all_templates()
+    as_config = alpha_strike_service.get_alpha_strike_force(id)
+    as_summary = alpha_strike_service.get_force_summary(id) if as_config else None
+    as_assignments = alpha_strike_service.get_assignments_for_force(id) if as_config else {}
 
-    return render_template("forces/detail.html", force=force, templates=templates)
+    return render_template(
+        "forces/detail.html",
+        force=force,
+        templates=templates,
+        as_config=as_config,
+        as_summary=as_summary,
+        as_assignments=as_assignments,
+        mul_factions=get_factions(),
+        mul_eras=get_eras(),
+    )
 
 
 @bp.route("/<int:id>/activate", methods=["POST"])
@@ -326,7 +339,18 @@ def print_report(id: int):  # noqa: A002
         flash("Force not found", "danger")
         return redirect(url_for("forces.list_forces"))
 
-    return render_template("forces/report.html", force=force, now=datetime.now())
+    as_config = alpha_strike_service.get_alpha_strike_force(id)
+    as_summary = alpha_strike_service.get_force_summary(id) if as_config else None
+    as_assignments = alpha_strike_service.get_assignments_for_force(id) if as_config else {}
+
+    return render_template(
+        "forces/report.html",
+        force=force,
+        now=datetime.now(),
+        as_config=as_config,
+        as_summary=as_summary,
+        as_assignments=as_assignments,
+    )
 
 
 @bp.route("/import", methods=["GET", "POST"])
