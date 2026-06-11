@@ -344,6 +344,17 @@ def test_per_page_limits_rows_shown(client):
     assert "page=2" in body
 
 
+def test_list_page_beyond_total_renders_last_page(client):
+    """An out-of-range page param clamps to the last page and still shows rows."""
+    _add_batch(25)
+    resp = client.get("/miniatures?per_page=20&page=99")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Mech021" in body
+    assert "Mech025" in body
+    assert "page=2" in body
+
+
 def test_per_page_100_fits_all_on_one_page(client):
     """?per_page=100 with 25 records shows no pagination nav."""
     _add_batch(25)

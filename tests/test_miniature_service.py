@@ -358,6 +358,15 @@ def test_import_from_json_v1_envelope(client, tmp_path):
     assert minis[0].chassis == "Marauder"
 
 
+def test_import_from_json_rejects_invalid_root(client, tmp_path):
+    """import_from_json raises ValueError when the JSON root is not a list or object."""
+    path = Path(tmp_path) / "invalid.json"
+    path.write_text(json.dumps("not-a-list"), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="JSON must be a list or object"):
+        import_from_json(str(path), merge=False)
+
+
 def test_import_from_json_defaults_series_to_a(client, tmp_path):
     """Records without a 'series' key default to series 'A'."""
     items = [{"unique_id": 3, "chassis": "Vulture", "prefix": "VT", "type": "Mech"}]
