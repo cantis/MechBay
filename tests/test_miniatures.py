@@ -3,6 +3,22 @@ from __future__ import annotations
 import io
 import json
 
+from app.services.miniature_service import add_miniature
+
+
+def _add_batch(n: int, series: str = "A") -> None:
+    """Add *n* miniatures to the DB quickly."""
+    for i in range(1, n + 1):
+        add_miniature(
+            {
+                "series": series,
+                "unique_id": i,
+                "prefix": "WHM",
+                "chassis": f"Mech{i:03d}",
+                "type": "Mech",
+            }
+        )
+
 
 def test_add_miniature(client, mini_data):
     resp = client.post("/miniatures/add", data=mini_data, follow_redirects=True)
@@ -56,10 +72,16 @@ def test_export_import_json(client, mini_data):
     # Export
     export_resp = client.get("/miniatures/export")
     assert export_resp.status_code == 200
-    exported = json.loads(export_resp.data.decode("utf-8"))
+    exported_root = json.loads(export_resp.data.decode("utf-8"))
+    # Support schema v1 envelope ({"schema_version":1, "miniatures":[...]}) and legacy list
+    exported = (
+        exported_root.get("miniatures", exported_root)
+        if isinstance(exported_root, dict)
+        else exported_root
+    )
     assert any(m["unique_id"] == mini_data["unique_id"] for m in exported)
 
-    # Overwrite import with only one piece
+    # Overwrite import with only one piece (use legacy bare-list format — import handles both)
     one = json.dumps([exported[0]]).encode("utf-8")
     data = {"file": (io.BytesIO(one), "import.json")}
     import_resp = client.post(
@@ -305,3 +327,87 @@ def test_add_miniature_saves_faction(client):
     assert minis[0].faction == "Clan Wolf"
     assert minis[0].chassis == "Warhammer"
     assert minis[0].status == "Finished"
+
+
+# ===========================================================================
+# Configurable page size (per_page query param + cookie)
+# ===========================================================================
+
+
+def test_per_page_limits_rows_shown(client):
+    """?per_page=20 with 25 records shows pagination nav for page 2."""
+    _add_batch(25)
+    resp = client.get("/miniatures?per_page=20")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # Pagination nav should contain a link to page 2
+    assert "page=2" in body
+
+
+def test_list_page_beyond_total_renders_last_page(client):
+    """An out-of-range page param clamps to the last page and still shows rows."""
+    _add_batch(25)
+    resp = client.get("/miniatures?per_page=20&page=99")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Mech021" in body
+    assert "Mech025" in body
+    assert "page=2" in body
+
+
+def test_per_page_100_fits_all_on_one_page(client):
+    """?per_page=100 with 25 records shows no pagination nav."""
+    _add_batch(25)
+    resp = client.get("/miniatures?per_page=100")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # No multi-page nav when everything fits — pagination nav element absent
+    assert 'aria-label="Inventory pagination"' not in body
+
+
+def test_per_page_invalid_falls_back_to_50(client):
+    """An invalid per_page value falls back to 50 without error."""
+    _add_batch(5)
+    resp = client.get("/miniatures?per_page=999")
+    assert resp.status_code == 200
+    # Dropdown should show the fallback value
+    assert "Per page: 50" in resp.get_data(as_text=True)
+
+
+def test_per_page_sets_cookie(client):
+    """Selecting a page size sets the mechbay_per_page cookie."""
+    resp = client.get("/miniatures?per_page=20")
+    assert resp.status_code == 200
+    cookie_header = resp.headers.get("Set-Cookie", "")
+    assert "mechbay_per_page=20" in cookie_header
+
+
+def test_per_page_cookie_default_used_when_no_param(client):
+    """Without a URL param the cookie value is used as per_page."""
+    _add_batch(25)
+    # First visit with explicit per_page=20 sets the cookie
+    client.get("/miniatures?per_page=20")
+    # Second visit without param — cookie should kick in, showing page nav
+    resp = client.get("/miniatures")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Per page: 20" in body
+
+
+def test_per_page_url_param_beats_cookie(client):
+    """A URL param overrides the cookie value."""
+    _add_batch(5)
+    # Set cookie to 20
+    client.get("/miniatures?per_page=20")
+    # Override with URL param 50
+    resp = client.get("/miniatures?per_page=50")
+    assert "Per page: 50" in resp.get_data(as_text=True)
+
+
+def test_per_page_dropdown_visible_in_html(client):
+    """The per_page dropdown renders all valid size options."""
+    resp = client.get("/miniatures")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for size in (20, 30, 40, 50, 100):
+        assert f"per_page={size}" in body

@@ -1,17 +1,60 @@
 # MechBay Copilot Instructions
 
-## Project Overview
+This repository uses scoped instruction files under `.github/instructions/`.
+Follow those files when their `applyTo` patterns match the files being changed.
+
+## Important project references
+
+- Read `docs/ARCHITECTURE.md` before changing service boundaries, session handling, route patterns, or model relationships.
+- Read `docs/TESTING.md` before adding or changing tests.
+- Read `docs/SECURITY.md` before touching CSRF configuration, file uploads, input validation, logging, or secret key handling.
+- Read `docs/DEVELOPMENT.md` for local setup, migration commands, Docker workflow, and environment variables.
+- Read `docs/DESIGN.md` before changing colors, typography, spacing, or component visual styling (machine-readable design token spec).
+- Read `docs/UI-CONVENTIONS.md` before changing templates, Jinja structure, flash messages, icons, or JavaScript interaction patterns.
+
+## Overview
+
 Flask web app for managing BattleTech miniature inventories and organizing forces. Three main entities: **Miniatures** (individual models), **Forces** (collections of lances), and **Lance Templates** (reusable lance configurations).
+
+- **Backend**: Flask 3.1+, SQLAlchemy 2.0+, SQLite, Waitress (production)
+- **Frontend**: Bootstrap 5.3, Font Awesome 6.4, SortableJS — all via CDN; server-rendered Jinja2
+- **Package manager**: `uv` — use PowerShell for all commands
+- **Python**: 3.13+ required
+
+## Directory Layout
+
+```
+app/
+  __init__.py           # Application factory: create_app()
+  config.py             # Config class; reads from environment / .env
+  extensions.py         # SQLAlchemy setup and session_scope()
+  blueprints/           # Thin route controllers (one file per area)
+  models/               # SQLAlchemy models (one file per model)
+  services/             # Business logic (one file per domain)
+  templates/            # Jinja2 templates; base.html + per-area folders
+  static/               # Custom CSS and JS; libraries via CDN
+tests/                  # pytest; conftest.py has all shared fixtures
+docs/                   # Architecture, development, design, security docs
+main.py                 # Dev entry point (debug=True, port 5001)
+server.py               # Production entry point (Waitress)
+Dockerfile              # Docker image
+```
+
+## Blueprint / Route Structure
+
+| Blueprint         | Prefix             | File                                |
+|-------------------|--------------------|-------------------------------------|
+| `miniatures`      | `/miniatures`      | `app/blueprints/miniatures.py`      |
+| `forces`          | `/forces`          | `app/blueprints/forces.py`          |
+| `lance_templates` | `/lance-templates` | `app/blueprints/lance_templates.py` |
+| *(root)*          | `/`                | registered in `app/__init__.py`     |
 
 ## Architecture Patterns
 
 ### Session Management
-- Use `session_scope()` context manager from `app/extensions.py` for all DB operations
-- Always `session.expunge()` objects before returning from service functions to prevent detached instance errors
-- Service layer (`app/services/`) handles all business logic and DB transactions
-- Blueprints (`app/blueprints/`) are thin controllers that call services
 
-Example:
+Always use `session_scope()` from `app/extensions.py`. Always `session.expunge()` objects before returning from service functions.
+
 ```python
 from ..extensions import session_scope
 
@@ -19,105 +62,75 @@ def get_force_by_id(force_id: int) -> Force | None:
     with session_scope() as session:
         force = session.get(Force, force_id)
         if force:
-            # Eager load relationships within session
             for lance in force.lances:
                 _ = lance.miniatures
-            session.expunge(force)  # Critical: make accessible outside session
+            session.expunge(force)  # Critical: prevents DetachedInstanceError
         return force
 ```
 
 ### Dual-Mode Routes (JSON + Form)
-Routes support both JSON (AJAX) and form submissions. Detect request type and respond appropriately:
+
+Routes support both JSON (AJAX) and form submissions. Standard JSON envelope:
 
 ```python
-@bp.route("/<int:id>/add-miniature", methods=["POST"])
-def add_miniature(id: int):
-    is_json = request.is_json
-    data = request.get_json(silent=True) or request.form  # silent=True prevents Content-Type errors
-
-    # ... business logic ...
-
-    if is_json:
-        return jsonify({"success": True}), 200
-    else:
-        flash("Miniature added to lance", "success")
-        return redirect(url_for("miniatures.list_miniatures"))
+{"success": bool, "error": str | None, "data": dict | None}
 ```
 
-**Key**: Set flash messages BEFORE the `if is_json` check when using AJAX + page reload (see `forces.remove_miniature`). JavaScript uses `setTimeout(() => location.reload(), 100)` to allow flash message to persist.
+HTTP status codes: `200` success · `400` bad input · `404` not found · `409` conflict
+
+Rules:
+1. Validate `int()` conversions in `try/except` at route level — return 400 on failure
+2. Set flash messages **before** the `if is_json` check — JS uses `setTimeout(() => location.reload(), 100)`
+3. Use `request.get_json(silent=True) or request.form` — `silent=True` prevents Content-Type errors
+4. Always include `"success"` key in every JSON response
 
 ### SQLAlchemy Delete Pattern
-Cannot call `.delete()` on queries with joins. Use this pattern instead:
 
 ```python
 # ❌ Fails with joins
 session.query(ForceMiniature).join(Lance).filter(...).delete()
 
-# ✅ Correct pattern
+# ✅ Correct
 records = session.query(ForceMiniature).join(Lance).filter(...).all()
 for record in records:
     session.delete(record)
 ```
 
-## File Naming Conventions
-- Export files use timestamp format: `{EntityType}_YYYYMMDD_HHMMSS.json`
-- Example: `Miniature_Inventory_20251120_143025.json`
-- Generate with: `datetime.now().strftime("%Y%m%d_%H%M%S")`
+## Key Model Relationships
 
-## Frontend Patterns
-
-### SortableJS Drag-and-Drop
-Forces page uses SortableJS for miniature reordering between lances. On drop:
-1. Update UI immediately (optimistic)
-2. POST new positions to backend
-3. Backend validates and saves
-
-### Auto-Fading Flash Messages
-Flash messages auto-dismiss after 3 seconds using Bootstrap Alert component (see `app/templates/base.html`). Include close button with `alert-dismissible fade show` classes.
-
-### Editable Elements
-Double-click elements with `.editable-lance-name` class to edit inline. Use `prompt()` for input, fetch API to save, update DOM on success.
-
-## Development Workflow
-
-### Running the App
-```powershell
-uv sync                      # Install dependencies
-uv run python .\main.py      # Start dev server (debug=True)
-```
-
-### Database Operations
-```powershell
-uv run python -m app.migrations  # Create/update schema
-uv run python -m app.seed        # Populate sample data (6 lance templates)
-```
-
-### Testing
-```powershell
-uv run pytest -q            # Run tests (uses in-memory SQLite)
-uv run ruff check .         # Lint
-```
-
-Tests use `conftest.py` fixture that creates fresh in-memory DB per test via `create_app({"DATABASE_URL": "sqlite+pysqlite:///:memory:"})`.
-
-## Key Relationships
 - `Force` → many `Lance` (cascade delete)
 - `Lance` → many `ForceMiniature` (join table with position ordering)
 - `ForceMiniature` → one `Miniature` (reference, not cascade)
 - `LanceTemplate` → many `LanceTemplateMiniature` (chassis patterns for auto-matching)
 
-**Active Force**: Only one force can be `is_active=True` at a time. Used for quick miniature assignment from inventory screen.
+**Active Force**: Only one force can be `is_active=True` at a time.
 
-### Miniature Naming Convention
-- **Chassis**: Base model name (e.g., "Warhammer")
-- **Prefix**: Chassis designator/acronym (e.g., "WHM")
-- **Type**: Variant code (e.g., "WHM-6R", "WHM-7M")
+**Miniature naming**: Chassis (`"Warhammer"`), Prefix (`"WHM"`), Type (`"WHM-6R"`). Template matching uses chassis name substring.
 
-Lance template matching uses chassis name - "Warhammer" pattern matches both "Warhammer WHM-6R" and "Warhammer WHM-7M" variants.
+## Development Workflow
 
-## Import/Export
-All import functions support merge mode (match on key field) or overwrite mode. Export generates timestamped filenames. See `app/services/*_service.py` for implementations.
+```powershell
+uv sync                           # Install dependencies
+uv run python .\main.py           # Start dev server (port 5001)
+uv run python -m app.migrations   # Create/update schema
+uv run python -m app.seed         # Load demo data
+uv run pytest -q                  # Run tests
+uv run ruff check .               # Lint
+```
 
-## Future Considerations
-- **Deployment**: Plans to migrate to Gunicorn + Docker for production
-- **Scope**: Currently focused on physical miniature inventory management, not game mechanics (pilot skills, special abilities, detailed loadouts)
+Tests use in-memory SQLite via `create_app({"DATABASE_URL": "sqlite+pysqlite:///:memory:"})`.
+
+## Key Environment Variables
+
+See `docs/DEVELOPMENT.md` for the full table.
+
+- `SECRET_KEY` — Flask session/CSRF signing key (random ephemeral default; **set in production**)
+- `DATABASE_URL` — defaults to `%APPDATA%\MechBay\mechbay.db` (Windows) or `/data/mechbay.db` (Docker)
+- `DEBUG` — enables debug mode and colourized logs
+- `TRUST_PROXY_HEADERS` — set `true` only behind a trusted reverse proxy
+- `APPLICATION_ROOT` — path prefix for reverse-proxy deployments
+
+## File Naming Conventions
+
+Export files: `{EntityType}_YYYYMMDD_HHMMSS.json`
+Generate with: `datetime.now().strftime("%Y%m%d_%H%M%S")`

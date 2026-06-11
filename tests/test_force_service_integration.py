@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.services.force_service import (
     add_miniature_to_lance,
@@ -42,6 +43,23 @@ from tests.conftest import (
 # ============================================================================
 # CRUD OPERATIONS - Integration Tests
 # ============================================================================
+
+
+def test_db_rejects_two_active_forces(client):
+    """Partial unique index prevents two simultaneously active forces."""
+    from app.extensions import db_session
+    from app.models.force import Force
+
+    session = db_session()
+    try:
+        session.add(Force(name="Force A", is_active=True))
+        session.flush()
+        session.add(Force(name="Force B", is_active=True))
+        with pytest.raises(IntegrityError):
+            session.flush()
+    finally:
+        session.rollback()
+        session.close()
 
 
 @pytest.mark.slow

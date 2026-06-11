@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import structlog
 from flask import (
     Blueprint,
     flash,
+    make_response,
     redirect,
     render_template,
     request,
@@ -17,16 +20,58 @@ from flask import (
 from ..services import force_service
 from ..services.miniature_service import (
     add_miniature,
+    bulk_update_miniatures,
     delete_miniature,
     export_to_json,
     get_all_miniatures,
     get_distinct_factions,
+    get_miniature_by_id,
     get_next_unique_id,
     import_from_json,
     update_miniature,
 )
 
+logger = structlog.get_logger()
+
 bp = Blueprint("miniatures", __name__, url_prefix="/miniatures")
+
+_FILTER_KEYS = ("series", "faction", "q", "sort", "direction")
+_FILTER_DEFAULTS = {"series": "All", "faction": "All", "q": "", "sort": "", "direction": ""}
+
+
+def _filter_params_with_defaults(source=None, prefix=""):
+    """Extract filter params with defaults for template re-rendering."""
+    src = source or request.args
+    return {k: src.get(f"{prefix}{k}", _FILTER_DEFAULTS[k]) for k in _FILTER_KEYS}
+
+
+def _preserve_filters(source, prefix="return_"):
+    """Extract non-empty filter params from form data for redirect URLs."""
+    return {k: v for k in _FILTER_KEYS if (v := source.get(f"{prefix}{k}"))}
+
+
+def _duplicate_unique_id_error(
+    series: str, unique_id: int, *, exclude_id: int | None = None
+) -> str | None:
+    """Return an error message when series+unique_id is taken by another record."""
+    from sqlalchemy import and_
+
+    from ..extensions import session_scope
+    from ..models.miniature import Miniature
+
+    with session_scope() as session:
+        query = session.query(Miniature).filter(
+            and_(Miniature.series == series, Miniature.unique_id == unique_id)
+        )
+        if exclude_id is not None:
+            query = query.filter(Miniature.id != exclude_id)
+        if query.first():
+            next_unique = get_next_unique_id(series)
+            return (
+                f"ID {unique_id} already exists in Series {series}. "
+                f"Next available: {next_unique}"
+            )
+    return None
 
 
 @bp.route("")
@@ -36,17 +81,49 @@ def list_miniatures():
     direction = request.args.get("direction")
     series_filter = request.args.get("series", "All")
     faction_filter = request.args.get("faction", "All")
+    VALID_PAGE_SIZES = [20, 30, 40, 50, 100]
+    per_page_raw = request.args.get("per_page") or request.cookies.get("mechbay_per_page")
+    try:
+        per_page = int(per_page_raw) if per_page_raw else 50
+    except (TypeError, ValueError):
+        per_page = 50
+    if per_page not in VALID_PAGE_SIZES:
+        per_page = 50
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
 
     # Get available factions for filter UI
     factions = get_distinct_factions()
 
-    minis = get_all_miniatures(
+    result = get_all_miniatures(
         q,
         sort=sort,
         direction=direction,
         series_filter=series_filter,
         faction_filter=faction_filter,
+        page=page,
+        per_page=per_page,
     )
+    minis, total_count = result  # type: ignore[misc]
+    total_pages = max(1, (total_count + per_page - 1) // per_page)
+
+    # Clamp page to valid range. If the original page was out of bounds the query
+    # returned an empty offset slice — re-run it against the clamped page so the
+    # rendered rows and pagination stay consistent.
+    if page > total_pages:
+        page = total_pages
+        result = get_all_miniatures(
+            q,
+            sort=sort,
+            direction=direction,
+            series_filter=series_filter,
+            faction_filter=faction_filter,
+            page=page,
+            per_page=per_page,
+        )
+        minis, _ = result  # type: ignore[misc]
 
     # Show message if filtered results are empty
     if not minis and (series_filter != "All" or faction_filter != "All" or q):
@@ -61,110 +138,100 @@ def list_miniatures():
         assigned_miniature_ids = force_service.get_miniatures_in_force(active_force.id)
         lances = active_force.lances
 
-    return render_template(
-        "miniatures/list.html",
-        miniatures=minis,
-        query=q,
-        sort=sort,
-        direction=direction,
-        series_filter=series_filter,
-        faction_filter=faction_filter,
-        factions=factions,
-        active_force=active_force,
-        assigned_miniature_ids=assigned_miniature_ids,
-        lances=lances,
+    resp = make_response(
+        render_template(
+            "miniatures/list.html",
+            miniatures=minis,
+            query=q,
+            sort=sort,
+            direction=direction,
+            series_filter=series_filter,
+            faction_filter=faction_filter,
+            factions=factions,
+            active_force=active_force,
+            assigned_miniature_ids=assigned_miniature_ids,
+            lances=lances,
+            page=page,
+            per_page=per_page,
+            total_count=total_count,
+            total_pages=total_pages,
+            valid_page_sizes=VALID_PAGE_SIZES,
+        )
     )
+    resp.set_cookie(
+        "mechbay_per_page", str(per_page), max_age=60 * 60 * 24 * 365, samesite="Lax", httponly=True
+    )
+    return resp
 
 
 @bp.route("/add", methods=["GET", "POST"])
 def add():
     if request.method == "POST":
         form = request.form
-        unique_id_raw = form.get("unique_id")
+        errors: dict[str, str] = {}
+
+        unique_id_raw = form.get("unique_id", "").strip()
         try:
             unique_id = int(unique_id_raw)
+            if unique_id < 1:
+                errors["unique_id"] = "Unique ID must be a positive integer"
         except (TypeError, ValueError):
-            flash("Unique ID must be an integer", "danger")
-            # Preserve filter state on error
-            return redirect(
-                url_for(
-                    "miniatures.add",
-                    series=form.get("return_series", "All"),
-                    faction=form.get("return_faction", "All"),
-                    q=form.get("return_q", ""),
-                    sort=form.get("return_sort", ""),
-                    direction=form.get("return_direction", ""),
-                )
-            )
+            unique_id = None
+            errors["unique_id"] = "Unique ID must be an integer"
 
-        series = form.get("series", "A")
-        if not series:
-            series = "A"
+        series = form.get("series", "A") or "A"
+        prefix = form.get("prefix", "").strip()
+        chassis = form.get("chassis", "").strip()
+        mini_type = form.get("type", "").strip()
+
+        if not prefix:
+            errors["prefix"] = "Prefix is required"
+        if not chassis:
+            errors["chassis"] = "Chassis is required"
+        if not mini_type:
+            errors["type"] = "Type is required"
+
+        if unique_id is not None and "unique_id" not in errors:
+            if dup := _duplicate_unique_id_error(series, unique_id):
+                errors["unique_id"] = dup
+
+        if errors:
+            prefill = {
+                "series": series,
+                "unique_id": unique_id_raw,
+                "prefix": prefix,
+                "chassis": chassis,
+                "type": mini_type,
+                "faction": form.get("faction"),
+                "status": form.get("status"),
+                "tray_id": form.get("tray_id"),
+                "notes": form.get("notes"),
+            }
+            filter_params = _filter_params_with_defaults(form, prefix="return_")
+            available_factions = get_distinct_factions()
+            return render_template(
+                "miniatures/add.html",
+                prefill=prefill,
+                errors=errors,
+                available_factions=available_factions,
+                filter_params=filter_params,
+            )
 
         data = {
             "series": series,
             "unique_id": unique_id,
-            "prefix": form.get("prefix"),
-            "chassis": form.get("chassis"),
-            "type": form.get("type"),
+            "prefix": prefix,
+            "chassis": chassis,
+            "type": mini_type,
             "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
             "notes": form.get("notes"),
         }
-        # Prevent duplicate (series, unique_id) combination
-        from sqlalchemy import and_
-
-        from ..extensions import session_scope
-        from ..models.miniature import Miniature
-
-        with session_scope() as session:
-            existing = (
-                session.query(Miniature)
-                .filter(and_(Miniature.series == series, Miniature.unique_id == unique_id))
-                .first()
-            )
-            if existing:
-                # Calculate next available unique_id in this series
-                next_unique = get_next_unique_id(series)
-
-                # Preserve all form fields and suggest next ID
-                prefill = {
-                    "series": series,
-                    "unique_id": next_unique,
-                    "prefix": form.get("prefix"),
-                    "chassis": form.get("chassis"),
-                    "type": form.get("type"),
-                    "faction": form.get("faction"),
-                    "status": form.get("status"),
-                    "tray_id": form.get("tray_id"),
-                    "notes": form.get("notes"),
-                }
-                flash(
-                    f"""Unique ID {unique_id} already exists in Series {series}.
-                      Suggested next ID: {next_unique}""",
-                    "danger",
-                )
-                available_factions = get_distinct_factions()
-                return render_template(
-                    "miniatures/add.html", prefill=prefill, available_factions=available_factions
-                )
-
         add_miniature(data)
         flash("Miniature added", "success")
 
-        # Preserve filter state from hidden form fields
-        return_params = {}
-        if form.get("return_series"):
-            return_params["series"] = form.get("return_series")
-        if form.get("return_faction"):
-            return_params["faction"] = form.get("return_faction")
-        if form.get("return_q"):
-            return_params["q"] = form.get("return_q")
-        if form.get("return_sort"):
-            return_params["sort"] = form.get("return_sort")
-        if form.get("return_direction"):
-            return_params["direction"] = form.get("return_direction")
+        return_params = _preserve_filters(form)
 
         return redirect(url_for("miniatures.list_miniatures", **return_params))
 
@@ -172,14 +239,7 @@ def add():
     next_id = get_next_unique_id("A")
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/add.html",
@@ -236,14 +296,7 @@ def duplicate(id: int):  # noqa: A002
     flash(f"Duplicating {mini.prefix} {mini.chassis} into new entry", "info")
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/add.html",
@@ -256,53 +309,66 @@ def duplicate(id: int):  # noqa: A002
 
 @bp.route("/<int:id>/edit", methods=["GET", "POST"])
 def edit(id: int):  # noqa: A002
-    from ..services.miniature_service import get_all_miniatures
-
-    # Simple lookup; could optimize with direct get
-    mini = next((m for m in get_all_miniatures() if m.id == id), None)
+    mini = get_miniature_by_id(id)
     if not mini:
         flash("Miniature not found", "danger")
-        # Preserve filter state from query params
-        return redirect(
-            url_for(
-                "miniatures.list_miniatures",
-                series=request.args.get("series", "All"),
-                faction=request.args.get("faction", "All"),
-                q=request.args.get("q", ""),
-                sort=request.args.get("sort", ""),
-                direction=request.args.get("direction", ""),
-            )
-        )
+        return redirect(url_for("miniatures.list_miniatures", **_filter_params_with_defaults()))
     if request.method == "POST":
         form = request.form
-        unique_id_raw = form.get("unique_id")
+        errors: dict[str, str] = {}
+
+        unique_id_raw = form.get("unique_id", "").strip()
         try:
             unique_id = int(unique_id_raw)
+            if unique_id < 1:
+                errors["unique_id"] = "Unique ID must be a positive integer"
         except (TypeError, ValueError):
-            flash("Unique ID must be an integer", "danger")
-            # Preserve filter state from hidden form fields
-            return redirect(
-                url_for(
-                    "miniatures.edit",
-                    id=id,
-                    series=form.get("return_series", "All"),
-                    faction=form.get("return_faction", "All"),
-                    q=form.get("return_q", ""),
-                    sort=form.get("return_sort", ""),
-                    direction=form.get("return_direction", ""),
-                )
-            )
+            unique_id = None
+            errors["unique_id"] = "Unique ID must be an integer"
 
-        series = form.get("series", "A")
-        if not series:
-            series = "A"
+        series = form.get("series", "A") or "A"
+        prefix = form.get("prefix", "").strip()
+        chassis = form.get("chassis", "").strip()
+        mini_type = form.get("type", "").strip()
+
+        if not prefix:
+            errors["prefix"] = "Prefix is required"
+        if not chassis:
+            errors["chassis"] = "Chassis is required"
+        if not mini_type:
+            errors["type"] = "Type is required"
+
+        if unique_id is not None and "unique_id" not in errors:
+            if dup := _duplicate_unique_id_error(series, unique_id, exclude_id=id):
+                errors["unique_id"] = dup
+
+        if errors:
+            filter_params = _filter_params_with_defaults(form, prefix="return_")
+            # Merge form values into mini object for re-display
+            mini.series = series
+            mini.unique_id = unique_id_raw  # type: ignore[assignment]
+            mini.prefix = prefix
+            mini.chassis = chassis
+            mini.type = mini_type
+            mini.faction = form.get("faction")
+            mini.status = form.get("status")
+            mini.tray_id = form.get("tray_id")
+            mini.notes = form.get("notes")
+            available_factions = get_distinct_factions()
+            return render_template(
+                "miniatures/edit.html",
+                mini=mini,
+                errors=errors,
+                available_factions=available_factions,
+                filter_params=filter_params,
+            )
 
         data = {
             "series": series,
             "unique_id": unique_id,
-            "prefix": form.get("prefix"),
-            "chassis": form.get("chassis"),
-            "type": form.get("type"),
+            "prefix": prefix,
+            "chassis": chassis,
+            "type": mini_type,
             "faction": form.get("faction"),
             "status": form.get("status"),
             "tray_id": form.get("tray_id"),
@@ -311,31 +377,13 @@ def edit(id: int):  # noqa: A002
         update_miniature(id, data)
         flash("Miniature updated", "success")
 
-        # Preserve filter state from hidden form fields
-        return_params = {}
-        if form.get("return_series"):
-            return_params["series"] = form.get("return_series")
-        if form.get("return_faction"):
-            return_params["faction"] = form.get("return_faction")
-        if form.get("return_q"):
-            return_params["q"] = form.get("return_q")
-        if form.get("return_sort"):
-            return_params["sort"] = form.get("return_sort")
-        if form.get("return_direction"):
-            return_params["direction"] = form.get("return_direction")
+        return_params = _preserve_filters(form)
 
         return redirect(url_for("miniatures.list_miniatures", **return_params))
 
     available_factions = get_distinct_factions()
 
-    # Capture filter params to preserve state
-    filter_params = {
-        "series": request.args.get("series", "All"),
-        "faction": request.args.get("faction", "All"),
-        "q": request.args.get("q", ""),
-        "sort": request.args.get("sort", ""),
-        "direction": request.args.get("direction", ""),
-    }
+    filter_params = _filter_params_with_defaults()
 
     return render_template(
         "miniatures/edit.html",
@@ -367,24 +415,48 @@ def delete(id: int):  # noqa: A002
             flash(f"Warning: Miniature removed from forces: {force_names}", "warning")
 
     if delete_miniature(id):
+        logger.info("miniature_deleted_via_ui", miniature_id=id)
         flash("Miniature deleted", "info")
     else:
         flash("Miniature not found", "warning")
 
-    # Preserve filter state from query parameters
-    return_params = {}
-    if request.args.get("series"):
-        return_params["series"] = request.args.get("series")
-    if request.args.get("faction"):
-        return_params["faction"] = request.args.get("faction")
-    if request.args.get("q"):
-        return_params["q"] = request.args.get("q")
-    if request.args.get("sort"):
-        return_params["sort"] = request.args.get("sort")
-    if request.args.get("direction"):
-        return_params["direction"] = request.args.get("direction")
+    return_params = _preserve_filters(request.args, prefix="")
 
     return redirect(url_for("miniatures.list_miniatures", **return_params))
+
+
+@bp.route("/bulk-action", methods=["POST"])
+def bulk_action():
+    """Apply a field update to a set of selected miniatures.
+
+    Expects JSON body: ``{"action": "set_status"|"set_faction", "ids": [...], "value": "..."}``.
+    """
+    from flask import jsonify
+
+    data = request.get_json(silent=True)
+    if not data:
+        logger.warning("bulk_action_bad_request", reason="missing action or ids")
+        return jsonify({"success": False, "error": "No data"}), 400
+
+    action = data.get("action", "")
+    ids = data.get("ids", [])
+    value = data.get("value", "")
+
+    if not ids or not isinstance(ids, list):
+        logger.warning("bulk_action_bad_request", reason="missing action or ids")
+        return jsonify({"success": False, "error": "No miniatures selected"}), 400
+
+    field_map = {"set_status": "status", "set_faction": "faction"}
+    if action not in field_map:
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+
+    try:
+        count = bulk_update_miniatures([int(i) for i in ids], field_map[action], value)
+    except (ValueError, TypeError) as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    flash(f"Updated {count} miniature(s)", "success")
+    return jsonify({"success": True, "updated": count})
 
 
 @bp.route("/export")
@@ -411,16 +483,20 @@ def import_route():
         if not uploaded or uploaded.filename == "":
             flash("No file selected", "warning")
             return redirect(url_for("miniatures.import_route"))
+        logger.info("miniature_import_started", filename=uploaded.filename, merge=merge_flag)
 
-        temp_path = Path("_upload.json")
-        uploaded.save(temp_path)
+        tmp_path = None
         try:
-            count = import_from_json(str(temp_path), merge=merge_flag)
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+                uploaded.save(tmp_path)
+            count = import_from_json(tmp_path, merge=merge_flag)
             flash(f"Imported {count} miniatures", "success")
         except Exception as exc:  # noqa: BLE001
+            logger.warning("miniature_import_failed", exc_info=True)
             flash(f"Import failed: {exc}", "danger")
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
         return redirect(url_for("miniatures.list_miniatures"))
     return render_template("miniatures/import.html")

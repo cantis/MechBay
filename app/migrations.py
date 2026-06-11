@@ -8,8 +8,7 @@ from .config import Config
 
 
 def run_migrations():
-    """Create all tables defined in models."""
-    # Create minimal Flask app to initialize DB
+    """Create all tables and apply schema constraints via init_db."""
     app = Flask(__name__)
     app.config.from_object(Config())
 
@@ -17,18 +16,6 @@ def run_migrations():
 
     init_db(app)
 
-    # Import models to ensure they're registered
-    from .extensions import Base, engine
-    from .models import (  # noqa: F401
-        Force,
-        ForceMiniature,
-        Lance,
-        LanceTemplate,
-        LanceTemplateMiniature,
-        Miniature,
-    )
-
-    Base.metadata.create_all(bind=engine)
     print("Database tables created successfully")
 
 

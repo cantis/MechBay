@@ -2,6 +2,7 @@
 {% block content %}
 <h2>Edit Miniature</h2>
 <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Hidden fields to preserve filter state -->
     <input type="hidden" name="return_series" value="{{ filter_params.series if filter_params else 'All' }}">
     <input type="hidden" name="return_faction" value="{{ filter_params.faction if filter_params else 'All' }}">
@@ -20,24 +21,44 @@
     </div>
     <div class="col-md-2">
         <label class="form-label">Unique ID (Integer) *</label>
-        <input name="unique_id" type="number" min="1" required class="form-control" value="{{ mini.unique_id }}" />
+        <input name="unique_id" type="number" min="1" required
+            class="form-control {% if errors is defined and errors.unique_id %}is-invalid{% endif %}"
+            value="{{ mini.unique_id }}" />
+        {% if errors is defined and errors.unique_id %}
+        <div class="invalid-feedback">{{ errors.unique_id }}</div>
+        {% endif %}
     </div>
     <div class="col-md-2">
         <label class="form-label">Prefix *</label>
-        <input name="prefix" required class="form-control" value="{{ mini.prefix }}" />
+        <input name="prefix" required
+            class="form-control {% if errors is defined and errors.prefix %}is-invalid{% endif %}"
+            value="{{ mini.prefix }}" />
+        {% if errors is defined and errors.prefix %}
+        <div class="invalid-feedback">{{ errors.prefix }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Chassis *</label>
-        <input name="chassis" required class="form-control" value="{{ mini.chassis }}" />
+        <input name="chassis" required
+            class="form-control {% if errors is defined and errors.chassis %}is-invalid{% endif %}"
+            value="{{ mini.chassis }}" />
+        {% if errors is defined and errors.chassis %}
+        <div class="invalid-feedback">{{ errors.chassis }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Type *</label>
-        <select name="type" required class="form-select">
+        <select name="type" required
+            class="form-select {% if errors is defined and errors.type %}is-invalid{% endif %}">
+            <option value="">-- choose --</option>
             {% set types = ['Mech','Vehicle','Infantry','VTOL','Support'] %}
             {% for t in types %}
             <option value="{{ t }}" {% if mini.type==t %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
         </select>
+        {% if errors is defined and errors.type %}
+        <div class="invalid-feedback">{{ errors.type }}</div>
+        {% endif %}
     </div>
     <div class="col-md-3">
         <label class="form-label">Faction</label>
@@ -73,23 +94,5 @@
     </div>
 </form>
 
-<script>
-    document.getElementById('factionSelect').addEventListener('change', function () {
-        if (this.value === '__custom__') {
-            const customFaction = prompt('Enter custom faction name:');
-            if (customFaction && customFaction.trim()) {
-                // Create new option with the custom value
-                const newOption = document.createElement('option');
-                newOption.value = customFaction.trim();
-                newOption.textContent = customFaction.trim();
-                newOption.selected = true;
-                // Insert before the "+ Add Custom..." option
-                this.insertBefore(newOption, this.options[this.options.length - 1]);
-            } else {
-                // Reset to current value if cancelled or empty
-                this.value = {{ (mini.faction or "") | tojson }};
-            }
-        }
-    });
-</script>
+<script src="{{ url_for('static', filename='js/miniatures.js') }}"></script>
 {% endblock %}

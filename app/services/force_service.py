@@ -5,25 +5,23 @@ Handles active force management and import/export functionality.
 
 KNOWN LIMITATION - Thread Safety:
 The active force invariant (only one Force.is_active=True) is enforced by
-application logic without database-level constraints. Concurrent calls to
-create_force() or switch_active_force() in a multi-threaded or multi-process
-environment may result in multiple active forces due to race conditions.
+application logic and a partial unique index (uix_one_active_force) on SQLite
+and PostgreSQL. Concurrent calls to create_force() or switch_active_force() may
+still race before commit; the index rejects a second active row at flush time.
 
 Future considerations:
-- SQLite limitation: Cannot enforce single-row constraint across table
-- PostgreSQL solution: CREATE UNIQUE INDEX idx_one_active ON forces (is_active) WHERE is_active=true
 - Add pessimistic row locking with SELECT FOR UPDATE when switching active
 - Consider application-level distributed lock for multi-instance deployments
-- Add database migration to create partial unique index when migrating to PostgreSQL
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import structlog
 from sqlalchemy import and_, func, select
 
 from ..extensions import session_scope
@@ -31,6 +29,8 @@ from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
 from ..models.miniature import Miniature
+
+logger = structlog.get_logger()
 
 
 def get_active_force() -> Force | None:
@@ -90,6 +90,7 @@ def create_force(name: str) -> Force:
         force = Force(name=name, is_active=True)
         session.add(force)
         session.flush()
+        logger.info("force_created", force_id=force.id, name=name)
 
         # Eager load relationships (even if empty) so object is accessible outside session
         _ = force.lances  # Access to load even if empty list
@@ -111,7 +112,7 @@ def switch_force(force_id: int) -> Force | None:
 
         # Activate selected force
         force.is_active = True
-        force.updated_at = datetime.utcnow()
+        force.updated_at = datetime.now(UTC)
         session.flush()
         return force
 
@@ -130,7 +131,7 @@ def rename_force(force_id: int, new_name: str) -> Force | None:
             return None
 
         force.name = new_name.strip()
-        force.updated_at = datetime.utcnow()
+        force.updated_at = datetime.now(UTC)
         session.flush()
         return force
 
@@ -142,6 +143,7 @@ def delete_force(force_id: int) -> bool:
         if not force:
             return False
         session.delete(force)
+        logger.info("force_deleted", force_id=force_id)
         return True
 
 
@@ -169,6 +171,9 @@ def add_miniature_to_lance(
         )
 
         if existing:
+            logger.warning(
+                "miniature_already_in_force", miniature_id=miniature_id, force_id=lance.force_id
+            )
             return {
                 "success": False,
                 "error": f"Miniature already in force (Lance: {existing.lance.name or 'Unnamed'})",
@@ -275,6 +280,7 @@ def delete_lance(lance_id: int) -> bool:
         if not lance:
             return False
         session.delete(lance)
+        logger.info("lance_deleted", lance_id=lance_id)
         return True
 
 
@@ -295,10 +301,13 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
     if not force:
         raise ValueError("Force not found")
 
+    FORCE_SCHEMA_VERSION = 1
+
     # Build export structure
     export_data = {
+        "schema_version": FORCE_SCHEMA_VERSION,
         "force_name": force.name,
-        "export_timestamp": datetime.utcnow().isoformat(),
+        "export_timestamp": datetime.now(UTC).isoformat(),
         "lances": [],
     }
 
@@ -321,6 +330,8 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
             )
 
         export_data["lances"].append(lance_data)
+
+    logger.info("force_exported", force_id=force_id, force_name=force.name)
 
     # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -384,6 +395,12 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
                     missing_miniatures.append((mini_data["series"], mini_data["unique_id"]))
 
         session.flush()
+        logger.info(
+            "force_imported",
+            force_name=force.name,
+            lance_count=imported_count,
+            missing_count=len(missing_miniatures),
+        )
 
         return {
             "success": True,

@@ -1,6 +1,6 @@
 # MechBay
 
-A Flask web application for managing BattleTech miniature inventories and organizing forces for gameplay.
+An application for managing BattleTech miniature inventories and organizing forces for gameplay. Built with Flask, SQLAlchemy, and Bootstrap, MechBay provides an intuitive interface for tracking miniatures, building forces with drag-and-drop, and generating pick lists for gaming sessions. 
 
 ## Installation
 

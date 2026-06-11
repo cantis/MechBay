@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from ..services import force_service, lance_template_service
+
+logger = structlog.get_logger()
 
 bp = Blueprint("forces", __name__, url_prefix="/forces")
 
@@ -89,12 +93,23 @@ def add_miniature(id: int):  # noqa: A002
     lance_id = data.get("lance_id")
 
     if not miniature_id or not lance_id:
+        logger.warning("add_miniature_missing_params")
         if is_json:
             return jsonify({"success": False, "error": "Missing parameters"}), 400
         flash("Missing parameters", "danger")
         return redirect(url_for("miniatures.list_miniatures"))
 
-    result = force_service.add_miniature_to_lance(int(miniature_id), int(lance_id))
+    try:
+        miniature_id_int = int(miniature_id)
+        lance_id_int = int(lance_id)
+    except (TypeError, ValueError):
+        logger.warning("add_miniature_invalid_params", miniature_id=miniature_id, lance_id=lance_id)
+        if is_json:
+            return jsonify({"success": False, "error": "Invalid miniature or lance ID"}), 400
+        flash("Invalid miniature or lance ID", "danger")
+        return redirect(url_for("miniatures.list_miniatures"))
+
+    result = force_service.add_miniature_to_lance(miniature_id_int, lance_id_int)
 
     if is_json:
         if result["success"]:
@@ -135,9 +150,19 @@ def remove_miniature(id: int):  # noqa: A002
         flash("Missing miniature ID", "danger")
         return redirect(url_for("forces.detail", id=id))
 
-    success = force_service.remove_miniature_from_force(int(miniature_id), id)
+    try:
+        miniature_id_int = int(miniature_id)
+    except (TypeError, ValueError):
+        logger.warning("remove_miniature_invalid_id", miniature_id=miniature_id)
+        if is_json:
+            return jsonify({"success": False, "error": "Invalid miniature ID"}), 400
+        flash("Invalid miniature ID", "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+    success = force_service.remove_miniature_from_force(miniature_id_int, id)
 
     if success:
+        logger.info("miniature_removed_from_force", miniature_id=miniature_id_int, force_id=id)
         flash("Miniature Removed", "success")
     else:
         flash("Miniature not found in force", "danger")
@@ -176,8 +201,13 @@ def create_lance_from_template(id: int):  # noqa: A002
     assigned_ids = force_service.get_miniatures_in_force(id)
 
     # Match template to available miniatures
+    try:
+        template_id_int = int(template_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid template ID"}), 400
+
     match_result = lance_template_service.match_template_miniatures(
-        int(template_id), exclude_ids=assigned_ids
+        template_id_int, exclude_ids=assigned_ids
     )
 
     # If all matched or user confirmed partial
@@ -219,6 +249,7 @@ def delete_lance(id: int, lance_id: int):  # noqa: A002
     """Delete a lance."""
     success = force_service.delete_lance(lance_id)
     if success:
+        logger.info("lance_deleted_via_ui", force_id=id, lance_id=lance_id)
         flash("Lance deleted", "info")
     else:
         flash("Lance not found", "danger")
@@ -257,8 +288,15 @@ def move_miniature(id: int):  # noqa: A002
     if not miniature_id or not target_lance_id:
         return jsonify({"success": False, "error": "Missing parameters"}), 400
 
+    try:
+        miniature_id_int = int(miniature_id)
+        target_lance_id_int = int(target_lance_id)
+        position_int = int(position)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid parameters"}), 400
+
     result = force_service.move_miniature_between_lances(
-        int(miniature_id), int(target_lance_id), int(position)
+        miniature_id_int, target_lance_id_int, position_int
     )
 
     return jsonify(result), 200 if result["success"] else 400
@@ -300,10 +338,13 @@ def import_route():
             flash("No file selected", "warning")
             return redirect(url_for("forces.import_route"))
 
-        temp_path = Path("_upload_force.json")
-        uploaded.save(temp_path)
+        logger.info("force_import_started", filename=uploaded.filename)
+        tmp_path = None
         try:
-            result = force_service.import_force_from_json(str(temp_path))
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+                uploaded.save(tmp_path)
+            result = force_service.import_force_from_json(tmp_path)
 
             flash(
                 f"""Imported force '{result["force_name"]}' with {result["imported_count"]}
@@ -316,10 +357,11 @@ def import_route():
 
             return redirect(url_for("forces.detail", id=result["force_id"]))
         except Exception as exc:  # noqa: BLE001
+            logger.warning("force_import_failed", exc_info=True)
             flash(f"Import failed: {exc}", "danger")
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
 
         return redirect(url_for("forces.import_route"))
 
@@ -331,6 +373,7 @@ def delete(id: int):  # noqa: A002
     """Delete a force."""
     success = force_service.delete_force(id)
     if success:
+        logger.info("force_deleted_via_ui", force_id=id)
         flash("Force deleted", "info")
     else:
         flash("Force not found", "danger")

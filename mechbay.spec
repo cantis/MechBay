@@ -8,12 +8,15 @@ a = Analysis(
     binaries=[],
     datas=[
         ('app/templates', 'app/templates'),
+        ('app/static', 'app/static'),
     ],
     hiddenimports=[
         'sqlalchemy.ext.baked',
         'waitress',
         'flask',
         'dotenv',
+        'flask_wtf',
+        'structlog',
     ],
     hookspath=[],
     hooksconfig={},

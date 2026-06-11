@@ -33,7 +33,7 @@ Write-Host ""
 
 # Step 3: Build with PyInstaller
 Write-Host "[3/6] Building executable with PyInstaller..." -ForegroundColor Yellow
-uv run pyinstaller mechbay.spec --clean
+uv run python -m PyInstaller mechbay.spec --clean
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: PyInstaller build failed" -ForegroundColor Red
     exit 1

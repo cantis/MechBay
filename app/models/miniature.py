@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
@@ -23,7 +23,7 @@ class Miniature(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=True)
     tray_id: Mapped[str] = mapped_column(String(64), nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         return {

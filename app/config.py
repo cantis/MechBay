@@ -1,13 +1,53 @@
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
+import structlog
+
 BASE_DIR = Path(__file__).resolve().parent
+logger = structlog.get_logger()
+
+
+def is_persistent_deployment() -> bool:
+    """Return True when the app runs in a server/Docker context that needs a stable secret."""
+    return Path("/data").exists() or os.environ.get("REQUIRE_SECRET_KEY", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def validate_runtime_config(config: dict) -> None:
+    """Fail fast when production deployments omit required configuration."""
+    if config.get("TESTING"):
+        return
+    if os.environ.get("SECRET_KEY"):
+        return
+    if config.get("DEBUG"):
+        return
+    if is_persistent_deployment():
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set for production deployments. "
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
 
 
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
+    _secret_key = os.environ.get("SECRET_KEY")
+    if _secret_key:
+        SECRET_KEY = _secret_key
+    else:
+        SECRET_KEY = secrets.token_hex(32)
+        logger.warning(
+            "SECRET_KEY not set - using a randomly generated key. "
+            "Sessions will not persist across restarts."
+        )
+
+    WTF_CSRF_SECRET_KEY = os.environ.get("WTF_CSRF_SECRET_KEY", SECRET_KEY)
+    WTF_CSRF_ENABLED = True
+    DEBUG = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
     # Database URL, default to Windows AppData location for desktop, /data for Docker
     # For development or custom location, set DATABASE_URL environment variable
     _docker_db_path = Path("/data/mechbay.db")
@@ -22,9 +62,12 @@ class Config:
     DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{_db_path.as_posix()}")
     JSON_SORT_KEYS = False
     APPLICATION_ROOT = os.environ.get("APPLICATION_ROOT", "/")
+    TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes")
+    MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10 MB upload limit
 
 
 class TestingConfig(Config):
     TESTING = True
+    WTF_CSRF_ENABLED = False
     # Use in-memory SQLite for tests
     DATABASE_URL = "sqlite+pysqlite:///:memory:"
