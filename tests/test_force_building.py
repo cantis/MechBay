@@ -4,11 +4,27 @@ from unittest.mock import patch
 
 from app.services import alpha_strike_service, force_service
 from app.services.force_service import (
+    get_force_miniature_assignments,
     get_inventory_candidates,
     set_inventory_faction,
     summarize_inventory_candidates,
 )
 from app.services.mul_service import batch_chassis_availability, chassis_has_variants
+
+
+def test_get_force_miniature_assignments(client, minimal_force, sample_miniatures):
+    assignments = get_force_miniature_assignments(minimal_force)
+    assert len(assignments) == 2
+    assert all(a.lance_name == "Alpha Lance" for a in assignments.values())
+    assert all(a.lance_color for a in assignments.values())
+
+
+def test_inventory_list_shows_in_force_label(client, minimal_force, sample_miniatures):
+    resp = client.get("/miniatures")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "In force · Alpha Lance" in body
+    assert 'title="In force — remove from force builder to reassign"' in body
 
 
 def test_set_inventory_faction(client, sample_miniatures):
@@ -40,7 +56,20 @@ def test_inventory_candidates_in_force_flag(client, minimal_force, sample_miniat
     in_force = [c for c in candidates if c.in_force]
     assert len(in_force) == 2
     assert all(c.lance_name == "Alpha Lance" for c in in_force)
+    assert all(c.lance_color for c in in_force)
     assert all(c.mul_available is None for c in in_force)
+
+
+def test_create_empty_lance_assigns_header_color(client, minimal_force):
+    force = force_service.get_force_by_id(minimal_force)
+    assert force is not None
+    existing = {l.header_color for l in force.lances if l.header_color}
+
+    lance = force_service.create_empty_lance(minimal_force, "Bravo Lance")
+    assert lance is not None
+    assert lance.header_color
+    assert lance.header_color.startswith("#")
+    assert lance.header_color not in existing or len(existing) >= 12
 
 
 @patch("app.services.mul_service.search_variants")
@@ -101,10 +130,10 @@ def test_summarize_inventory_candidates():
         )
 
     candidates = [
-        force_service.InventoryCandidate(mini("A"), True, "L1", None),
-        force_service.InventoryCandidate(mini("B"), False, None, True),
-        force_service.InventoryCandidate(mini("C"), False, None, False),
-        force_service.InventoryCandidate(mini("D"), False, None, None),
+        force_service.InventoryCandidate(mini("A"), True, "L1", 1, "#dbeafe", None),
+        force_service.InventoryCandidate(mini("B"), False, None, None, None, True),
+        force_service.InventoryCandidate(mini("C"), False, None, None, None, False),
+        force_service.InventoryCandidate(mini("D"), False, None, None, None, None),
     ]
     summary = summarize_inventory_candidates(candidates)
     assert summary["total"] == 4

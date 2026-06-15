@@ -31,8 +31,15 @@ from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
 from ..models.miniature import Miniature
 from . import alpha_strike_service, mul_service
+from .lance_colors import pick_lance_header_color
 
 logger = structlog.get_logger()
+
+
+@dataclass(frozen=True)
+class ForceMiniatureAssignment:
+    lance_name: str
+    lance_color: str | None
 
 
 @dataclass
@@ -40,6 +47,8 @@ class InventoryCandidate:
     miniature: Miniature
     in_force: bool
     lance_name: str | None
+    lance_id: int | None
+    lance_color: str | None
     mul_available: bool | None  # None = no MUL filter active
 
 
@@ -77,6 +86,7 @@ def get_all_forces() -> list[Force]:
 
 def get_force_by_id(force_id: int) -> Force | None:
     """Get a specific force by ID with all relationships loaded."""
+    ensure_lance_header_colors(force_id)
     with session_scope() as session:
         force = session.get(Force, force_id)
         if force:
@@ -271,7 +281,19 @@ def create_empty_lance(force_id: int, name: str | None = None) -> Lance | None:
             session.query(func.max(Lance.order)).filter(Lance.force_id == force_id).scalar()
         ) or 0
 
-        lance = Lance(force_id=force_id, name=name, order=max_order + 1)
+        used_colors = {
+            c
+            for c in session.execute(
+                select(Lance.header_color).where(Lance.force_id == force_id)
+            ).scalars()
+            if c
+        }
+        lance = Lance(
+            force_id=force_id,
+            name=name,
+            order=max_order + 1,
+            header_color=pick_lance_header_color(used_colors),
+        )
         session.add(lance)
         session.flush()
 
@@ -294,11 +316,49 @@ def delete_lance(lance_id: int) -> bool:
         return True
 
 
+def get_force_miniature_assignments(force_id: int) -> dict[int, ForceMiniatureAssignment]:
+    """Map miniature IDs to their lance assignment in a force."""
+    with session_scope() as session:
+        rows = session.execute(
+            select(
+                ForceMiniature.miniature_id,
+                Lance.name,
+                Lance.header_color,
+                Lance.order,
+            )
+            .join(Lance, ForceMiniature.lance_id == Lance.id)
+            .where(Lance.force_id == force_id)
+        ).all()
+        return {
+            mini_id: ForceMiniatureAssignment(
+                lance_name=name or f"Lance {order}",
+                lance_color=header_color,
+            )
+            for mini_id, name, header_color, order in rows
+        }
+
+
 def get_miniatures_in_force(force_id: int) -> set[int]:
     """Get set of miniature IDs currently in the force."""
+    return set(get_force_miniature_assignments(force_id).keys())
+
+
+def ensure_lance_header_colors(force_id: int) -> None:
+    """Assign header colors to lances that do not have one yet."""
     with session_scope() as session:
-        stmt = select(ForceMiniature.miniature_id).join(Lance).where(Lance.force_id == force_id)
-        return set(session.execute(stmt).scalars().all())
+        lances = list(
+            session.execute(select(Lance).where(Lance.force_id == force_id)).scalars().all()
+        )
+        used_colors = {l.header_color for l in lances if l.header_color}
+        updated = False
+        for lance in lances:
+            if lance.header_color:
+                continue
+            lance.header_color = pick_lance_header_color(used_colors)
+            used_colors.add(lance.header_color)
+            updated = True
+        if updated:
+            session.flush()
 
 
 def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
@@ -343,11 +403,18 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
         )
 
         assignment_rows = session.execute(
-            select(ForceMiniature.miniature_id, Lance.name)
+            select(
+                ForceMiniature.miniature_id,
+                Lance.name,
+                Lance.id,
+                Lance.header_color,
+            )
             .join(Lance, ForceMiniature.lance_id == Lance.id)
             .where(Lance.force_id == force_id)
         ).all()
-        lance_by_mini_id = {row[0]: row[1] for row in assignment_rows}
+        lance_by_mini_id = {
+            row[0]: {"name": row[1], "id": row[2], "color": row[3]} for row in assignment_rows
+        }
 
         for mini in miniatures:
             session.expunge(mini)
@@ -364,8 +431,8 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
 
     candidates: list[InventoryCandidate] = []
     for mini in miniatures:
-        lance_name = lance_by_mini_id.get(mini.id)
-        in_force = lance_name is not None
+        lance_info = lance_by_mini_id.get(mini.id)
+        in_force = lance_info is not None
         mul_available: bool | None = None
         if not in_force and mul_lookup is not None:
             key = (mini.chassis, mul_service.map_miniature_type_to_mul(mini.type))
@@ -375,7 +442,9 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
             InventoryCandidate(
                 miniature=mini,
                 in_force=in_force,
-                lance_name=lance_name,
+                lance_name=lance_info["name"] if lance_info else None,
+                lance_id=lance_info["id"] if lance_info else None,
+                lance_color=lance_info["color"] if lance_info else None,
                 mul_available=mul_available,
             )
         )
@@ -470,10 +539,16 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
 
         missing_miniatures = []
         imported_count = 0
+        used_lance_colors: set[str] = set()
 
         for lance_data in data.get("lances", []):
+            header_color = pick_lance_header_color(used_lance_colors)
+            used_lance_colors.add(header_color)
             lance = Lance(
-                force_id=force.id, name=lance_data.get("name"), order=lance_data.get("order", 0)
+                force_id=force.id,
+                name=lance_data.get("name"),
+                order=lance_data.get("order", 0),
+                header_color=header_color,
             )
             session.add(lance)
             session.flush()

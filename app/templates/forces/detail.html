@@ -174,7 +174,10 @@
                         <td>{{ m.status or '—' }}</td>
                         <td>
                             {% if candidate.in_force %}
-                            <span class="badge bg-info text-dark">In force{% if candidate.lance_name %} · {{ candidate.lance_name }}{% endif %}</span>
+                            <span class="badge text-dark border"
+                                style="background-color: {{ candidate.lance_color or '#e9ecef' }};">
+                                In force{% if candidate.lance_name %} · {{ candidate.lance_name }}{% endif %}
+                            </span>
                             {% elif candidate.mul_available is none %}
                             <span class="badge bg-success">Available</span>
                             {% elif candidate.mul_available %}
@@ -198,6 +201,8 @@
                                             <input type="hidden" name="lance_id" value="{{ lance.id }}">
                                             <input type="hidden" name="return_to_force" value="1">
                                             <button type="submit" class="dropdown-item">
+                                                <span class="d-inline-block rounded-circle me-2 align-middle"
+                                                    style="width: 0.75rem; height: 0.75rem; background-color: {{ lance.header_color or '#e9ecef' }};"></span>
                                                 {{ lance.name or ('Lance ' ~ loop.index) }}
                                             </button>
                                         </form>
@@ -289,7 +294,8 @@
     {% for lance in force.lances %}
     <div class="col-md-6 col-lg-4" id="lance-{{ lance.id }}">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center text-dark border-bottom"
+                style="background-color: {{ lance.header_color or '#f8f9fa' }};">
                 <div class="d-flex align-items-center gap-2">
                     <h6 class="m-0 editable-lance-name" data-lance-id="{{ lance.id }}" style="cursor: pointer;"
                         title="Double-click to rename">

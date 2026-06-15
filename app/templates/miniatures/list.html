@@ -159,6 +159,9 @@
                     </a>
                     {% endif %}
                 </th>
+                {% if col == 'status' %}
+                <th>Force</th>
+                {% endif %}
                 {% endfor %}
                 <th>Notes</th>
                 <th style="width: 160px">Actions</th>
@@ -166,7 +169,8 @@
         </thead>
         <tbody>
             {% for m in miniatures %}
-            <tr style="cursor: pointer; {% if m.id in assigned_miniature_ids %}border-left: 4px solid #198754;{% endif %}"
+            {% set assignment = force_assignments.get(m.id) %}
+            <tr style="cursor: pointer; {% if assignment %}border-left: 4px solid #198754;{% endif %}"
                 ondblclick="window.location='{{ url_for('miniatures.edit', id=m.id, series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}';"
                 data-id="{{ m.id }}">
                 <td onclick="event.stopPropagation()">
@@ -180,6 +184,16 @@
                 <td>{{ m.type }}</td>
                 <td>{{ m.faction or '-' }}</td>
                 <td>{{ m.status or '' }}</td>
+                <td>
+                    {% if assignment %}
+                    <span class="badge text-dark border"
+                        style="background-color: {{ assignment.lance_color or '#e9ecef' }};">
+                        In force · {{ assignment.lance_name }}
+                    </span>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
                 <td>{{ m.tray_id or '' }}</td>
                 <td>{{ m.notes or '' }}</td>
                 <td>
@@ -192,6 +206,12 @@
                             title="Duplicate" class="text-success" style="cursor: pointer;">
                             <i class="fa-solid fa-copy"></i>
                         </a>
+                        {% if assignment %}
+                        <span class="text-muted" title="In force — remove from force builder to reassign"
+                            aria-label="Actions menu disabled — miniature is in force">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                        </span>
+                        {% else %}
                         <div class="dropdown">
                             <a href="#" class="text-secondary dropdown-toggle" data-bs-toggle="dropdown"
                                 aria-expanded="false" style="cursor: pointer; text-decoration: none;">
@@ -216,7 +236,9 @@
                                         <input type="hidden" name="return_faction"
                                             value="{{ faction_filter or 'All' }}">
                                         <button type="submit" class="dropdown-item">
-                                            <i class="fa-solid fa-plus"></i> {{ lance.name or 'Lance ' ~ loop.index }}
+                                            <span class="d-inline-block rounded-circle me-2 align-middle"
+                                                style="width: 0.75rem; height: 0.75rem; background-color: {{ lance.header_color or '#e9ecef' }};"></span>
+                                            {{ lance.name or 'Lance ' ~ loop.index }}
                                         </button>
                                     </form>
                                 </li>
@@ -238,12 +260,13 @@
                                 </li>
                             </ul>
                         </div>
+                        {% endif %}
                     </div>
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="11" class="text-center text-muted">No miniatures yet.</td>
+                <td colspan="12" class="text-center text-muted">No miniatures yet.</td>
             </tr>
             {% endfor %}
         </tbody>

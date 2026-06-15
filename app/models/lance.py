@@ -18,6 +18,7 @@ class Lance(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     force_id: Mapped[int] = mapped_column(Integer, ForeignKey("forces.id"), nullable=False)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    header_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Relationships
@@ -34,5 +35,6 @@ class Lance(Base):
             "id": self.id,
             "force_id": self.force_id,
             "name": self.name,
+            "header_color": self.header_color,
             "order": self.order,
         }

@@ -77,6 +77,15 @@ def _apply_schema_migrations(db_engine) -> None:
             conn.commit()
             logger.info("schema_migration_applied", table="forces", column="inventory_faction")
 
+        lance_columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
+        }
+        if "header_color" not in lance_columns:
+            conn.execute(text('ALTER TABLE "lances" ADD COLUMN header_color VARCHAR(7)'))
+            conn.commit()
+            logger.info("schema_migration_applied", table="lances", column="header_color")
+
 
 @contextmanager
 def session_scope() -> Iterator:

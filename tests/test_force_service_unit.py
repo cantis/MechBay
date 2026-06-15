@@ -130,7 +130,9 @@ def test_create_lance_first_in_force(client):
     assert lance is not None
     assert lance.name == "Alpha Lance"
     assert lance.order == 1
-    validate_expunged_object(lance, "id", "name", "order")
+    assert lance.header_color
+    assert lance.header_color.startswith("#")
+    validate_expunged_object(lance, "id", "name", "order", "header_color")
 
 
 def test_create_lance_with_custom_name(client):
