@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/helo_group.schema.json",
+  "title": "Alpha Strike Group Export",
+  "type": "object",
+  "required": ["name", "members", "uuid"],
+  "properties": {
+    "name": { "type": "string" },
+    "uuid": { "type": "string" },
+    "lastUpdated": { "type": "string", "format": "date-time" },
+    "formationBonus": { "type": "string" },
+    "groupLabel": { "type": "string" },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["class", "variant", "name", "damage", "pilot", "uuid"],
+        "properties": {
+          "mechCreatorUUID": { "type": "string" },
+          "customName": { "type": "string" },
+          "classification": { "type": "string" },
+          "class": { "type": "string" },
+          "variant": { "type": "string" },
+          "name": { "type": "string" },
+          "dateIntroduced": { "type": "string" },
+          "tmm": { "type": "number" },
+          "tonnage": { "type": "number" },
+          "tro": { "type": "string" },
+          "role": { "type": "string" },
+          "threshold": { "type": "integer" },
+          "costCR": { "type": "number" },
+          "mulID": { "type": "integer" },
+          "basePoints": { "type": "integer" },
+          "currentSkill": { "type": "integer" },
+          "overheat": { "type": "integer" },
+          "structure": { "type": "integer" },
+          "armor": { "type": "integer" },
+          "type": { "type": "string" },
+          "size": { "type": "integer" },
+          "showDetails": { "type": "boolean" },
+          "imageURL": { "type": "string", "format": "uri" },
+          "currentHeat": { "type": "integer" },
+          "roundHeat": { "type": "integer" },
+          "abilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "move": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "move": { "type": "number" },
+                "currentMove": { "type": "number" },
+                "type": { "type": "string" }
+              },
+              "required": ["move", "currentMove", "type"]
+            }
+          },
+          "jumpMove": { "type": "number" },
+          "damage": {
+            "type": "object",
+            "required": ["short", "medium", "long", "extreme"],
+            "properties": {
+              "short": { "type": "integer" },
+              "medium": { "type": "integer" },
+              "long": { "type": "integer" },
+              "extreme": { "type": "integer" },
+              "shortMinimal": { "type": "boolean" },
+              "mediumMinimal": { "type": "boolean" },
+              "longMinimal": { "type": "boolean" },
+              "extremeMinimal": { "type": "boolean" }
+            }
+          },
+          "pilot": {
+            "type": "object",
+            "required": ["piloting", "gunnery"],
+            "properties": {
+              "name": { "type": "string" },
+              "piloting": { "type": "integer" },
+              "gunnery": { "type": "integer" },
+              "wounds": { "type": "integer" },
+              "alphaStrikeAbilities": {
+                "type": "array",
+                "items": { "type": "integer" }
+              }
+            }
+          },
+          "currentArmor": { "type": "array", "items": { "type": "boolean" } },
+          "currentStructure": { "type": "array", "items": { "type": "boolean" } },
+          "engineHits": { "type": "array", "items": { "type": "boolean" } },
+          "fireControlHits": { "type": "array", "items": { "type": "boolean" } },
+          "mpControlHits": { "type": "array", "items": { "type": "boolean" } },
+          "weaponHits": { "type": "array", "items": { "type": "boolean" } },
+          "vehicleMotive910": { "type": "array", "items": { "type": "boolean" } },
+          "vehicleMotive11": { "type": "array", "items": { "type": "boolean" } },
+          "vehicleMotive12": { "type": "boolean" },
+          "roundArmor": { "type": "array", "items": { "type": "boolean" } },
+          "roundStructure": { "type": "array", "items": { "type": "boolean" } },
+          "roundEngineHits": { "type": "array", "items": { "type": "boolean" } },
+          "roundFireControlHits": { "type": "array", "items": { "type": "boolean" } },
+          "roundMpControlHits": { "type": "array", "items": { "type": "boolean" } },
+          "roundWeaponHits": { "type": "array", "items": { "type": "boolean" } },
+          "roundVehicleMotive910": { "type": "array", "items": { "type": "boolean" } },
+          "roundVehicleMotive11": { "type": "array", "items": { "type": "boolean" } },
+          "roundVehicleMotive12": { "type": "boolean" },
+          "uuid": { "type": "string" }
+        }
+      }
+    }
+  }
+}

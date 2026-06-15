@@ -8,7 +8,8 @@ from pathlib import Path
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
-from ..services import alpha_strike_service, force_service, lance_template_service
+from ..services import alpha_strike_service, force_service, jeff_export_service, lance_template_service
+from ..services.jeff_export_service import JeffExportError
 from ..services.miniature_service import get_distinct_factions
 from ..services.mul_service import get_eras, get_factions
 
@@ -360,6 +361,47 @@ def export(id: int):  # noqa: A002
     except ValueError as e:
         flash(str(e), "danger")
         return redirect(url_for("forces.list_forces"))
+
+
+@bp.route("/<int:id>/export/jeff")
+def export_jeff(id: int):  # noqa: A002
+    """Export all lances to Jeff's BT Tools JSON (one file per lance, zipped)."""
+    try:
+        zip_bytes, filename = jeff_export_service.export_jeff_force_zip(id)
+        return send_file(
+            BytesIO(zip_bytes),
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except JeffExportError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+
+@bp.route("/<int:id>/lances/<int:lance_id>/export/jeff")
+def export_lance_jeff(id: int, lance_id: int):  # noqa: A002
+    """Export one lance to Jeff's BT Tools JSON."""
+    force = force_service.get_force_by_id(id)
+    if not force:
+        flash("Force not found", "danger")
+        return redirect(url_for("forces.list_forces"))
+
+    if not any(lance.id == lance_id for lance in force.lances):
+        flash("Lance not found in this force", "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+    try:
+        json_string, filename = jeff_export_service.export_jeff_lance(lance_id)
+        return send_file(
+            BytesIO(json_string.encode("utf-8")),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except JeffExportError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("forces.detail", id=id))
 
 
 @bp.route("/<int:id>/report")

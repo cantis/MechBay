@@ -26,6 +26,8 @@ import structlog
 from sqlalchemy import and_, func, select
 
 from ..extensions import session_scope
+from ..models.alpha_strike_assignment import AlphaStrikeAssignment
+from ..models.alpha_strike_force import AlphaStrikeForce
 from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
@@ -34,6 +36,8 @@ from . import alpha_strike_service, mul_service
 from .lance_colors import pick_lance_header_color
 
 logger = structlog.get_logger()
+
+FORCE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -468,6 +472,21 @@ def summarize_inventory_candidates(candidates: list[InventoryCandidate]) -> dict
     }
 
 
+def _assignment_to_export_dict(assignment: AlphaStrikeAssignment) -> dict[str, Any]:
+    snapshot = json.loads(assignment.mul_snapshot_json)
+    return {
+        "mul_unit_id": assignment.mul_unit_id,
+        "variant": assignment.variant,
+        "class_name": assignment.class_name,
+        "tonnage": assignment.tonnage,
+        "point_value": assignment.point_value,
+        "unit_type_id": assignment.unit_type_id,
+        "unit_type_name": assignment.unit_type_name,
+        "display_name": assignment.display_name,
+        "mul_snapshot": snapshot,
+    }
+
+
 def export_force_to_json(force_id: int) -> tuple[str, str]:
     """Export force to JSON string with generated filename.
 
@@ -478,46 +497,110 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
     if not force:
         raise ValueError("Force not found")
 
-    FORCE_SCHEMA_VERSION = 1
+    as_config = alpha_strike_service.get_alpha_strike_force(force_id)
+    assignments = alpha_strike_service.get_assignments_for_force(force_id)
 
-    # Build export structure
-    export_data = {
+    export_data: dict[str, Any] = {
         "schema_version": FORCE_SCHEMA_VERSION,
         "force_name": force.name,
+        "inventory_faction": force.inventory_faction,
         "export_timestamp": datetime.now(UTC).isoformat(),
         "lances": [],
     }
 
+    if as_config:
+        export_data["alpha_strike"] = {
+            "mul_faction_id": as_config.mul_faction_id,
+            "mul_era_id": as_config.mul_era_id,
+            "faction_name": as_config.faction_name,
+            "era_name": as_config.era_name,
+            "point_budget": as_config.point_budget,
+            "fudge_percent": as_config.fudge_percent,
+        }
+
     for lance in force.lances:
-        lance_data = {"name": lance.name, "order": lance.order, "miniatures": []}
+        lance_data: dict[str, Any] = {
+            "name": lance.name,
+            "order": lance.order,
+            "header_color": lance.header_color,
+            "miniatures": [],
+        }
 
         for fm in lance.miniatures:
             mini = fm.miniature
-            lance_data["miniatures"].append(
-                {
-                    "series": mini.series,
-                    "unique_id": mini.unique_id,
-                    "prefix": mini.prefix,
-                    "chassis": mini.chassis,
-                    "type": mini.type,
-                    "faction": mini.faction,
-                    "tray_id": mini.tray_id,
-                    "order": fm.order,
-                }
-            )
+            mini_data: dict[str, Any] = {
+                "series": mini.series,
+                "unique_id": mini.unique_id,
+                "prefix": mini.prefix,
+                "chassis": mini.chassis,
+                "type": mini.type,
+                "faction": mini.faction,
+                "tray_id": mini.tray_id,
+                "order": fm.order,
+            }
+            assignment = assignments.get(fm.id)
+            if assignment:
+                mini_data["alpha_strike"] = _assignment_to_export_dict(assignment)
+            lance_data["miniatures"].append(mini_data)
 
         export_data["lances"].append(lance_data)
 
     logger.info("force_exported", force_id=force_id, force_name=force.name)
 
-    # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in force.name)
     filename = f"Force_{safe_name}_{timestamp}.json"
 
-    # Return JSON string and filename
     json_string = json.dumps(export_data, indent=2)
     return json_string, filename
+
+
+def _resolve_lance_header_color(lance_data: dict[str, Any], used_colors: set[str]) -> str:
+    exported = lance_data.get("header_color")
+    if exported and exported not in used_colors:
+        return exported
+    return pick_lance_header_color(used_colors)
+
+
+def _restore_alpha_strike_config(
+    session, force_id: int, config: dict[str, Any]
+) -> None:
+    session.add(
+        AlphaStrikeForce(
+            force_id=force_id,
+            mul_faction_id=int(config["mul_faction_id"]),
+            mul_era_id=int(config["mul_era_id"]),
+            faction_name=config.get("faction_name") or "",
+            era_name=config.get("era_name") or "",
+            point_budget=config.get("point_budget"),
+            fudge_percent=int(config.get("fudge_percent", alpha_strike_service.DEFAULT_FUDGE_PERCENT)),
+        )
+    )
+
+
+def _restore_alpha_strike_assignment(
+    session, force_miniature_id: int, assignment_data: dict[str, Any]
+) -> None:
+    snapshot = assignment_data.get("mul_snapshot")
+    if snapshot is None and assignment_data.get("mul_snapshot_json"):
+        snapshot = json.loads(assignment_data["mul_snapshot_json"])
+    if not isinstance(snapshot, dict):
+        raise ValueError("Alpha Strike assignment is missing mul_snapshot")
+
+    session.add(
+        AlphaStrikeAssignment(
+            force_miniature_id=force_miniature_id,
+            mul_unit_id=int(assignment_data["mul_unit_id"]),
+            variant=assignment_data["variant"],
+            class_name=assignment_data["class_name"],
+            tonnage=int(assignment_data["tonnage"]),
+            point_value=int(assignment_data["point_value"]),
+            unit_type_id=assignment_data.get("unit_type_id"),
+            unit_type_name=assignment_data.get("unit_type_name"),
+            display_name=assignment_data["display_name"],
+            mul_snapshot_json=json.dumps(snapshot),
+        )
+    )
 
 
 def import_force_from_json(file_path: str) -> dict[str, Any]:
@@ -530,19 +613,28 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
         raise ValueError(f"File not found: {file_path}") from err
 
     force_name = data.get("force_name", "Imported Force")
+    schema_version = int(data.get("schema_version") or 1)
 
     with session_scope() as session:
-        # Create force
-        force = Force(name=force_name, is_active=False)
+        force = Force(
+            name=force_name,
+            inventory_faction=data.get("inventory_faction") if schema_version >= 2 else None,
+            is_active=False,
+        )
         session.add(force)
         session.flush()
 
         missing_miniatures = []
         imported_count = 0
         used_lance_colors: set[str] = set()
+        pending_assignments: list[tuple[int, dict[str, Any]]] = []
 
         for lance_data in data.get("lances", []):
-            header_color = pick_lance_header_color(used_lance_colors)
+            header_color = (
+                _resolve_lance_header_color(lance_data, used_lance_colors)
+                if schema_version >= 2
+                else pick_lance_header_color(used_lance_colors)
+            )
             used_lance_colors.add(header_color)
             lance = Lance(
                 force_id=force.id,
@@ -554,7 +646,6 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
             session.flush()
 
             for mini_data in lance_data.get("miniatures", []):
-                # Find miniature by series + unique_id
                 miniature = (
                     session.query(Miniature)
                     .filter(
@@ -573,9 +664,21 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
                         order=mini_data.get("order", 0),
                     )
                     session.add(fm)
+                    session.flush()
                     imported_count += 1
+
+                    assignment_data = mini_data.get("alpha_strike")
+                    if schema_version >= 2 and assignment_data:
+                        pending_assignments.append((fm.id, assignment_data))
                 else:
                     missing_miniatures.append((mini_data["series"], mini_data["unique_id"]))
+
+        as_config = data.get("alpha_strike")
+        if schema_version >= 2 and as_config:
+            _restore_alpha_strike_config(session, force.id, as_config)
+
+        for fm_id, assignment_data in pending_assignments:
+            _restore_alpha_strike_assignment(session, fm_id, assignment_data)
 
         session.flush()
         logger.info(

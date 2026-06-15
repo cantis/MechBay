@@ -74,10 +74,24 @@
                             </button>
                         </form>
                         {% endif %}
-                        <a href="{{ url_for('forces.export', id=force.id) }}"
-                            class="btn btn-link p-0 text-decoration-none" title="Export">
-                            <i class="fa-solid fa-download"></i>
-                        </a>
+                        <div class="dropdown">
+                            <a href="#" class="btn btn-link p-0 text-decoration-none dropdown-toggle"
+                                data-bs-toggle="dropdown" aria-expanded="false" title="Export">
+                                <i class="fa-solid fa-download"></i>
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('forces.export', id=force.id) }}">
+                                        <i class="fa-solid fa-file-code"></i> MechBay JSON
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('forces.export_jeff', id=force.id) }}">
+                                        <i class="fa-solid fa-file-export"></i> Jeff's BT Tools
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                         <div class="dropdown">
                             <button class="btn btn-link p-0 text-decoration-none" data-bs-toggle="dropdown"
                                 data-bs-boundary="viewport" aria-expanded="false" title="More actions">
