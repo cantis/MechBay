@@ -1,26 +1,330 @@
 [
-  {"id": 1, "name": "Capellan Confederation"},
-  {"id": 2, "name": "Clan Blood Spirit"},
-  {"id": 6, "name": "Clan Cloud Cobra"},
-  {"id": 10, "name": "Clan Fire Mandrill"},
-  {"id": 11, "name": "Clan Ghost Bear"},
-  {"id": 15, "name": "Clan Jade Falcon"},
-  {"id": 16, "name": "Clan Mongoose"},
-  {"id": 17, "name": "Clan Nova Cat"},
-  {"id": 20, "name": "Clan Smoke Jaguar"},
-  {"id": 24, "name": "Clan Wolf"},
-  {"id": 26, "name": "Clan Wolverine"},
-  {"id": 27, "name": "Draconis Combine"},
-  {"id": 29, "name": "Federated Suns"},
-  {"id": 30, "name": "Free Rasalhague Republic"},
-  {"id": 31, "name": "Free Worlds League"},
-  {"id": 32, "name": "Lyran Commonwealth"},
-  {"id": 33, "name": "Magistracy of Canopus"},
-  {"id": 34, "name": "Marian Hegemony"},
-  {"id": 35, "name": "Outworlds Alliance"},
-  {"id": 36, "name": "Rim Worlds Republic"},
-  {"id": 37, "name": "St. Ives Compact"},
-  {"id": 38, "name": "Taurian Concordat"},
-  {"id": 39, "name": "Word of Blake"},
-  {"id": 40, "name": "ComStar"}
+  {
+    "id": 102,
+    "name": "Alyina Mercantile League"
+  },
+  {
+    "id": 78,
+    "name": "Calderon Protectorate"
+  },
+  {
+    "id": 5,
+    "name": "Capellan Confederation"
+  },
+  {
+    "id": 9,
+    "name": "Circinus Federation"
+  },
+  {
+    "id": 2,
+    "name": "Clan Blood Spirit"
+  },
+  {
+    "id": 1,
+    "name": "Clan Burrock"
+  },
+  {
+    "id": 6,
+    "name": "Clan Cloud Cobra"
+  },
+  {
+    "id": 7,
+    "name": "Clan Coyote"
+  },
+  {
+    "id": 8,
+    "name": "Clan Diamond Shark"
+  },
+  {
+    "id": 10,
+    "name": "Clan Fire Mandrill"
+  },
+  {
+    "id": 11,
+    "name": "Clan Ghost Bear"
+  },
+  {
+    "id": 12,
+    "name": "Clan Goliath Scorpion"
+  },
+  {
+    "id": 13,
+    "name": "Clan Hell&#39;s Horses"
+  },
+  {
+    "id": 14,
+    "name": "Clan Ice Hellion"
+  },
+  {
+    "id": 15,
+    "name": "Clan Jade Falcon"
+  },
+  {
+    "id": 16,
+    "name": "Clan Mongoose"
+  },
+  {
+    "id": 17,
+    "name": "Clan Nova Cat"
+  },
+  {
+    "id": 100,
+    "name": "Clan Protectorate"
+  },
+  {
+    "id": 82,
+    "name": "Clan Sea Fox"
+  },
+  {
+    "id": 20,
+    "name": "Clan Smoke Jaguar"
+  },
+  {
+    "id": 21,
+    "name": "Clan Snow Raven"
+  },
+  {
+    "id": 19,
+    "name": "Clan Star Adder"
+  },
+  {
+    "id": 22,
+    "name": "Clan Steel Viper"
+  },
+  {
+    "id": 80,
+    "name": "Clan Stone Lion"
+  },
+  {
+    "id": 25,
+    "name": "Clan Widowmaker"
+  },
+  {
+    "id": 24,
+    "name": "Clan Wolf"
+  },
+  {
+    "id": 23,
+    "name": "Clan Wolf (in Exile)"
+  },
+  {
+    "id": 26,
+    "name": "Clan Wolverine"
+  },
+  {
+    "id": 18,
+    "name": "ComStar"
+  },
+  {
+    "id": 27,
+    "name": "Draconis Combine"
+  },
+  {
+    "id": 92,
+    "name": "Escorpi&#243;n Imperio"
+  },
+  {
+    "id": 3,
+    "name": "Extinct"
+  },
+  {
+    "id": 84,
+    "name": "Federated Commonwealth"
+  },
+  {
+    "id": 29,
+    "name": "Federated Suns"
+  },
+  {
+    "id": 77,
+    "name": "Filtvelt Coalition"
+  },
+  {
+    "id": 28,
+    "name": "Free Rasalhague Republic"
+  },
+  {
+    "id": 30,
+    "name": "Free Worlds League"
+  },
+  {
+    "id": 59,
+    "name": "Free Worlds League (Duchy of Andurien)"
+  },
+  {
+    "id": 75,
+    "name": "Free Worlds League (Duchy of Tamarind-Abbey)"
+  },
+  {
+    "id": 74,
+    "name": "Free Worlds League (Marik-Stewart Commonwealth)"
+  },
+  {
+    "id": 89,
+    "name": "Free Worlds League (Non-Aligned Worlds)"
+  },
+  {
+    "id": 67,
+    "name": "Free Worlds League (Oriente Protectorate)"
+  },
+  {
+    "id": 72,
+    "name": "Free Worlds League (Regulan Fiefs)"
+  },
+  {
+    "id": 76,
+    "name": "Free Worlds League (Rim Commonality)"
+  },
+  {
+    "id": 95,
+    "name": "Fronc Reaches"
+  },
+  {
+    "id": 85,
+    "name": "HW Clan General"
+  },
+  {
+    "id": 55,
+    "name": "Inner Sphere General"
+  },
+  {
+    "id": 56,
+    "name": "IS Clan General"
+  },
+  {
+    "id": 31,
+    "name": "Kell Hounds"
+  },
+  {
+    "id": 32,
+    "name": "Lyran Alliance"
+  },
+  {
+    "id": 60,
+    "name": "Lyran Commonwealth"
+  },
+  {
+    "id": 33,
+    "name": "Magistracy of Canopus"
+  },
+  {
+    "id": 35,
+    "name": "Marian Hegemony"
+  },
+  {
+    "id": 34,
+    "name": "Mercenary"
+  },
+  {
+    "id": 36,
+    "name": "Outworlds Alliance"
+  },
+  {
+    "id": 57,
+    "name": "Periphery General"
+  },
+  {
+    "id": 38,
+    "name": "Pirates"
+  },
+  {
+    "id": 40,
+    "name": "Rasalhague Dominion"
+  },
+  {
+    "id": 39,
+    "name": "Raven Alliance"
+  },
+  {
+    "id": 41,
+    "name": "Republic of the Sphere"
+  },
+  {
+    "id": 42,
+    "name": "Rim Worlds Republic - Home Guard"
+  },
+  {
+    "id": 88,
+    "name": "Rim Worlds Republic - Terran Corps"
+  },
+  {
+    "id": 91,
+    "name": "Scorpion Empire"
+  },
+  {
+    "id": 86,
+    "name": "Society"
+  },
+  {
+    "id": 44,
+    "name": "Solaris 7"
+  },
+  {
+    "id": 83,
+    "name": "St. Ives Compact"
+  },
+  {
+    "id": 97,
+    "name": "Star League (Clan Jade Falcon)"
+  },
+  {
+    "id": 98,
+    "name": "Star League (Clan Smoke Jaguar)"
+  },
+  {
+    "id": 96,
+    "name": "Star League (Clan Wolf)"
+  },
+  {
+    "id": 46,
+    "name": "Star League (Second)"
+  },
+  {
+    "id": 90,
+    "name": "Star League General"
+  },
+  {
+    "id": 94,
+    "name": "Star League in Exile"
+  },
+  {
+    "id": 45,
+    "name": "Star League Regular"
+  },
+  {
+    "id": 43,
+    "name": "Star League Royal"
+  },
+  {
+    "id": 104,
+    "name": "Tamar Pact"
+  },
+  {
+    "id": 47,
+    "name": "Taurian Concordat"
+  },
+  {
+    "id": 87,
+    "name": "Terran Hegemony"
+  },
+  {
+    "id": 4,
+    "name": "Unique"
+  },
+  {
+    "id": 105,
+    "name": "Vesper Marches"
+  },
+  {
+    "id": 101,
+    "name": "Wolf Empire"
+  },
+  {
+    "id": 49,
+    "name": "Wolf&#39;s Dragoons"
+  },
+  {
+    "id": 48,
+    "name": "Word of Blake"
+  }
 ]

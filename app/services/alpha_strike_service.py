@@ -89,6 +89,14 @@ def get_alpha_strike_force(force_id: int) -> AlphaStrikeForce | None:
         return row
 
 
+def get_mul_filters_for_force(force_id: int) -> tuple[int, int] | None:
+    """Return MUL faction and era IDs when Alpha Strike is configured for the force."""
+    as_force = get_alpha_strike_force(force_id)
+    if not as_force:
+        return None
+    return as_force.mul_faction_id, as_force.mul_era_id
+
+
 def enable_alpha_strike(
     force_id: int,
     *,
@@ -212,6 +220,21 @@ def get_force_summary(force_id: int) -> BudgetStatus:
     )
 
 
+def get_lance_pv_totals(force_id: int) -> dict[int, int]:
+    """Return configured Alpha Strike PV sum per lance id."""
+    force = _get_force_with_slots(force_id)
+    if not force:
+        return {}
+
+    assignments = get_assignments_for_force(force_id)
+    totals: dict[int, int] = {}
+    for lance in force.lances:
+        totals[lance.id] = sum(
+            assignments[fm.id].point_value for fm in lance.miniatures if fm.id in assignments
+        )
+    return totals
+
+
 def _get_force_with_slots(force_id: int) -> Force | None:
     with session_scope() as session:
         force = session.get(Force, force_id)
@@ -333,10 +356,9 @@ def search_variants_for_slot(
         miniature = fm.miniature
 
     type_id = mul_service.map_miniature_type_to_mul(miniature.type)
-    units = mul_service.search_variants(
+    return mul_service.search_variants(
         miniature.chassis,
         faction_id=as_force.mul_faction_id,
         era_id=as_force.mul_era_id,
         unit_type_id=type_id,
     )
-    return [u.to_dict() for u in units]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -109,6 +110,71 @@ def parse_mul_unit(raw: dict[str, Any]) -> MulUnit:
     )
 
 
+def tmm_from_move(bf_move: str | None) -> int | None:
+    """Derive Alpha Strike TMM from BFMove when MUL leaves BFTMM at 0."""
+    if not bf_move:
+        return None
+    match = re.search(r"(\d+)\s*\"", str(bf_move))
+    if not match:
+        return None
+    inches = int(match.group(1))
+    if inches < 6:
+        return 0
+    if inches <= 8:
+        return 1
+    if inches <= 12:
+        return 2
+    if inches <= 18:
+        return 3
+    return 4
+
+
+def _resolve_bf_tmm(raw: dict[str, Any]) -> int:
+    """Return card TMM, deriving from movement when MUL omits it."""
+    mul_tmm = raw.get("BFTMM")
+    if mul_tmm not in (None, False, "", 0):
+        return int(mul_tmm)
+    return tmm_from_move(raw.get("BFMove")) or 0
+
+
+def card_from_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract Alpha Strike card stats from a MUL QuickList unit payload."""
+    return {
+        "image_url": raw.get("ImageUrl"),
+        "rules": raw.get("Rules"),
+        "tro": raw.get("TRO"),
+        "rs": raw.get("RS"),
+        "bf_type": raw.get("BFType"),
+        "bf_size": raw.get("BFSize"),
+        "bf_move": raw.get("BFMove"),
+        "bf_tmm": _resolve_bf_tmm(raw),
+        "bf_armor": raw.get("BFArmor"),
+        "bf_structure": raw.get("BFStructure"),
+        "bf_threshold": raw.get("BFThreshold"),
+        "damage_short": raw.get("BFDamageShort"),
+        "damage_medium": raw.get("BFDamageMedium"),
+        "damage_long": raw.get("BFDamageLong"),
+        "damage_extreme": raw.get("BFDamageExtreme"),
+        "damage_short_min": raw.get("BFDamageShortMin"),
+        "damage_medium_min": raw.get("BFDamageMediumMin"),
+        "damage_long_min": raw.get("BFDamageLongMin"),
+        "damage_extreme_min": raw.get("BFDamageExtemeMin"),
+        "bf_overheat": raw.get("BFOverheat"),
+        "bf_abilities": raw.get("BFAbilities"),
+        "mul_url": f"https://masterunitlist.info/Unit/Details/{raw['Id']}",
+    }
+
+
+def unit_picker_dict(raw: dict[str, Any]) -> dict[str, Any]:
+    """Full unit record for the variant picker table and card preview."""
+    data = parse_mul_unit(raw).to_dict()
+    card = card_from_raw(raw)
+    data["card"] = card
+    # Flatten card stats so the picker works even if the client only reads top-level keys.
+    data.update(card)
+    return data
+
+
 def _get_cached_response(cache_key: str) -> dict | None:
     with session_scope() as session:
         row = session.get(MulCache, cache_key)
@@ -162,7 +228,7 @@ def search_variants(
     faction_id: int,
     era_id: int,
     unit_type_id: int | None = None,
-) -> list[MulUnit]:
+) -> list[dict[str, Any]]:
     """Search MUL for variants matching chassis name, faction, and era."""
     params: dict[str, str | int] = {
         "Name": name.strip(),
@@ -173,9 +239,51 @@ def search_variants(
         params["Types"] = unit_type_id
 
     payload = _fetch_quicklist(params)
-    units = [parse_mul_unit(u) for u in payload.get("Units", [])]
+    units = [unit_picker_dict(u) for u in payload.get("Units", [])]
     # Prefer entries with Alpha Strike point values
-    return sorted(units, key=lambda u: (-(u.point_value > 0), u.variant))
+    return sorted(units, key=lambda u: (-(u["point_value"] > 0), u["variant"]))
+
+
+def chassis_has_variants(
+    chassis: str,
+    *,
+    faction_id: int,
+    era_id: int,
+    unit_type_id: int | None = None,
+) -> bool:
+    """Return True if MUL has at least one variant for chassis under faction and era."""
+    if not chassis.strip():
+        return False
+    try:
+        return len(
+            search_variants(
+                chassis,
+                faction_id=faction_id,
+                era_id=era_id,
+                unit_type_id=unit_type_id,
+            )
+        ) > 0
+    except RuntimeError:
+        logger.warning("mul_availability_check_failed", chassis=chassis)
+        return False
+
+
+def batch_chassis_availability(
+    keys: set[tuple[str, int | None]],
+    *,
+    faction_id: int,
+    era_id: int,
+) -> dict[tuple[str, int | None], bool]:
+    """Check MUL availability once per unique chassis and type combination."""
+    return {
+        key: chassis_has_variants(
+            key[0],
+            faction_id=faction_id,
+            era_id=era_id,
+            unit_type_id=key[1],
+        )
+        for key in keys
+    }
 
 
 def get_unit_snapshot(mul_unit_id: int) -> dict[str, Any]:

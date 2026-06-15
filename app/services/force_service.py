@@ -17,6 +17,7 @@ Future considerations:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,8 +30,17 @@ from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
 from ..models.miniature import Miniature
+from . import alpha_strike_service, mul_service
 
 logger = structlog.get_logger()
+
+
+@dataclass
+class InventoryCandidate:
+    miniature: Miniature
+    in_force: bool
+    lance_name: str | None
+    mul_available: bool | None  # None = no MUL filter active
 
 
 def get_active_force() -> Force | None:
@@ -289,6 +299,104 @@ def get_miniatures_in_force(force_id: int) -> set[int]:
     with session_scope() as session:
         stmt = select(ForceMiniature.miniature_id).join(Lance).where(Lance.force_id == force_id)
         return set(session.execute(stmt).scalars().all())
+
+
+def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
+    """Set or clear the inventory faction tag for force building."""
+    with session_scope() as session:
+        force = session.get(Force, force_id)
+        if not force:
+            return None
+
+        cleaned: str | None
+        if faction is None:
+            cleaned = None
+        else:
+            stripped = faction.strip()
+            cleaned = None if not stripped or stripped.lower() == "none" else stripped
+
+        force.inventory_faction = cleaned
+        force.updated_at = datetime.now(UTC)
+        session.flush()
+        session.expunge(force)
+        return force
+
+
+def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
+    """Miniatures matching the force inventory faction with availability flags."""
+    force = get_force_by_id(force_id)
+    if not force or not force.inventory_faction:
+        return []
+
+    mul_filters = alpha_strike_service.get_mul_filters_for_force(force_id)
+    mul_lookup: dict[tuple[str, int | None], bool] | None = None
+
+    with session_scope() as session:
+        miniatures = list(
+            session.execute(
+                select(Miniature)
+                .where(Miniature.faction == force.inventory_faction)
+                .order_by(Miniature.series, Miniature.unique_id)
+            )
+            .scalars()
+            .all()
+        )
+
+        assignment_rows = session.execute(
+            select(ForceMiniature.miniature_id, Lance.name)
+            .join(Lance, ForceMiniature.lance_id == Lance.id)
+            .where(Lance.force_id == force_id)
+        ).all()
+        lance_by_mini_id = {row[0]: row[1] for row in assignment_rows}
+
+        for mini in miniatures:
+            session.expunge(mini)
+
+    if mul_filters and miniatures:
+        keys = {
+            (m.chassis, mul_service.map_miniature_type_to_mul(m.type)) for m in miniatures
+        }
+        mul_lookup = mul_service.batch_chassis_availability(
+            keys,
+            faction_id=mul_filters[0],
+            era_id=mul_filters[1],
+        )
+
+    candidates: list[InventoryCandidate] = []
+    for mini in miniatures:
+        lance_name = lance_by_mini_id.get(mini.id)
+        in_force = lance_name is not None
+        mul_available: bool | None = None
+        if not in_force and mul_lookup is not None:
+            key = (mini.chassis, mul_service.map_miniature_type_to_mul(mini.type))
+            mul_available = mul_lookup.get(key, False)
+
+        candidates.append(
+            InventoryCandidate(
+                miniature=mini,
+                in_force=in_force,
+                lance_name=lance_name,
+                mul_available=mul_available,
+            )
+        )
+
+    return candidates
+
+
+def summarize_inventory_candidates(candidates: list[InventoryCandidate]) -> dict[str, int]:
+    """Counts for the inventory pool summary line."""
+    total = len(candidates)
+    in_force = sum(1 for c in candidates if c.in_force)
+    mul_available = sum(1 for c in candidates if c.mul_available is True and not c.in_force)
+    not_in_mul = sum(1 for c in candidates if c.mul_available is False and not c.in_force)
+    available = sum(1 for c in candidates if not c.in_force and c.mul_available is not False)
+    return {
+        "total": total,
+        "in_force": in_force,
+        "mul_available": mul_available,
+        "not_in_mul": not_in_mul,
+        "available": available,
+    }
 
 
 def export_force_to_json(force_id: int) -> tuple[str, str]:

@@ -19,6 +19,18 @@
         Miniature</a>
 </div>
 
+{% if active_force and building_inventory_faction %}
+<div class="alert alert-info py-2 mb-3">
+    Building <strong>{{ active_force.name }}</strong> — inventory faction
+    <strong>{{ building_inventory_faction }}</strong>.
+    {% if faction_filter != building_inventory_faction %}
+    <a href="{{ url_for('miniatures.list_miniatures', q=query, sort=sort, direction=direction, series=series_filter, faction=building_inventory_faction, per_page=per_page) }}"
+        class="alert-link">Show only this faction</a>
+    {% endif %}
+    <a href="{{ url_for('forces.detail', id=active_force.id) }}" class="alert-link ms-2">Force builder</a>
+</div>
+{% endif %}
+
 <!-- Series Filter -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="btn-group" role="group" aria-label="Series filter">

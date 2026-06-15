@@ -160,6 +160,26 @@ def test_add_miniature_form(client, minimal_force, sample_miniatures):
     assert "Miniature added to lance" in body
 
 
+def test_add_miniature_form_return_to_force(client, minimal_force, sample_miniatures):
+    """Adding from force detail returns to force-building anchor."""
+    force = force_service.get_force_by_id(minimal_force)
+    assert force is not None
+    lance_id = force.lances[0].id
+
+    resp = client.post(
+        f"/forces/{minimal_force}/add-miniature",
+        data={
+            "miniature_id": sample_miniatures[2],
+            "lance_id": lance_id,
+            "return_to_force": "1",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith(f"/forces/{minimal_force}#force-building")
+
+
 def test_add_miniature_missing_params_json(client, minimal_force):
     """Test add miniature JSON with missing params returns 400."""
     resp = client.post(f"/forces/{minimal_force}/add-miniature", json={"lance_id": 1})

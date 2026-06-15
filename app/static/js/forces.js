@@ -9,6 +9,18 @@
     const forceId = ctx.dataset.forceId;
     const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
+    // ── Scroll to section after redirect (e.g. add-to-lance, variant assign) ───
+    const scrollTarget = sessionStorage.getItem('mechbayScrollTo');
+    if (scrollTarget) {
+        sessionStorage.removeItem('mechbayScrollTo');
+        document.getElementById(scrollTarget)?.scrollIntoView({ block: 'start' });
+    } else if (window.location.hash) {
+        const target = document.querySelector(window.location.hash);
+        if (target) {
+            target.scrollIntoView({ block: 'start' });
+        }
+    }
+
     // ── SortableJS drag-and-drop ──────────────────────────────────────────────
     document.querySelectorAll('.sortable-lance').forEach(el => {
         new Sortable(el, {
@@ -178,4 +190,33 @@
             modal.show();
         });
     });
+
+    // ── Point budget: step by 10 (10, 20, 30…); clear field = no budget ────────
+    const pointBudget = document.getElementById('pointBudget');
+    if (pointBudget) {
+        const STEP = 10;
+        function adjustBudget(delta) {
+            const raw = pointBudget.value.trim();
+            if (!raw) {
+                if (delta > 0) pointBudget.value = String(STEP);
+                return;
+            }
+            const n = parseInt(raw, 10);
+            if (Number.isNaN(n)) {
+                pointBudget.value = delta > 0 ? String(STEP) : '';
+                return;
+            }
+            const next = n + delta * STEP;
+            pointBudget.value = next < STEP ? '' : String(next);
+        }
+        pointBudget.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                adjustBudget(1);
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                adjustBudget(-1);
+            }
+        });
+    }
 })();
