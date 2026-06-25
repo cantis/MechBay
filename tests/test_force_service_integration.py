@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.services import alpha_strike_service
 from app.services.force_service import (
     add_miniature_to_lance,
     create_empty_lance,
@@ -355,16 +357,21 @@ def test_export_force_json_structure_and_filename(client, realistic_force):
     # Parse and validate JSON structure
     data = json.loads(json_str)
 
+    assert data["schema_version"] == 2
     assert "force_name" in data
     assert data["force_name"] == "Clan Wolf Hunters"
 
     assert "export_timestamp" in data
+    assert "inventory_faction" in data
     assert "lances" in data
     assert len(data["lances"]) == 4
 
     # Validate lance structure
     for lance in data["lances"]:
         assert "name" in lance
+        assert "order" in lance
+        assert "header_color" in lance
+        assert lance["header_color"]
         assert "miniatures" in lance
         assert len(lance["miniatures"]) == 4
 
@@ -474,5 +481,130 @@ def test_import_force_no_miniatures_available(client, realistic_force):
 
         for lance in imported_force.lances:
             assert len(lance.miniatures) == 0
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.slow
+@patch("app.services.alpha_strike_service.mul_service.find_unit_in_search_results")
+def test_export_import_v2_restores_force_details(
+    mock_find, client, minimal_force, sample_miniatures
+):
+    """Test v2 export/import roundtrip restores inventory faction, colors, and AS config."""
+    from app.services import alpha_strike_service
+    from app.services.force_service import set_inventory_faction
+
+    sample_mul_raw = {
+        "Id": 7563,
+        "Name": "Warhammer WHM-8R",
+        "Class": "Warhammer",
+        "Variant": "WHM-8R",
+        "Tonnage": 70,
+        "BFPointValue": 40,
+        "BFMove": '8"',
+        "BFArmor": 5,
+        "BFStructure": 4,
+        "Type": {"Id": 18, "Name": "BattleMech"},
+        "Role": {"Name": "Brawler"},
+    }
+
+    set_inventory_faction(minimal_force, "Jade Falcon")
+    mock_find.return_value = sample_mul_raw
+    alpha_strike_service.enable_alpha_strike(
+        minimal_force,
+        mul_faction_id=29,
+        mul_era_id=14,
+        point_budget=400,
+    )
+
+    force = get_force_by_id(minimal_force)
+    original_color = force.lances[0].header_color
+    for fm in force.lances[0].miniatures:
+        alpha_strike_service.assign_variant(
+            minimal_force,
+            fm.id,
+            sample_mul_raw["Id"],
+            search_name="Warhammer",
+        )
+
+    json_str, _ = export_force_to_json(minimal_force)
+    data = json.loads(json_str)
+    assert data["schema_version"] == 2
+    assert data["inventory_faction"] == "Jade Falcon"
+    assert data["alpha_strike"]["point_budget"] == 400
+    assert data["lances"][0]["header_color"] == original_color
+    assert data["lances"][0]["miniatures"][0]["alpha_strike"]["variant"] == "WHM-8R"
+
+    delete_force(minimal_force)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(json_str)
+        temp_path = f.name
+
+    try:
+        result = import_force_from_json(temp_path)
+        imported = get_force_by_id(result["force_id"])
+        assert imported.inventory_faction == "Jade Falcon"
+        assert imported.lances[0].header_color == original_color
+
+        as_config = alpha_strike_service.get_alpha_strike_force(imported.id)
+        assert as_config is not None
+        assert as_config.point_budget == 400
+        assert as_config.mul_faction_id == 29
+
+        assignments = alpha_strike_service.get_assignments_for_force(imported.id)
+        assert len(assignments) == 2
+        assert all(a.variant == "WHM-8R" for a in assignments.values())
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+
+def test_import_force_v1_backward_compatible(client, sample_miniatures):
+    """Test legacy v1 exports still import successfully."""
+    from app.extensions import session_scope
+    from app.models.miniature import Miniature
+
+    with session_scope() as session:
+        mini = session.get(Miniature, sample_miniatures[0])
+        assert mini is not None
+        series = mini.series
+        unique_id = mini.unique_id
+
+    v1_data = {
+        "schema_version": 1,
+        "force_name": "Legacy Force",
+        "export_timestamp": "2026-01-01T00:00:00+00:00",
+        "lances": [
+            {
+                "name": "Alpha Lance",
+                "order": 1,
+                "miniatures": [
+                    {
+                        "series": series,
+                        "unique_id": unique_id,
+                        "prefix": mini.prefix,
+                        "chassis": mini.chassis,
+                        "type": mini.type,
+                        "faction": mini.faction,
+                        "tray_id": None,
+                        "order": 0,
+                    }
+                ],
+            }
+        ],
+    }
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(v1_data, f)
+        temp_path = f.name
+
+    try:
+        result = import_force_from_json(temp_path)
+        imported = get_force_by_id(result["force_id"])
+        assert imported.name == "Legacy Force"
+        assert imported.inventory_faction is None
+        assert len(imported.lances) == 1
+        assert len(imported.lances[0].miniatures) == 1
+        assert alpha_strike_service.get_alpha_strike_force(imported.id) is None
     finally:
         Path(temp_path).unlink(missing_ok=True)

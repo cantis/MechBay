@@ -131,12 +131,16 @@ def list_miniatures():
 
     # Get active force info for UI
     active_force = force_service.get_active_force()
-    assigned_miniature_ids = set()
+    force_assignments: dict[int, force_service.ForceMiniatureAssignment] = {}
     lances = []
 
     if active_force:
-        assigned_miniature_ids = force_service.get_miniatures_in_force(active_force.id)
+        force_assignments = force_service.get_force_miniature_assignments(active_force.id)
         lances = active_force.lances
+
+    building_inventory_faction = (
+        active_force.inventory_faction if active_force and active_force.inventory_faction else None
+    )
 
     resp = make_response(
         render_template(
@@ -149,7 +153,8 @@ def list_miniatures():
             faction_filter=faction_filter,
             factions=factions,
             active_force=active_force,
-            assigned_miniature_ids=assigned_miniature_ids,
+            building_inventory_faction=building_inventory_faction,
+            force_assignments=force_assignments,
             lances=lances,
             page=page,
             per_page=per_page,

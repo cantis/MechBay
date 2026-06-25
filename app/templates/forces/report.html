@@ -67,6 +67,11 @@
             margin-bottom: 20px;
             border: 1px solid #ddd;
         }
+
+        .unconfigured {
+            font-style: italic;
+            color: #6c757d;
+        }
     </style>
 </head>
 
@@ -81,6 +86,9 @@
     <div class="force-header">
         <h1>{{ force.name }}</h1>
         <p class="text-muted mb-0">Force Pick List - Generated {{ now.strftime('%Y-%m-%d %H:%M') }}</p>
+        {% if as_config %}
+        <p class="mb-0"><strong>Alpha Strike:</strong> {{ as_config.faction_name }} · {{ as_config.era_name }}</p>
+        {% endif %}
     </div>
 
     <div class="summary-box">
@@ -93,32 +101,67 @@
                 {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
                 <strong>Total Miniatures:</strong> {{ total_minis }}
             </div>
+            {% if as_config and as_summary %}
+            <div class="col-6 mt-2">
+                <strong>Total PV:</strong> {{ as_summary.total_pv }}
+                {% if as_config.point_budget %}
+                / {{ as_config.point_budget }} budget
+                {% endif %}
+            </div>
+            <div class="col-6 mt-2">
+                <strong>Configured:</strong> {{ as_summary.configured_count }}
+                · <strong>Unconfigured:</strong> {{ as_summary.unconfigured_count }}
+            </div>
+            {% endif %}
         </div>
     </div>
 
     {% for lance in force.lances %}
+    {% set lance_pv = namespace(total=0, unconfigured=0) %}
+    {% for fm in lance.miniatures %}
+        {% set as_assign = as_assignments.get(fm.id) if as_assignments is defined else none %}
+        {% if as_assign %}
+            {% set lance_pv.total = lance_pv.total + as_assign.point_value %}
+        {% else %}
+            {% set lance_pv.unconfigured = lance_pv.unconfigured + 1 %}
+        {% endif %}
+    {% endfor %}
     <div class="lance-section">
         <div class="lance-header">
             <h4 class="mb-0">{{ lance.name or 'Lance ' ~ loop.index }}</h4>
-            <small class="text-muted">{{ lance.miniatures | length }} Miniature(s)</small>
+            <small class="text-muted">
+                {{ lance.miniatures | length }} Miniature(s)
+                {% if as_config %}
+                · {{ lance_pv.total }} PV
+                {% if lance_pv.unconfigured %} · {{ lance_pv.unconfigured }} unconfigured{% endif %}
+                {% endif %}
+            </small>
         </div>
 
         {% if lance.miniatures %}
         {% for fm in lance.miniatures %}
         {% set m = fm.miniature %}
+        {% set as_assign = as_assignments.get(fm.id) if as_assignments is defined else none %}
         <div class="miniature-item">
             <div>
                 <span class="checkbox"></span>
+                {% if as_assign %}
+                <strong>{{ as_assign.display_name }}</strong>
+                {% else %}
                 <strong>{{ m.prefix }}</strong> {{ m.chassis }}
-                <span class="text-muted ms-2">{{ m.variant }}</span>
+                {% if as_config %}<span class="unconfigured ms-2">— variant not set</span>{% endif %}
+                {% endif %}
             </div>
             <div class="text-end">
                 <span class="badge bg-secondary">{{ m.series }}-{{ m.unique_id }}</span>
-                {% if m.tray %}
-                <span class="badge bg-info ms-1">Tray {{ m.tray }}</span>
+                {% if m.tray_id %}
+                <span class="badge bg-info ms-1">Tray {{ m.tray_id }}</span>
                 {% endif %}
-                {% if m.tonnage %}
-                <span class="text-muted ms-2">{{ m.tonnage }}T</span>
+                {% if as_assign %}
+                <span class="text-muted ms-2">{{ as_assign.tonnage }}T</span>
+                <strong class="ms-2">{{ as_assign.point_value }} PV</strong>
+                {% elif as_config %}
+                <span class="text-muted ms-2 unconfigured">— PV</span>
                 {% endif %}
             </div>
         </div>
@@ -135,7 +178,10 @@
         <p class="mb-1"><strong>Notes:</strong></p>
         <ul>
             <li>Check off each miniature as you gather it from your collection</li>
-            <li>Miniature codes (e.g., IS-001) indicate the series and unique identifier</li>
+            <li>Miniature codes (e.g., A-001) indicate the series and unique identifier</li>
+            {% if as_config %}
+            <li>Alpha Strike point values are snapshotted from the Master Unit List at assignment time</li>
+            {% endif %}
         </ul>
     </div>
 

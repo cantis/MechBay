@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..extensions import Base
 
 if TYPE_CHECKING:
+    from .alpha_strike_force import AlphaStrikeForce
     from .lance import Lance
 
 
@@ -17,6 +18,7 @@ class Force(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    inventory_faction: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -27,11 +29,15 @@ class Force(Base):
     lances: Mapped[list[Lance]] = relationship(
         "Lance", back_populates="force", cascade="all, delete-orphan", order_by="Lance.order"
     )
+    alpha_strike: Mapped[AlphaStrikeForce | None] = relationship(
+        "AlphaStrikeForce", back_populates="force", uselist=False, cascade="all, delete-orphan"
+    )
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "name": self.name,
+            "inventory_faction": self.inventory_faction,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

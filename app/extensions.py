@@ -32,6 +32,7 @@ def init_db(app: Flask) -> None:
 
     Base.metadata.create_all(bind=engine)
     _apply_schema_constraints(engine)
+    _apply_schema_migrations(engine)
 
     @app.teardown_appcontext
     def remove_session(exception: Exception | None) -> None:  # noqa: ARG001
@@ -59,6 +60,31 @@ def _apply_schema_constraints(db_engine) -> None:
             conn.execute(text(index_sql))
             conn.commit()
         logger.info("schema_constraint_applied", constraint="uix_one_active_force")
+
+
+def _apply_schema_migrations(db_engine) -> None:
+    """Apply additive column migrations for existing databases."""
+    if db_engine.dialect.name != "sqlite":
+        return
+
+    with db_engine.connect() as conn:
+        columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(forces)")).fetchall()
+        }
+        if "inventory_faction" not in columns:
+            conn.execute(text('ALTER TABLE "forces" ADD COLUMN inventory_faction VARCHAR(64)'))
+            conn.commit()
+            logger.info("schema_migration_applied", table="forces", column="inventory_faction")
+
+        lance_columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
+        }
+        if "header_color" not in lance_columns:
+            conn.execute(text('ALTER TABLE "lances" ADD COLUMN header_color VARCHAR(7)'))
+            conn.commit()
+            logger.info("schema_migration_applied", table="lances", column="header_color")
 
 
 @contextmanager

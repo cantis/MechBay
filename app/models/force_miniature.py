@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..extensions import Base
 
 if TYPE_CHECKING:
+    from .alpha_strike_assignment import AlphaStrikeAssignment
     from .lance import Lance
     from .miniature import Miniature
 
@@ -24,6 +25,12 @@ class ForceMiniature(Base):
     # Relationships
     lance: Mapped[Lance] = relationship("Lance", back_populates="miniatures")
     miniature: Mapped[Miniature] = relationship("Miniature")
+    alpha_strike_assignment: Mapped[AlphaStrikeAssignment | None] = relationship(
+        "AlphaStrikeAssignment",
+        back_populates="force_miniature",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self) -> dict:
         return {

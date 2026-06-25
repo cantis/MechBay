@@ -8,7 +8,15 @@ from pathlib import Path
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
-from ..services import force_service, lance_template_service
+from ..services import (
+    alpha_strike_service,
+    force_service,
+    jeff_export_service,
+    lance_template_service,
+)
+from ..services.jeff_export_service import JeffExportError
+from ..services.miniature_service import get_distinct_factions
+from ..services.mul_service import get_eras, get_factions
 
 logger = structlog.get_logger()
 
@@ -45,8 +53,46 @@ def detail(id: int):  # noqa: A002
         return redirect(url_for("forces.list_forces"))
 
     templates = lance_template_service.get_all_templates()
+    as_config = alpha_strike_service.get_alpha_strike_force(id)
+    as_summary = alpha_strike_service.get_force_summary(id) if as_config else None
+    as_assignments = alpha_strike_service.get_assignments_for_force(id) if as_config else {}
+    lance_pv_totals = alpha_strike_service.get_lance_pv_totals(id) if as_config else {}
+    inventory_candidates = force_service.get_inventory_candidates(id)
+    inventory_summary = force_service.summarize_inventory_candidates(inventory_candidates)
 
-    return render_template("forces/detail.html", force=force, templates=templates)
+    return render_template(
+        "forces/detail.html",
+        force=force,
+        templates=templates,
+        as_config=as_config,
+        as_summary=as_summary,
+        as_assignments=as_assignments,
+        lance_pv_totals=lance_pv_totals,
+        inventory_candidates=inventory_candidates,
+        inventory_summary=inventory_summary,
+        inventory_factions=get_distinct_factions(),
+        mul_factions=get_factions(),
+        mul_eras=get_eras(),
+    )
+
+
+@bp.route("/<int:id>/inventory-faction", methods=["POST"])
+def set_inventory_faction(id: int):  # noqa: A002
+    """Set or clear the inventory faction for force building."""
+    faction = request.form.get("inventory_faction", "").strip()
+    if faction.lower() == "none":
+        faction = None
+
+    force = force_service.set_inventory_faction(id, faction or None)
+    if not force:
+        flash("Force not found", "danger")
+        return redirect(url_for("forces.list_forces"))
+
+    if force.inventory_faction:
+        flash(f'Inventory faction set to "{force.inventory_faction}"', "success")
+    else:
+        flash("Inventory faction cleared", "info")
+    return redirect(url_for("forces.detail", id=id))
 
 
 @bp.route("/<int:id>/activate", methods=["POST"])
@@ -121,6 +167,10 @@ def add_miniature(id: int):  # noqa: A002
             flash("Miniature added to lance", "success")
         else:
             flash(result.get("error", "Failed to add miniature"), "danger")
+
+        if data.get("return_to_force"):
+            anchor = (data.get("return_anchor") or "force-building").strip().lstrip("#")
+            return redirect(f"{url_for('forces.detail', id=id)}#{anchor}")
 
         # Preserve filter parameters when redirecting back to miniatures list
         return_params = {}
@@ -318,6 +368,47 @@ def export(id: int):  # noqa: A002
         return redirect(url_for("forces.list_forces"))
 
 
+@bp.route("/<int:id>/export/jeff")
+def export_jeff(id: int):  # noqa: A002
+    """Export all lances to Jeff's BT Tools JSON (one file per lance, zipped)."""
+    try:
+        zip_bytes, filename = jeff_export_service.export_jeff_force_zip(id)
+        return send_file(
+            BytesIO(zip_bytes),
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except JeffExportError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+
+@bp.route("/<int:id>/lances/<int:lance_id>/export/jeff")
+def export_lance_jeff(id: int, lance_id: int):  # noqa: A002
+    """Export one lance to Jeff's BT Tools JSON."""
+    force = force_service.get_force_by_id(id)
+    if not force:
+        flash("Force not found", "danger")
+        return redirect(url_for("forces.list_forces"))
+
+    if not any(lance.id == lance_id for lance in force.lances):
+        flash("Lance not found in this force", "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+    try:
+        json_string, filename = jeff_export_service.export_jeff_lance(lance_id)
+        return send_file(
+            BytesIO(json_string.encode("utf-8")),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except JeffExportError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("forces.detail", id=id))
+
+
 @bp.route("/<int:id>/report")
 def print_report(id: int):  # noqa: A002
     """Generate printable force report."""
@@ -326,7 +417,18 @@ def print_report(id: int):  # noqa: A002
         flash("Force not found", "danger")
         return redirect(url_for("forces.list_forces"))
 
-    return render_template("forces/report.html", force=force, now=datetime.now())
+    as_config = alpha_strike_service.get_alpha_strike_force(id)
+    as_summary = alpha_strike_service.get_force_summary(id) if as_config else None
+    as_assignments = alpha_strike_service.get_assignments_for_force(id) if as_config else {}
+
+    return render_template(
+        "forces/report.html",
+        force=force,
+        now=datetime.now(),
+        as_config=as_config,
+        as_summary=as_summary,
+        as_assignments=as_assignments,
+    )
 
 
 @bp.route("/import", methods=["GET", "POST"])
