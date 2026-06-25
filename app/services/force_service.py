@@ -353,7 +353,7 @@ def ensure_lance_header_colors(force_id: int) -> None:
         lances = list(
             session.execute(select(Lance).where(Lance.force_id == force_id)).scalars().all()
         )
-        used_colors = {l.header_color for l in lances if l.header_color}
+        used_colors = {lance.header_color for lance in lances if lance.header_color}
         updated = False
         for lance in lances:
             if lance.header_color:
@@ -573,7 +573,9 @@ def _restore_alpha_strike_config(
             faction_name=config.get("faction_name") or "",
             era_name=config.get("era_name") or "",
             point_budget=config.get("point_budget"),
-            fudge_percent=int(config.get("fudge_percent", alpha_strike_service.DEFAULT_FUDGE_PERCENT)),
+            fudge_percent=int(
+                config.get("fudge_percent", alpha_strike_service.DEFAULT_FUDGE_PERCENT)
+            ),
         )
     )
 

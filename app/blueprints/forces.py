@@ -8,7 +8,12 @@ from pathlib import Path
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
-from ..services import alpha_strike_service, force_service, jeff_export_service, lance_template_service
+from ..services import (
+    alpha_strike_service,
+    force_service,
+    jeff_export_service,
+    lance_template_service,
+)
 from ..services.jeff_export_service import JeffExportError
 from ..services.miniature_service import get_distinct_factions
 from ..services.mul_service import get_eras, get_factions

@@ -61,7 +61,7 @@ def edit_group(filename):
     if request.method == 'POST':
         try:
             # Update group metadata
-            with open(filepath, 'r') as f:
+            with open(filepath) as f:
                 group_data = json.load(f)
 
             group_data['name'] = request.form.get('name', group_data.get('name'))
@@ -77,7 +77,7 @@ def edit_group(filename):
         except Exception as e:
             flash(f'Error updating group: {str(e)}', 'danger')
 
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         group_data = json.load(f)
 
     return render_template('edit_group.html', group=group_data, filename=filename)
@@ -94,13 +94,17 @@ def new_member(filename):
 
     if request.method == 'POST':
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath) as f:
                 group_data = json.load(f)
 
             # Quick path: duplicate an existing member immediately
             duplicate_uuid = request.form.get('duplicate_uuid')
             if duplicate_uuid:
-                src = next((m for m in group_data.get('members', []) if m.get('uuid') == duplicate_uuid), None)
+                members = group_data.get("members", [])
+                src = next(
+                    (m for m in members if m.get("uuid") == duplicate_uuid),
+                    None,
+                )
                 if not src:
                     flash('Selected member to duplicate was not found.', 'danger')
                     return redirect(url_for('new_member', filename=filename))
@@ -146,7 +150,11 @@ def new_member(filename):
                 'imageURL': request.form.get('imageURL', ''),
                 'currentHeat': int(request.form.get('currentHeat', 0) or 0),
                 'roundHeat': int(request.form.get('roundHeat', 0) or 0),
-                'abilities': [a.strip() for a in request.form.get('abilities', '').split(',') if a.strip()],
+                'abilities': [
+                    a.strip()
+                    for a in request.form.get('abilities', '').split(',')
+                    if a.strip()
+                ],
                 'jumpMove': int(request.form.get('jumpMove', 0) or 0),
                 'move': [
                     {
@@ -182,7 +190,7 @@ def new_member(filename):
         except Exception as e:
             flash(f'Error adding member: {str(e)}', 'danger')
     # GET: load group members and optional duplicate prefill
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         group_data = json.load(f)
 
     prefill = {}
@@ -247,7 +255,7 @@ def edit_member(filename, member_uuid):
         flash(f'File "{filename}" not found!', 'danger')
         return redirect(url_for('index'))
 
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         group_data = json.load(f)
 
     member = next((m for m in group_data['members'] if m['uuid'] == member_uuid), None)
@@ -281,7 +289,11 @@ def edit_member(filename, member_uuid):
             member['imageURL'] = request.form.get('imageURL', '')
             member['currentHeat'] = int(request.form.get('currentHeat', 0) or 0)
             member['roundHeat'] = int(request.form.get('roundHeat', 0) or 0)
-            member['abilities'] = [a.strip() for a in request.form.get('abilities', '').split(',') if a.strip()]
+            member['abilities'] = [
+                a.strip()
+                for a in request.form.get('abilities', '').split(',')
+                if a.strip()
+            ]
             member['jumpMove'] = int(request.form.get('jumpMove', 0) or 0)
             member['move'] = (
                 [
@@ -328,7 +340,7 @@ def delete_member(filename, member_uuid):
         return redirect(url_for('index'))
 
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             group_data = json.load(f)
 
         group_data['members'] = [m for m in group_data['members'] if m['uuid'] != member_uuid]
@@ -383,7 +395,7 @@ def copy_group(filename):
             return render_template('copy_group.html', filename=filename)
 
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath) as f:
                 group_data = json.load(f)
 
             # Update UUID and timestamp for the copy
@@ -452,7 +464,12 @@ def download_file(filename):
     # Convert to absolute path
     absolute_path = os.path.abspath(filepath)
 
-    return send_file(absolute_path, as_attachment=True, download_name=filename, mimetype='application/json')
+    return send_file(
+        absolute_path,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/json',
+    )
 
 
 @app.route('/upload', methods=['POST'])

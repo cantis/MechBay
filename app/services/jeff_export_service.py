@@ -20,6 +20,10 @@ from .force_service import get_force_by_id
 
 logger = structlog.get_logger()
 
+_JEFF_REQUIRES_AS_MSG = (
+    "Enable Alpha Strike on this force before exporting to Jeff's BT Tools."
+)
+
 DEFAULT_PILOT_SKILL = 4
 
 
@@ -201,7 +205,7 @@ def export_jeff_lance(lance_id: int) -> tuple[str, str]:
         session.expunge(lance)
 
     if not alpha_strike_service.get_alpha_strike_force(force_id):
-        raise JeffExportError("Enable Alpha Strike on this force before exporting to Jeff's BT Tools.")
+        raise JeffExportError(_JEFF_REQUIRES_AS_MSG)
 
     assignments = alpha_strike_service.get_assignments_for_force(force_id)
     group = build_jeff_group(lance, assignments)
@@ -210,7 +214,12 @@ def export_jeff_lance(lance_id: int) -> tuple[str, str]:
     filename = f"JeffGroup_{_safe_filename(group['name'])}_{timestamp}.json"
     json_string = json.dumps(group, indent=2)
 
-    logger.info("jeff_lance_exported", lance_id=lance_id, force_id=force_id, members=len(group["members"]))
+    logger.info(
+        "jeff_lance_exported",
+        lance_id=lance_id,
+        force_id=force_id,
+        members=len(group["members"]),
+    )
     return json_string, filename
 
 
@@ -221,7 +230,7 @@ def export_jeff_force_zip(force_id: int) -> tuple[bytes, str]:
         raise JeffExportError("Force not found")
 
     if not alpha_strike_service.get_alpha_strike_force(force_id):
-        raise JeffExportError("Enable Alpha Strike on this force before exporting to Jeff's BT Tools.")
+        raise JeffExportError(_JEFF_REQUIRES_AS_MSG)
 
     assignments = alpha_strike_service.get_assignments_for_force(force_id)
     all_unassigned: list[UnassignedMiniature] = []

@@ -63,7 +63,7 @@ def test_inventory_candidates_in_force_flag(client, minimal_force, sample_miniat
 def test_create_empty_lance_assigns_header_color(client, minimal_force):
     force = force_service.get_force_by_id(minimal_force)
     assert force is not None
-    existing = {l.header_color for l in force.lances if l.header_color}
+    existing = {lance.header_color for lance in force.lances if lance.header_color}
 
     lance = force_service.create_empty_lance(minimal_force, "Bravo Lance")
     assert lance is not None

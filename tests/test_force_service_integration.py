@@ -487,7 +487,9 @@ def test_import_force_no_miniatures_available(client, realistic_force):
 
 @pytest.mark.slow
 @patch("app.services.alpha_strike_service.mul_service.find_unit_in_search_results")
-def test_export_import_v2_restores_force_details(mock_find, client, minimal_force, sample_miniatures):
+def test_export_import_v2_restores_force_details(
+    mock_find, client, minimal_force, sample_miniatures
+):
     """Test v2 export/import roundtrip restores inventory faction, colors, and AS config."""
     from app.services import alpha_strike_service
     from app.services.force_service import set_inventory_faction
