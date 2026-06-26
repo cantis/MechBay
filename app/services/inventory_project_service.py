@@ -34,6 +34,11 @@ _EXPORT_MINIATURE_KEYS = (
 )
 
 
+def normalize_inventory_payload(data: Any) -> dict[str, Any]:
+    """Public wrapper for inventory JSON normalization."""
+    return _normalize_inventory_payload(data)
+
+
 def _normalize_inventory_payload(data: Any) -> dict[str, Any]:
     """Accept .mechbay and legacy miniature or template JSON exports.
 
@@ -252,3 +257,14 @@ def new_inventory_project() -> None:
     document_service.set_inventory_path(None)
     document_service.clear_inventory_dirty()
     logger.info("inventory_project_new")
+
+
+def load_sample_data() -> int:
+    """Add example miniatures and lance templates to the current inventory."""
+    from ..seed import run
+
+    with document_service.suppress_dirty_tracking():
+        created = run()
+    document_service.mark_inventory_dirty()
+    logger.info("sample_data_loaded", record_count=created)
+    return created

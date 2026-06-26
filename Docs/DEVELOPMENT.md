@@ -66,7 +66,7 @@ Populates the database with:
 - 2 sample miniatures (Warhammer WHM-6R, Banshee BNC-3E)
 - 6 lance templates (Command, Assault, Heavy, Fire Support, Recon, Battle)
 
-**Auto-seeding**: On first run, if the miniature table is empty, seed data is loaded automatically and logged to the console.
+**Auto-seeding**: Removed. Use **File → Load sample data…** or `uv run python -m app.seed`. On startup, `restore_session()` reloads a linked `.mechbay` file when the database is empty.
 
 ## Running Tests and Lint
 

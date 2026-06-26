@@ -14,10 +14,28 @@
             {% endif %}
         </small>
     </div>
-    <a class="btn btn-primary"
+        <a class="btn btn-primary"
         href="{{ url_for('miniatures.add', series=series_filter, faction=faction_filter, q=query, sort=sort, direction=direction) }}">Add
         Miniature</a>
 </div>
+
+{% if show_empty_inventory_prompt %}
+<div class="alert alert-light border mb-3">
+    <h5 class="alert-heading mb-2">Get started</h5>
+    <p class="mb-2">Your inventory is empty. Open an existing <code>.mechbay</code> file or create a new project.</p>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="MechBayFiles.openInventory()">
+            Open inventory…
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="MechBayFiles.newInventory()">
+            New inventory
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="MechBayFiles.loadSampleData()">
+            Load sample data…
+        </button>
+    </div>
+</div>
+{% endif %}
 
 {% if active_force and building_inventory_faction %}
 <div class="alert alert-info py-2 mb-3">

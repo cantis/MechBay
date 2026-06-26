@@ -119,7 +119,8 @@ async function postFileAction(url, body = {}, options = {}) {
     if (!response.ok) {
         if (payload.needs_confirm) {
             const proceed = window.confirm(
-                'You have unsaved changes. Continue without saving?'
+                payload.confirm_message ||
+                    'You have unsaved changes. Continue without saving?'
             );
             if (proceed) {
                 return postFileAction(url, { ...body, confirm: '1' }, options);
@@ -163,6 +164,10 @@ async function newInventory() {
     await postFileAction('/files/inventory/new', {});
 }
 
+async function loadSampleData() {
+    await postFileAction('/files/inventory/sample-data', {});
+}
+
 async function openInventoryUpload(input) {
     if (!input.files || !input.files[0]) {
         return;
@@ -202,6 +207,7 @@ window.MechBayFiles = {
     saveInventoryAs,
     openInventory,
     newInventory,
+    loadSampleData,
     openInventoryUpload,
     openForce,
     openForceUpload,

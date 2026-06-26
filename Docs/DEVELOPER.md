@@ -135,7 +135,7 @@ for record in records:
 ```
 MechBay/
 ├── app/
-│   ├── __init__.py           # Flask app factory, routes, auto-seeding
+│   ├── __init__.py           # Flask app factory, routes, session restore
 │   ├── config.py             # Configuration classes
 │   ├── extensions.py         # SQLAlchemy setup and session_scope()
 │   ├── migrations.py         # Database schema creation
@@ -196,7 +196,7 @@ Populates database with:
 - 2 sample miniatures (Warhammer WHM and Banshee BNC)
 - 6 lance templates (Command, Assault, Heavy, Fire Support, Recon, Battle)
 
-**Auto-seeding**: On first run, if database is empty (0 miniatures), seed data is automatically loaded with console message "Demo data loaded: X records created".
+Use **File → Load sample data…** in the app, or `uv run python -m app.seed` from the command line. The app does **not** auto-seed on startup; an empty first launch shows the inventory empty-state prompt instead.
 
 ### Key Relationships
 
@@ -457,6 +457,7 @@ Returns JSON with app status and version:
 - `/files/inventory/save` - Save linked inventory project
 - `/files/inventory/save-as` - Save inventory as `.mechbay`
 - `/files/inventory/open` - Open inventory project
+- `/files/inventory/sample-data` - Load sample miniatures and templates
 - `/files/force/<id>/save` - Save linked force file
 - `/files/force/<id>/save-as` - Save force as `.mbforce`
 - `/files/force/open` - Open force file (adds to library)

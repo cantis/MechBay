@@ -11,6 +11,7 @@ from flask import Blueprint, flash, jsonify, redirect, request, url_for
 
 from ..native_dialog import native_dialogs_enabled, pick_file_path
 from ..services import document_service, force_service, inventory_project_service
+from ..services.session_restore_service import inventory_has_data
 
 logger = structlog.get_logger()
 
@@ -76,6 +77,35 @@ def inventory_new():
     return _json_or_redirect(
         True,
         {"message": "New inventory created", "status": document_service.get_status()},
+        redirect_to=url_for("miniatures.list_miniatures"),
+    )
+
+
+@bp.route("/inventory/sample-data", methods=["POST"])
+def inventory_sample_data():
+    data = request.get_json(silent=True) or request.form
+    if inventory_has_data() and data.get("confirm") != "1":
+        return _json_or_redirect(
+            False,
+            {
+                "error": "Existing inventory data",
+                "needs_confirm": True,
+                "confirm_message": (
+                    "Your inventory already has miniatures, templates, or forces. "
+                    "Loading sample data will add example miniatures and lance templates "
+                    "(existing entries are kept; duplicates are skipped). Continue?"
+                ),
+            },
+            redirect_to=url_for("miniatures.list_miniatures"),
+        )
+
+    created = inventory_project_service.load_sample_data()
+    return _json_or_redirect(
+        True,
+        {
+            "message": f"Loaded sample data ({created} new records)",
+            "status": document_service.get_status(),
+        },
         redirect_to=url_for("miniatures.list_miniatures"),
     )
 

@@ -74,11 +74,13 @@ uv run ruff check .
 
 ## Seed Sample Data
 
-Populate the database with sample miniatures and lance templates:
+Add example miniatures and lance templates via **File → Load sample data…** in the app, or from the command line:
 
 ```powershell
 uv run python -m app.seed
 ```
+
+If your inventory already has data, the app asks for confirmation before adding sample records (duplicates are skipped).
 
 This creates 6 default lance templates:
 - Assault Lance (4x 80-100 ton 'mechs)

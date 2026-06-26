@@ -5,7 +5,7 @@ from pathlib import Path
 
 import structlog
 from dotenv import load_dotenv
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
@@ -76,16 +76,10 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     # Initialize DB and create tables (uses possibly overridden DATABASE_URL)
     init_db(app)
 
-    # Auto-seed database on first run (skip for test environments)
     if not app.config.get("TESTING"):
-        from .services.miniature_service import get_all_miniatures
+        from .services.session_restore_service import restore_session
 
-        miniatures = get_all_miniatures()
-        if len(miniatures) == 0:
-            from .seed import run
-
-            count = run()
-            logger.info("demo_data_loaded", record_count=count)
+        restore_session()
 
     # Register blueprints
     from .blueprints.alpha_strike import bp as alpha_strike_bp
@@ -101,6 +95,16 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.register_blueprint(files_bp)
 
     from .services import document_service
+
+    @app.before_request
+    def _flash_session_restore_messages():
+        if app.config.get("_session_restore_messages_flashed"):
+            return
+        app.config["_session_restore_messages_flashed"] = True
+        from .services.session_restore_service import consume_startup_messages
+
+        for category, message in consume_startup_messages():
+            flash(message, category)
 
     @app.context_processor
     def inject_document_status():

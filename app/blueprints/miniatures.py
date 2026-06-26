@@ -134,6 +134,13 @@ def list_miniatures():
         active_force.inventory_faction if active_force and active_force.inventory_faction else None
     )
 
+    show_empty_inventory_prompt = (
+        total_count == 0
+        and series_filter == "All"
+        and faction_filter == "All"
+        and not q
+    )
+
     resp = make_response(
         render_template(
             "miniatures/list.html",
@@ -153,6 +160,7 @@ def list_miniatures():
             total_count=total_count,
             total_pages=total_pages,
             valid_page_sizes=VALID_PAGE_SIZES,
+            show_empty_inventory_prompt=show_empty_inventory_prompt,
         )
     )
     resp.set_cookie(
