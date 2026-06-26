@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import time
 import webbrowser
@@ -9,6 +10,13 @@ from app import create_app
 
 
 def main():
+    if "--file-dialog" in sys.argv:
+        from app.native_dialog import run_dialog_cli
+
+        idx = sys.argv.index("--file-dialog")
+        run_dialog_cli(sys.argv[idx + 1 :])
+        return
+
     app = create_app()
 
     # Get version and debug settings

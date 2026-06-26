@@ -352,7 +352,7 @@ def test_export_force_json_structure_and_filename(client, realistic_force):
     json_str, filename = export_force_to_json(realistic_force)
 
     # Validate filename format
-    assert re.match(r"Force_.+_\d{8}_\d{6}\.json", filename)
+    assert re.match(r"Force_.+_\d{8}_\d{6}\.mbforce", filename)
 
     # Parse and validate JSON structure
     data = json.loads(json_str)
@@ -440,10 +440,13 @@ def test_import_force_partial_miniatures_available(client, realistic_force, samp
         assert result["imported_miniatures"] == 8
         assert len(result["missing_miniatures"]) == 8
 
-        # Verify missing miniatures list contains tuples
+        # Verify missing miniatures list contains series + unique_id
         for missing in result["missing_miniatures"]:
-            assert isinstance(missing, tuple)
-            assert len(missing) == 2  # (series, unique_id)
+            if isinstance(missing, dict):
+                assert "series" in missing and "unique_id" in missing
+            else:
+                assert isinstance(missing, tuple)
+                assert len(missing) == 2
     finally:
         Path(temp_path).unlink(missing_ok=True)
 

@@ -12,6 +12,7 @@ from ..extensions import session_scope
 from ..models.lance_template import LanceTemplate
 from ..models.lance_template_miniature import LanceTemplateMiniature
 from ..models.miniature import Miniature
+from . import document_service
 
 logger = structlog.get_logger()
 
@@ -61,6 +62,7 @@ def create_template(
             pattern_count=len(chassis_patterns),
         )
         session.expunge(template)
+        document_service.mark_inventory_dirty()
         return template
 
 
@@ -94,6 +96,7 @@ def update_template(
         _ = template.miniatures
 
         session.expunge(template)
+        document_service.mark_inventory_dirty()
         return template
 
 
@@ -105,6 +108,7 @@ def delete_template(template_id: int) -> bool:
             return False
         session.delete(template)
         logger.info("template_deleted", template_id=template_id)
+        document_service.mark_inventory_dirty()
         return True
 
 

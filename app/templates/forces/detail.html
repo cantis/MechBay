@@ -11,7 +11,22 @@
     <div>
         <h2 class="m-0">{{ force.name }}</h2>
         <small class="text-muted">
-            {% if force.is_active %}<span class="badge bg-success">Active</span>{% endif %}
+            {% set ns = namespace(file_label=none) %}
+            {% if document_status is defined %}
+                {% for ff in document_status.force_files %}
+                    {% if ff.force_id == force.id %}
+                        {% set ns.file_label = ff.label %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            Force file:
+            {% if ns.file_label %}
+            <span class="{% if force.id in document_status.dirty_force_ids %}fw-semibold text-body{% endif %}">{{ ns.file_label }}</span>
+            {% else %}
+            <em>not saved to disk</em>
+            {% endif %}
+            <span class="mx-1">·</span>
+            {% if force.is_active %}<span class="badge bg-success">Active</span><span class="mx-1">·</span>{% endif %}
             {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
             {{ force.lances | length }} Lance(s), {{ total_minis }} Miniature(s)
         </small>
@@ -20,6 +35,23 @@
         <a href="{{ url_for('forces.print_report', id=force.id) }}" class="btn btn-outline-primary" target="_blank">
             <i class="fa-solid fa-print"></i> Print Report
         </a>
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary"
+                onclick="MechBayFiles.saveForce({{ force.id }})">
+                <i class="fa-solid fa-floppy-disk"></i> Save force
+            </button>
+            <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
+                data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="visually-hidden">Force file options</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                    <button type="button" class="dropdown-item" onclick="MechBayFiles.saveForceAs({{ force.id }})">
+                        Save force as…
+                    </button>
+                </li>
+            </ul>
+        </div>
         <div class="btn-group">
             <a href="{{ url_for('forces.export', id=force.id) }}" class="btn btn-outline-success">
                 <i class="fa-solid fa-download"></i> Export

@@ -6,7 +6,54 @@
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+                        aria-expanded="false">File</a>
+                    <ul class="dropdown-menu">
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                onclick="MechBayFiles.newInventory()">New inventory</button>
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                onclick="MechBayFiles.openInventory()">Open inventory…</button>
+                        </li>
+                        <li>
+                            <label class="dropdown-item mb-0" style="cursor:pointer">
+                                Open inventory (upload)…
+                                <input type="file" accept=".mechbay,application/json" class="d-none"
+                                    onchange="MechBayFiles.openInventoryUpload(this)">
+                            </label>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                {% if not document_status.inventory_path %}disabled aria-disabled="true"{% endif %}
+                                onclick="MechBayFiles.saveInventory()">Save inventory</button>
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                onclick="MechBayFiles.saveInventoryAs()">Save inventory as…</button>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                onclick="MechBayFiles.openForce()">Open force…</button>
+                        </li>
+                        <li>
+                            <label class="dropdown-item mb-0" style="cursor:pointer">
+                                Open force (upload)…
+                                <input type="file" accept=".mbforce,.json,application/json" class="d-none"
+                                    onchange="MechBayFiles.openForceUpload(this)">
+                            </label>
+                        </li>
+                    </ul>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('miniatures.list_miniatures') }}">Inventory</a>
                 </li>
@@ -23,6 +70,16 @@
                     <a class="nav-link" href="{{ url_for('about') }}">About</a>
                 </li>
             </ul>
+            {% if document_status is defined %}
+            <div class="navbar-text small text-end">
+                <div>
+                    <span class="text-muted">Inventory:</span>
+                    <span class="{% if document_status.inventory_dirty %}fw-semibold text-body{% endif %}">
+                        {{ document_status.inventory_label | default('Untitled') }}
+                    </span>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </nav>

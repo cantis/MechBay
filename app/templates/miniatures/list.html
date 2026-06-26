@@ -5,6 +5,13 @@
     <div>
         <h2 class="m-0">Miniatures</h2>
         <small class="text-muted">
+            Inventory file:
+            <span class="{% if document_status is defined and document_status.inventory_dirty %}fw-semibold text-body{% endif %}">
+                {{ document_status.inventory_label | default('Untitled') if document_status is defined else 'Untitled' }}
+            </span>
+        </small>
+        <br>
+        <small class="text-muted">
             Active Force:
             {% if active_force %}
             <strong>{{ active_force.name }}</strong>

@@ -89,6 +89,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     # Register blueprints
     from .blueprints.alpha_strike import bp as alpha_strike_bp
+    from .blueprints.files import bp as files_bp
     from .blueprints.forces import bp as forces_bp
     from .blueprints.lance_templates import bp as lance_templates_bp
     from .blueprints.miniatures import bp as miniatures_bp
@@ -97,6 +98,18 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.register_blueprint(forces_bp)
     app.register_blueprint(alpha_strike_bp)
     app.register_blueprint(lance_templates_bp)
+    app.register_blueprint(files_bp)
+
+    from .services import document_service
+
+    @app.context_processor
+    def inject_document_status():
+        if app.config.get("TESTING"):
+            return {"document_status": document_service.get_status()}
+        try:
+            return {"document_status": document_service.get_status()}
+        except OSError:
+            return {"document_status": {}}
 
     @app.route("/")
     def index():

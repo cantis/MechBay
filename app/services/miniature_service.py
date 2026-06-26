@@ -9,6 +9,7 @@ from sqlalchemy import and_, or_, select
 
 from ..extensions import session_scope
 from ..models.miniature import Miniature
+from . import document_service
 
 logger = structlog.get_logger()
 
@@ -166,6 +167,7 @@ def add_miniature(data: dict) -> Miniature:
             chassis=data.get("chassis"),
         )
         session.expunge(mini)
+        document_service.mark_inventory_dirty()
         return mini
 
 
@@ -203,6 +205,7 @@ def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
                 setattr(mini, k, v)
         session.flush()
         session.expunge(mini)
+        document_service.mark_inventory_dirty()
         return mini
 
 
@@ -228,6 +231,8 @@ def bulk_update_miniatures(ids: list[int], field: str, value: str) -> int:
             .filter(Miniature.id.in_(ids))
             .update({field: value or None}, synchronize_session="fetch")
         )
+        if updated:
+            document_service.mark_inventory_dirty()
         return updated
 
 
@@ -238,6 +243,7 @@ def delete_miniature(id: int) -> bool:  # noqa: A002
             return False
         session.delete(mini)
         logger.info("miniature_deleted", miniature_id=id)
+        document_service.mark_inventory_dirty()
         return True
 
 
@@ -328,4 +334,6 @@ def import_from_json(path: str, merge: bool = False) -> int:
         total_in_file=len(items),
         merge=merge,
     )
+    if imported:
+        document_service.mark_inventory_dirty()
     return imported
