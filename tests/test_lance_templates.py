@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import io
-import json
-
 
 def test_list_templates(client):
     """Test listing lance templates returns 200."""
@@ -127,63 +124,3 @@ def test_delete_template_not_found(client):
     resp = client.post("/lance-templates/99999/delete", follow_redirects=True)
     assert resp.status_code == 200
     assert "Template not found" in resp.get_data(as_text=True)
-
-
-def test_export_templates(client, sample_template):
-    """Test exporting templates returns JSON payload."""
-    resp = client.get("/lance-templates/export")
-    assert resp.status_code == 200
-    assert "application/json" in resp.content_type
-
-    payload = json.loads(resp.data.decode("utf-8"))
-    assert payload["schema_version"] == 1
-    assert "templates" in payload
-    assert any(t["name"] == "Standard Assault Lance" for t in payload["templates"])
-
-
-def test_import_templates_get(client):
-    """Test import page GET returns 200."""
-    resp = client.get("/lance-templates/import")
-    assert resp.status_code == 200
-
-
-def test_import_templates_no_file(client):
-    """Test import POST without file shows warning flash."""
-    resp = client.post("/lance-templates/import", data={}, follow_redirects=True)
-    assert resp.status_code == 200
-    assert "No file selected" in resp.get_data(as_text=True)
-
-
-def test_import_templates_valid_file(client):
-    """Test importing a valid templates JSON file succeeds."""
-    import_payload = {
-        "schema_version": 1,
-        "export_timestamp": "2026-04-14T00:00:00",
-        "template_count": 1,
-        "templates": [
-            {
-                "name": "Imported Fire Lance",
-                "description": "Long-range fire support",
-                "chassis_patterns": ["Catapult", "Archer", "Rifleman", "JagerMech"],
-            }
-        ],
-    }
-
-    data = {
-        "file": (
-            io.BytesIO(json.dumps(import_payload).encode("utf-8")),
-            "lance_templates_import.json",
-        )
-    }
-
-    resp = client.post(
-        "/lance-templates/import",
-        data=data,
-        content_type="multipart/form-data",
-        follow_redirects=True,
-    )
-
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "Imported 1 template(s)." in body
-    assert "Imported Fire Lance" in body

@@ -25,7 +25,6 @@
             </button>
         </form>
         {% endif %}
-        <a class="btn btn-outline-secondary" href="{{ url_for('forces.import_route') }}">Import Force</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createForceModal">Create Force</button>
     </div>
 </div>
@@ -74,24 +73,17 @@
                             </button>
                         </form>
                         {% endif %}
-                        <div class="dropdown">
-                            <a href="#" class="btn btn-link p-0 text-decoration-none dropdown-toggle"
-                                data-bs-toggle="dropdown" aria-expanded="false" title="Export">
-                                <i class="fa-solid fa-download"></i>
-                            </a>
-                            <ul class="dropdown-menu dropdown-menu-end">
-                                <li>
-                                    <a class="dropdown-item" href="{{ url_for('forces.export', id=force.id) }}">
-                                        <i class="fa-solid fa-file-code"></i> MechBay JSON
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item" href="{{ url_for('forces.export_jeff', id=force.id) }}">
-                                        <i class="fa-solid fa-file-export"></i> Jeff's BT Tools
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
+                        {% if force.id in jeff_force_ids %}
+                        <a href="{{ url_for('forces.export_jeff', id=force.id) }}"
+                            class="btn btn-link p-0 text-decoration-none" title="Export to Jeff's BT Tools">
+                            <i class="fa-solid fa-file-export"></i>
+                        </a>
+                        {% else %}
+                        <span class="btn btn-link p-0 text-muted disabled" style="pointer-events: auto; cursor: not-allowed"
+                            title="Enable Alpha Strike on this force to export to Jeff's BT Tools">
+                            <i class="fa-solid fa-file-export"></i>
+                        </span>
+                        {% endif %}
                         <div class="dropdown">
                             <button class="btn btn-link p-0 text-decoration-none" data-bs-toggle="dropdown"
                                 data-bs-boundary="viewport" aria-expanded="false" title="More actions">

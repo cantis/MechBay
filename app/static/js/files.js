@@ -3,7 +3,7 @@
 const INVENTORY_PICKER_TYPES = [
     {
         description: 'MechBay inventory',
-        accept: { 'application/json': ['.mechbay'] },
+        accept: { 'application/json': ['.mechbay', '.json'] },
     },
 ];
 
@@ -82,6 +82,7 @@ async function openWithFilePicker(dialog) {
 }
 
 async function handleClientDialog(payload) {
+    // Browser File System Access API fallback when native dialogs are unavailable.
     if (!filePickerSupported()) {
         window.alert(
             'Use the upload menu item in your browser, or run the MechBay desktop app for native file dialogs.'

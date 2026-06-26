@@ -18,6 +18,7 @@ bp = Blueprint("files", __name__, url_prefix="/files")
 
 
 def _json_or_redirect(success: bool, payload: dict, *, redirect_to: str):
+    """JSON for AJAX file actions; may return needs_client_dialog or client_saved."""
     if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
         status = 200 if success else 400
         return jsonify(payload), status

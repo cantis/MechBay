@@ -173,12 +173,16 @@ Registered in `create_app()` for 400, 404, and 500:
 
 ## Import / Export
 
-All entities support JSON import/export via the web interface:
+MechBay uses document-based save/load instead of standalone JSON export pages:
 
-- **Export**: `send_file()` with a timestamped filename — `{EntityType}_YYYYMMDD_HHMMSS.json`
-- **Import**: Merge mode (match on key field and upsert) or overwrite mode (truncate then insert)
-- Max upload size: 10 MB (`MAX_CONTENT_LENGTH` in `Config`)
-- Generate timestamps: `datetime.now().strftime("%Y%m%d_%H%M%S")`
+- **Inventory**: `.mechbay` project files (miniatures, lance templates, settings) via **File** menu
+- **Forces**: `.mbforce` files via **Save force** / **File → Open force**
+- **Jeff's BT Tools**: per-lance or all-lances export for external play tools
+- **Legacy JSON**: old miniature/template export files can still be opened via **File → Open inventory**
+
+Legacy `/miniatures/export`, `/miniatures/import`, `/forces/import`, `/forces/<id>/export`, and `/lance-templates/export|import` URLs were removed; use the File menu instead.
+
+Max upload size: 10 MB (`MAX_CONTENT_LENGTH` in `Config`).
 
 ## Structured Logging
 

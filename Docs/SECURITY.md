@@ -54,12 +54,12 @@ Validate at route boundaries before passing values to services.
 
 ## File Uploads
 
-Import routes accept JSON files only.
+File menu routes accept `.mechbay`, `.mbforce`, and legacy `.json` inventory exports via `/files/upload/*` and native open dialogs.
 
 - Maximum upload size: **10 MB** (`MAX_CONTENT_LENGTH = 10 * 1024 * 1024` in `Config`). Flask enforces this and returns 413 automatically.
-- Do not save uploaded files to disk; parse them directly in memory using `request.data` or `request.files`.
+- Parse uploads in a temporary file or memory; do not trust client filenames for security decisions beyond display labels.
 - Validate that uploaded JSON is well-formed before processing; catch `json.JSONDecodeError` and return 400.
-- Import functions in services must handle malformed or unexpected JSON fields gracefully.
+- `inventory_project_service` and `force_service` must handle malformed or unexpected JSON fields gracefully.
 
 ## Proxy and Networking
 

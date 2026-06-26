@@ -207,12 +207,17 @@ Populates database with:
 
 **Active Force**: Only one force can be `is_active=True` at a time. Used for quick miniature assignment from inventory screen.
 
-### Import/Export
+### Save / Load
 
-All entities support JSON import/export via web interface:
-- **Export**: Downloads timestamped JSON file (e.g., `Miniature_Inventory_20251123_143025.json`)
-- **Import**: Supports merge mode (match on key field) or overwrite mode
-- File naming convention: `{EntityType}_YYYYMMDD_HHMMSS.json`
+Document files replace the early JSON export pages:
+
+- **`.mechbay`** — full inventory project (miniatures, lance templates, settings)
+- **`.mbforce`** — force document (schema v2)
+- **Jeff's BT Tools** — external export format only
+
+Open inventory accepts legacy miniature-only or template-only JSON exports.
+
+Service-layer `_upgrade_miniature_schema` in `miniature_service` supports legacy JSON normalization for inventory open.
 
 ## Testing
 
@@ -445,16 +450,18 @@ Returns JSON with app status and version:
 - `/miniatures/add` - Add new miniature
 - `/miniatures/<id>/edit` - Edit miniature
 - `/miniatures/<id>/delete` - Delete miniature
-- `/miniatures/export` - Export all miniatures to JSON
-- `/miniatures/import` - Import miniatures from JSON
 - `/forces` - List all forces
 - `/forces/<id>` - Force detail with drag-drop lance management
-- `/forces/<id>/export` - Export force to JSON
-- `/forces/import` - Import force from JSON
 - `/lance_templates` - List all lance templates
 - `/lance_templates/<id>` - Template detail
-- `/lance_templates/export` - Export templates to JSON
-- `/lance_templates/import` - Import templates from JSON
+- `/files/inventory/save` - Save linked inventory project
+- `/files/inventory/save-as` - Save inventory as `.mechbay`
+- `/files/inventory/open` - Open inventory project
+- `/files/force/<id>/save` - Save linked force file
+- `/files/force/<id>/save-as` - Save force as `.mbforce`
+- `/files/force/open` - Open force file (adds to library)
+- `/forces/<id>/export/jeff` - Jeff's BT Tools export (zip)
+- `/forces/<id>/lances/<lance_id>/export/jeff` - Single-lance Jeff export
 
 ## Future Considerations
 

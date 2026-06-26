@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import tempfile
-from datetime import datetime
-from io import BytesIO
-from pathlib import Path
-
 import structlog
 from flask import (
     Blueprint,
@@ -13,7 +8,6 @@ from flask import (
     redirect,
     render_template,
     request,
-    send_file,
     url_for,
 )
 
@@ -22,12 +16,10 @@ from ..services.miniature_service import (
     add_miniature,
     bulk_update_miniatures,
     delete_miniature,
-    export_to_json,
     get_all_miniatures,
     get_distinct_factions,
     get_miniature_by_id,
     get_next_unique_id,
-    import_from_json,
     update_miniature,
 )
 
@@ -462,46 +454,3 @@ def bulk_action():
 
     flash(f"Updated {count} miniature(s)", "success")
     return jsonify({"success": True, "updated": count})
-
-
-@bp.route("/export")
-def export():
-    # Generate JSON in memory
-    json_string = export_to_json()
-    # Generate timestamped filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    download_filename = f"Miniature_Inventory_{timestamp}.json"
-    # Serve as attachment
-    return send_file(
-        BytesIO(json_string.encode("utf-8")),
-        mimetype="application/json",
-        as_attachment=True,
-        download_name=download_filename,
-    )
-
-
-@bp.route("/import", methods=["GET", "POST"])
-def import_route():
-    if request.method == "POST":
-        uploaded = request.files.get("file")
-        merge_flag = request.form.get("merge") == "on"
-        if not uploaded or uploaded.filename == "":
-            flash("No file selected", "warning")
-            return redirect(url_for("miniatures.import_route"))
-        logger.info("miniature_import_started", filename=uploaded.filename, merge=merge_flag)
-
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
-                tmp_path = tmp.name
-                uploaded.save(tmp_path)
-            count = import_from_json(tmp_path, merge=merge_flag)
-            flash(f"Imported {count} miniatures", "success")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("miniature_import_failed", exc_info=True)
-            flash(f"Import failed: {exc}", "danger")
-        finally:
-            if tmp_path:
-                Path(tmp_path).unlink(missing_ok=True)
-        return redirect(url_for("miniatures.list_miniatures"))
-    return render_template("miniatures/import.html")

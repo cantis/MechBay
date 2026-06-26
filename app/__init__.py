@@ -104,8 +104,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     @app.context_processor
     def inject_document_status():
-        if app.config.get("TESTING"):
-            return {"document_status": document_service.get_status()}
         try:
             return {"document_status": document_service.get_status()}
         except OSError:

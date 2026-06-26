@@ -14,7 +14,7 @@ from ..models.lance_template import LanceTemplate
 from ..models.lance_template_miniature import LanceTemplateMiniature
 from ..models.miniature import Miniature
 from . import document_service, force_service
-from .miniature_service import get_all_miniatures
+from .miniature_service import _upgrade_miniature_schema, get_all_miniatures
 
 logger = structlog.get_logger()
 
@@ -32,6 +32,54 @@ _EXPORT_MINIATURE_KEYS = (
     "tray_id",
     "notes",
 )
+
+
+def _normalize_inventory_payload(data: Any) -> dict[str, Any]:
+    """Accept .mechbay and legacy miniature or template JSON exports.
+
+    Legacy shapes: bare miniature list, v1 ``{miniatures: [...]}``, or template-only exports.
+    """
+    if isinstance(data, list):
+        return {
+            "schema_version": INVENTORY_PROJECT_SCHEMA_VERSION,
+            "type": PROJECT_TYPE,
+            "miniatures": data,
+            "templates": [],
+        }
+
+    if not isinstance(data, dict):
+        raise ValueError("Invalid project file format")
+
+    if data.get("force_name") or "lances" in data:
+        raise ValueError("This is a force file. Use File → Open force instead.")
+
+    if data.get("type") == PROJECT_TYPE:
+        return data
+
+    templates = data.get("templates")
+    if "miniatures" in data:
+        miniatures = _upgrade_miniature_schema(data)
+    elif templates is not None:
+        miniatures = []
+    else:
+        raise ValueError("Invalid project file: missing miniatures")
+
+    if templates is None:
+        templates = []
+    if not isinstance(templates, list):
+        raise ValueError("Invalid templates section in project file")
+
+    settings = data.get("settings")
+    if settings is not None and not isinstance(settings, dict):
+        raise ValueError("Invalid settings section in project file")
+
+    return {
+        "schema_version": data.get("schema_version", INVENTORY_PROJECT_SCHEMA_VERSION),
+        "type": PROJECT_TYPE,
+        "miniatures": miniatures,
+        "templates": templates,
+        "settings": settings or {},
+    }
 
 
 def build_project_data() -> dict[str, Any]:
@@ -148,14 +196,11 @@ def load_project_from_data(
     data: dict[str, Any], *, source_path: str | None = None
 ) -> dict[str, Any]:
     """Replace inventory from project data and clear all forces."""
-    if data.get("type") and data.get("type") != PROJECT_TYPE:
-        raise ValueError("Not a MechBay inventory project file")
+    data = _normalize_inventory_payload(data)
 
     miniatures = data.get("miniatures")
     if not isinstance(miniatures, list):
-        if "miniatures" in data:
-            raise ValueError("Invalid miniatures section in project file")
-        raise ValueError("Invalid project file: missing miniatures")
+        raise ValueError("Invalid miniatures section in project file")
 
     templates = data.get("templates")
     if templates is None:

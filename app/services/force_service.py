@@ -157,6 +157,7 @@ def rename_force(force_id: int, new_name: str) -> Force | None:
         force.name = new_name.strip()
         force.updated_at = datetime.now(UTC)
         session.flush()
+        document_service.mark_force_dirty(force_id)
         return force
 
 
@@ -296,6 +297,7 @@ def move_miniature_between_lances(
         fm.order = position
         session.flush()
 
+        document_service.mark_force_dirty(target_lance.force_id)
         return {"success": True}
 
 
@@ -332,6 +334,7 @@ def create_empty_lance(force_id: int, name: str | None = None) -> Lance | None:
 
         # Expunge to make accessible outside session
         session.expunge(lance)
+        document_service.mark_force_dirty(force_id)
         return lance
 
 
@@ -341,8 +344,10 @@ def delete_lance(lance_id: int) -> bool:
         lance = session.get(Lance, lance_id)
         if not lance:
             return False
+        force_id = lance.force_id
         session.delete(lance)
         logger.info("lance_deleted", lance_id=lance_id)
+        document_service.mark_force_dirty(force_id)
         return True
 
 
@@ -389,6 +394,7 @@ def ensure_lance_header_colors(force_id: int) -> None:
             updated = True
         if updated:
             session.flush()
+            document_service.mark_force_dirty(force_id)
 
 
 def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
@@ -409,6 +415,7 @@ def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
         force.updated_at = datetime.now(UTC)
         session.flush()
         session.expunge(force)
+        document_service.mark_force_dirty(force_id)
         return force
 
 
@@ -643,18 +650,6 @@ def _restore_alpha_strike_assignment(
             mul_snapshot_json=json.dumps(snapshot),
         )
     )
-
-
-def import_force_from_json(file_path: str) -> dict[str, Any]:
-    """Import force from JSON file, matching miniatures by series+unique_id."""
-    filepath = Path(file_path)
-
-    try:
-        data = json.loads(filepath.read_text(encoding="utf-8"))
-    except FileNotFoundError as err:
-        raise ValueError(f"File not found: {file_path}") from err
-
-    return import_force_from_data(data)
 
 
 def import_force_from_data(

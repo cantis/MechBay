@@ -1,4 +1,4 @@
-"""Convert original.csv to MechBay JSON import format."""
+"""Convert original.csv to legacy miniature JSON (open via File → Open inventory)."""
 
 from __future__ import annotations
 

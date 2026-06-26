@@ -52,33 +52,11 @@
                 </li>
             </ul>
         </div>
-        <div class="btn-group">
-            <a href="{{ url_for('forces.export', id=force.id) }}" class="btn btn-outline-success">
-                <i class="fa-solid fa-download"></i> Export
-            </a>
-            <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split"
-                data-bs-toggle="dropdown" aria-expanded="false">
-                <span class="visually-hidden">Export options</span>
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-                <li>
-                    <a class="dropdown-item" href="{{ url_for('forces.export', id=force.id) }}">
-                        <i class="fa-solid fa-file-code"></i> MechBay JSON
-                    </a>
-                </li>
-                {% if as_config %}
-                <li>
-                    <a class="dropdown-item" href="{{ url_for('forces.export_jeff', id=force.id) }}">
-                        <i class="fa-solid fa-file-export"></i> Jeff's BT Tools (all lances)
-                    </a>
-                </li>
-                {% else %}
-                <li>
-                    <span class="dropdown-item-text text-muted small">Jeff's export requires Alpha Strike</span>
-                </li>
-                {% endif %}
-            </ul>
-        </div>
+        {% if as_config %}
+        <a href="{{ url_for('forces.export_jeff', id=force.id) }}" class="btn btn-outline-success">
+            <i class="fa-solid fa-file-export"></i> Jeff's BT Tools
+        </a>
+        {% endif %}
         <a href="{{ url_for('miniatures.list_miniatures') }}" class="btn btn-outline-secondary">
             <i class="fa-solid fa-list"></i> Inventory
         </a>

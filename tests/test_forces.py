@@ -374,40 +374,6 @@ def test_rename_lance(client, minimal_force):
 
 
 # ============================================================================
-# EXPORT / IMPORT
-# ============================================================================
-
-
-def test_export_force(client, minimal_force):
-    """Test exporting a force returns JSON attachment."""
-    resp = client.get(f"/forces/{minimal_force}/export")
-
-    assert resp.status_code == 200
-    assert resp.mimetype == "application/json"
-    content_disposition = resp.headers.get("Content-Disposition", "")
-    assert "attachment" in content_disposition
-    assert "Force_" in content_disposition
-
-
-def test_export_force_not_found(client):
-    """Test exporting non-existent force redirects with danger flash."""
-    resp = client.get("/forces/99999/export", follow_redirects=True)
-
-    assert resp.status_code == 200
-    assert resp.request.path == "/forces"
-    assert "Force not found" in resp.get_data(as_text=True)
-
-
-def test_import_force_no_file(client):
-    """Test importing force without file flashes warning."""
-    resp = client.post("/forces/import", data={}, follow_redirects=True)
-
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "No file selected" in body
-
-
-# ============================================================================
 # FORCE REPORT
 # ============================================================================
 

@@ -82,11 +82,14 @@ Method 1 - Direct Database Backup (Recommended):
   2. Copy the mechbay.db file from %APPDATA%\MechBay\ to a safe location
   3. To restore, copy the backup file back to %APPDATA%\MechBay\
 
-Method 2 - JSON Export/Import:
-  1. In the web interface, go to Miniatures, Forces, or Lance Templates
-  2. Click "Export JSON" to download your data
-  3. Save the JSON file in a safe location
-  4. To restore, use the "Import JSON" feature
+Method 2 - Document files (portable):
+  1. In the app, use File → Save inventory to create a .mechbay file
+  2. Use Save force on each force to create .mbforce files
+  3. Store those files in a safe location
+  4. To restore, use File → Open inventory or File → Open force
+
+Linked file paths are stored in:
+  %APPDATA%\MechBay\documents.json
 
 UPDATING TO A NEW VERSION
 --------------------------

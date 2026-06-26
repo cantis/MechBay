@@ -48,7 +48,11 @@ def run_dialog_cli(argv: list[str]) -> None:
     default_name = argv[2] if len(argv) > 2 else ""
 
     if kind == "inventory":
-        filetypes = [("MechBay inventory", f"*{INVENTORY_EXTENSION}"), ("All files", "*.*")]
+        filetypes = [
+            ("MechBay inventory", f"*{INVENTORY_EXTENSION}"),
+            ("Legacy inventory JSON", "*.json"),
+            ("All files", "*.*"),
+        ]
         default_ext = INVENTORY_EXTENSION
     else:
         filetypes = [("MechBay force", f"*{FORCE_EXTENSION}"), ("All files", "*.*")]

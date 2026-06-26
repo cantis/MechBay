@@ -31,7 +31,7 @@ from app.services.force_service import (
     get_all_forces,
     get_force_by_id,
     get_miniatures_in_force,
-    import_force_from_json,
+    import_force_from_data,
     move_miniature_between_lances,
     remove_miniature_from_force,
     rename_force,
@@ -400,7 +400,7 @@ def test_import_force_creates_inactive(client, realistic_force, sample_miniature
         temp_path = f.name
 
     try:
-        result = import_force_from_json(temp_path)
+        result = import_force_from_data(json.loads(Path(temp_path).read_text(encoding="utf-8")))
 
         assert "force_id" in result
         assert result["imported_miniatures"] == 16
@@ -435,7 +435,7 @@ def test_import_force_partial_miniatures_available(client, realistic_force, samp
         temp_path = f.name
 
     try:
-        result = import_force_from_json(temp_path)
+        result = import_force_from_data(json.loads(Path(temp_path).read_text(encoding="utf-8")))
 
         assert result["imported_miniatures"] == 8
         assert len(result["missing_miniatures"]) == 8
@@ -473,7 +473,7 @@ def test_import_force_no_miniatures_available(client, realistic_force):
         temp_path = f.name
 
     try:
-        result = import_force_from_json(temp_path)
+        result = import_force_from_data(json.loads(Path(temp_path).read_text(encoding="utf-8")))
 
         assert result["imported_miniatures"] == 0
         assert len(result["missing_miniatures"]) == 16
@@ -545,7 +545,7 @@ def test_export_import_v2_restores_force_details(
         temp_path = f.name
 
     try:
-        result = import_force_from_json(temp_path)
+        result = import_force_from_data(json.loads(Path(temp_path).read_text(encoding="utf-8")))
         imported = get_force_by_id(result["force_id"])
         assert imported.inventory_faction == "Jade Falcon"
         assert imported.lances[0].header_color == original_color
@@ -602,7 +602,7 @@ def test_import_force_v1_backward_compatible(client, sample_miniatures):
         temp_path = f.name
 
     try:
-        result = import_force_from_json(temp_path)
+        result = import_force_from_data(json.loads(Path(temp_path).read_text(encoding="utf-8")))
         imported = get_force_by_id(result["force_id"])
         assert imported.name == "Legacy Force"
         assert imported.inventory_faction is None

@@ -1,6 +1,11 @@
 <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
     <div class="container-fluid">
         <a class="navbar-brand" href="{{ url_for('miniatures.list_miniatures') }}">MechBay</a>
+        {% if document_status is defined %}
+        {% set inv_label = document_status.inventory_label | default('Untitled') %}
+        <span class="navbar-text small text-truncate d-lg-none ms-auto me-2{% if document_status.inventory_dirty %} fw-semibold text-warning-emphasis{% else %} text-body-secondary{% endif %}"
+            style="max-width: 9rem" title="{{ inv_label }}">{{ inv_label }}</span>
+        {% endif %}
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
             aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
@@ -22,7 +27,7 @@
                         <li>
                             <label class="dropdown-item mb-0" style="cursor:pointer">
                                 Open inventory (upload)…
-                                <input type="file" accept=".mechbay,application/json" class="d-none"
+                                <input type="file" accept=".mechbay,.json,application/json" class="d-none"
                                     onchange="MechBayFiles.openInventoryUpload(this)">
                             </label>
                         </li>
@@ -64,20 +69,14 @@
                     <a class="nav-link" href="{{ url_for('lance_templates.list_templates') }}">Lance Templates</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('miniatures.import_route') }}">Import/Export</a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('about') }}">About</a>
                 </li>
             </ul>
             {% if document_status is defined %}
-            <div class="navbar-text small text-end">
-                <div>
-                    <span class="text-muted">Inventory:</span>
-                    <span class="{% if document_status.inventory_dirty %}fw-semibold text-body{% endif %}">
-                        {{ document_status.inventory_label | default('Untitled') }}
-                    </span>
-                </div>
+            <div class="navbar-text small text-end ms-lg-2 d-none d-lg-block">
+                <span class="text-muted">Inventory:</span>
+                <span class="text-truncate d-inline-block align-bottom{% if document_status.inventory_dirty %} fw-semibold text-warning-emphasis border-bottom border-warning border-2{% else %} text-body-secondary{% endif %}"
+                    style="max-width: 14rem" title="{{ inv_label }}">{{ inv_label }}</span>
             </div>
             {% endif %}
         </div>
