@@ -12,6 +12,7 @@ from flask import (
 )
 
 from ..services import force_service
+from ..services.force_service import INVENTORY_FACTION_ALL
 from ..services.miniature_service import (
     add_miniature,
     bulk_update_miniatures,
@@ -130,9 +131,10 @@ def list_miniatures():
         force_assignments = force_service.get_force_miniature_assignments(active_force.id)
         lances = active_force.lances
 
-    building_inventory_faction = (
-        active_force.inventory_faction if active_force and active_force.inventory_faction else None
-    )
+    building_inventory_faction = None
+    if active_force and active_force.inventory_faction:
+        if active_force.inventory_faction != INVENTORY_FACTION_ALL:
+            building_inventory_faction = active_force.inventory_faction
 
     show_empty_inventory_prompt = (
         total_count == 0

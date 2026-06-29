@@ -38,6 +38,7 @@ from .lance_colors import pick_lance_header_color
 logger = structlog.get_logger()
 
 FORCE_SCHEMA_VERSION = 2
+INVENTORY_FACTION_ALL = "All"
 
 
 @dataclass(frozen=True)
@@ -409,7 +410,12 @@ def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
             cleaned = None
         else:
             stripped = faction.strip()
-            cleaned = None if not stripped or stripped.lower() == "none" else stripped
+            if not stripped or stripped.lower() == "none":
+                cleaned = None
+            elif stripped.lower() == "all":
+                cleaned = INVENTORY_FACTION_ALL
+            else:
+                cleaned = stripped
 
         force.inventory_faction = cleaned
         force.updated_at = datetime.now(UTC)
@@ -429,15 +435,10 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
     mul_lookup: dict[tuple[str, int | None], bool] | None = None
 
     with session_scope() as session:
-        miniatures = list(
-            session.execute(
-                select(Miniature)
-                .where(Miniature.faction == force.inventory_faction)
-                .order_by(Miniature.series, Miniature.unique_id)
-            )
-            .scalars()
-            .all()
-        )
+        stmt = select(Miniature).order_by(Miniature.series, Miniature.unique_id)
+        if force.inventory_faction != INVENTORY_FACTION_ALL:
+            stmt = stmt.where(Miniature.faction == force.inventory_faction)
+        miniatures = list(session.execute(stmt).scalars().all())
 
         assignment_rows = session.execute(
             select(
@@ -487,6 +488,19 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
         )
 
     return candidates
+
+
+def filter_inventory_candidates(
+    candidates: list[InventoryCandidate], *, hide_unavailable: bool
+) -> list[InventoryCandidate]:
+    """Optionally hide units not available under current MUL filters."""
+    if not hide_unavailable:
+        return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.in_force or candidate.mul_available is not False
+    ]
 
 
 def summarize_inventory_candidates(candidates: list[InventoryCandidate]) -> dict[str, int]:

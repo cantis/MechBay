@@ -12,6 +12,7 @@ from ..services import (
     jeff_export_service,
     lance_template_service,
 )
+from ..services.force_service import INVENTORY_FACTION_ALL
 from ..services.jeff_export_service import JeffExportError
 from ..services.miniature_service import get_distinct_factions
 from ..services.mul_service import get_eras, get_factions
@@ -92,11 +93,13 @@ def set_inventory_faction(id: int):  # noqa: A002
         flash("Force not found", "danger")
         return redirect(url_for("forces.list_forces"))
 
-    if force.inventory_faction:
+    if force.inventory_faction == INVENTORY_FACTION_ALL:
+        flash("Inventory faction set to All (showing every miniature)", "success")
+    elif force.inventory_faction:
         flash(f'Inventory faction set to "{force.inventory_faction}"', "success")
     else:
         flash("Inventory faction cleared", "info")
-    return redirect(url_for("forces.detail", id=id))
+    return redirect(f"{url_for('forces.detail', id=id)}#force-building")
 
 
 @bp.route("/<int:id>/activate", methods=["POST"])

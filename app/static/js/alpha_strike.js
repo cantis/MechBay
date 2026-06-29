@@ -315,13 +315,13 @@
             .catch(() => showError('Network error while assigning variant'));
     }
 
-    document.querySelectorAll('.assign-variant-btn').forEach(btn => {
-        btn.addEventListener('click', function () {
-            openPicker(
-                parseInt(this.dataset.fmId, 10),
-                this.dataset.chassis,
-                parseInt(this.dataset.lanceId, 10)
-            );
-        });
+    document.addEventListener('click', function (event) {
+        const btn = event.target.closest('.assign-variant-btn');
+        if (!btn) return;
+        openPicker(
+            parseInt(btn.dataset.fmId, 10),
+            btn.dataset.chassis,
+            parseInt(btn.dataset.lanceId, 10)
+        );
     });
 })();

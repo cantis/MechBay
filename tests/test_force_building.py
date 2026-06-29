@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from app.services import alpha_strike_service, force_service
 from app.services.force_service import (
+    INVENTORY_FACTION_ALL,
     get_force_miniature_assignments,
     get_inventory_candidates,
     set_inventory_faction,
@@ -27,11 +28,25 @@ def test_inventory_list_shows_in_force_label(client, minimal_force, sample_minia
     assert 'title="In force — remove from force builder to reassign"' in body
 
 
+def test_inventory_candidates_all_factions(client, sample_miniatures):
+    force = force_service.create_force("Mixed Force")
+    set_inventory_faction(force.id, "All")
+
+    candidates = get_inventory_candidates(force.id)
+    assert len(candidates) >= 4
+    factions = {c.miniature.faction for c in candidates}
+    assert len(factions) > 1
+
+
 def test_set_inventory_faction(client, sample_miniatures):
     force = force_service.create_force("Test Force")
     updated = set_inventory_faction(force.id, "Jade Falcon")
     assert updated is not None
     assert updated.inventory_faction == "Jade Falcon"
+
+    all_faction = set_inventory_faction(force.id, "all")
+    assert all_faction is not None
+    assert all_faction.inventory_faction == INVENTORY_FACTION_ALL
 
     cleared = set_inventory_faction(force.id, None)
     assert cleared is not None
@@ -114,6 +129,71 @@ def test_batch_chassis_availability_dedupes(mock_has):
     result = batch_chassis_availability(keys, faction_id=34, era_id=257)
     assert result == {("Warhammer", 18): True, ("Atlas", 18): True}
     assert mock_has.call_count == 2
+
+
+def test_force_detail_type_filter_options(client, sample_miniatures):
+    force = force_service.create_force("Type Filter Force")
+    set_inventory_faction(force.id, "Jade Falcon")
+
+    resp = client.get(f"/forces/{force.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'id="inventoryPoolType"' in body
+    assert 'data-type-label="Mech"' in body
+
+
+@patch("app.services.mul_service.search_variants")
+def test_force_detail_marks_unavailable_rows(mock_search, client, sample_miniatures):
+    force = force_service.create_force("Filter Force")
+    set_inventory_faction(force.id, "Jade Falcon")
+    alpha_strike_service.enable_alpha_strike(
+        force.id,
+        mul_faction_id=34,
+        mul_era_id=257,
+    )
+
+    def fake_search(name, *, faction_id, era_id, unit_type_id=None):
+        if "Warhammer" in name:
+            return [{"id": 1}]
+        return []
+
+    mock_search.side_effect = fake_search
+
+    resp = client.get(f"/forces/{force.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'id="hideUnavailable"' in body
+    assert 'id="inventoryPoolSearch"' in body
+    assert 'id="inventoryPoolType"' in body
+    assert "data-hide-when-filtered" in body
+    assert body.index("Save</button>") < body.index('id="hideUnavailable"')
+
+
+def test_filter_inventory_candidates_hides_unavailable():
+    from app.models.miniature import Miniature
+
+    def mini(chassis: str) -> Miniature:
+        return Miniature(
+            series="A",
+            unique_id=1,
+            prefix="X",
+            chassis=chassis,
+            type="Mech",
+            faction="Test",
+        )
+
+    candidates = [
+        force_service.InventoryCandidate(mini("InForce"), True, "L1", 1, "#dbeafe", False),
+        force_service.InventoryCandidate(mini("Available"), False, None, None, None, True),
+        force_service.InventoryCandidate(mini("Unavailable"), False, None, None, None, False),
+        force_service.InventoryCandidate(mini("Neutral"), False, None, None, None, None),
+    ]
+
+    filtered = force_service.filter_inventory_candidates(candidates, hide_unavailable=True)
+    assert len(filtered) == 3
+    assert {c.miniature.chassis for c in filtered} == {"InForce", "Available", "Neutral"}
+
+    assert len(force_service.filter_inventory_candidates(candidates, hide_unavailable=False)) == 4
 
 
 def test_summarize_inventory_candidates():
