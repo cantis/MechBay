@@ -458,7 +458,7 @@ def clear_seed_data(app):
 ### 5. JSON Export Schema Mismatch (LOW PRIORITY)
 **Issue**: Test expects `export_timestamp` field, service provides `exported_at`.
 
-**Affected Function**: `lance_template_service.export_templates_to_json()`
+**Note:** Legacy template export helpers were removed; templates are saved in `.mechbay` inventory projects via `inventory_project_service.build_project_data()`.
 
 **Fix Required**: Either rename field in service or update test expectation.
 

@@ -47,7 +47,7 @@ Root routes: `/` (redirects to inventory), `/about`.
 4. Configures structlog (colorized in debug, JSON in production)
 5. Initialises CSRF protection via Flask-WTF (`WTF_CSRF_ENABLED=False` in test mode)
 6. Calls `init_db(app)` to bind SQLAlchemy and create all tables
-7. Auto-seeds the database on first run (if miniature count == 0)
+7. Restores the linked document session via `session_restore_service.restore_session()` (skipped in test mode)
 8. Registers blueprints and error handlers
 
 ## Session Management
@@ -173,12 +173,26 @@ Registered in `create_app()` for 400, 404, and 500:
 
 ## Import / Export
 
-All entities support JSON import/export via the web interface:
+MechBay uses document-based save/load instead of standalone JSON export pages:
 
-- **Export**: `send_file()` with a timestamped filename — `{EntityType}_YYYYMMDD_HHMMSS.json`
-- **Import**: Merge mode (match on key field and upsert) or overwrite mode (truncate then insert)
-- Max upload size: 10 MB (`MAX_CONTENT_LENGTH` in `Config`)
-- Generate timestamps: `datetime.now().strftime("%Y%m%d_%H%M%S")`
+- **Inventory**: `.mechbay` project files (miniatures, lance templates, settings) via **File** menu
+- **Forces**: `.mbforce` files via **Save force** / **File → Open force**
+- **Jeff's BT Tools**: per-lance or all-lances export for external play tools
+- **Legacy JSON**: old miniature/template export files can still be opened via **File → Open inventory**
+
+### Session restore
+
+On startup (desktop deployments), `restore_session()`:
+
+1. Loads the linked `.mechbay` file when the database is empty but `documents.json` has a valid path
+2. Prunes missing inventory paths and stale force file links
+3. Clears dirty flags when on-disk files match the current database content
+
+Linked paths and dirty state live in `%APPDATA%\MechBay\documents.json`. Sample/demo data is **not** loaded automatically; use **File → Load sample data…** or `uv run python -m app.seed`.
+
+Legacy `/miniatures/export`, `/miniatures/import`, `/forces/import`, `/forces/<id>/export`, and `/lance-templates/export|import` URLs were removed; use the File menu instead.
+
+Max upload size: 10 MB (`MAX_CONTENT_LENGTH` in `Config`).
 
 ## Structured Logging
 

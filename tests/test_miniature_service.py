@@ -1,12 +1,4 @@
-"""Service-level tests for miniature_service.py.
-
-Covers branches not exercised by the route-level tests in test_miniatures.py:
-- Filter / sort parameters on get_all_miniatures
-- update_miniature with a missing record
-- bulk_update_miniatures (invalid field, empty list, valid update)
-- export_to_json / _upgrade_miniature_schema (v1 envelope)
-- import_from_json (overwrite, merge, invalid-uid skip)
-"""
+"""Service-level tests for miniature_service.py."""
 
 from __future__ import annotations
 
@@ -15,13 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from app.services import inventory_project_service
 from app.services.miniature_service import (
     _upgrade_miniature_schema,
     add_miniature,
     bulk_update_miniatures,
-    export_to_json,
     get_all_miniatures,
-    import_from_json,
     update_miniature,
 )
 
@@ -226,25 +217,8 @@ def test_bulk_update_clears_field_on_empty_value(client):
 
 
 # ===========================================================================
-# export_to_json / _upgrade_miniature_schema
+# _upgrade_miniature_schema / inventory load
 # ===========================================================================
-
-
-def test_export_to_json_returns_schema_v1_envelope(client):
-    """export_to_json wraps miniatures in a schema_version:1 envelope."""
-    _add(unique_id=1)
-    raw = export_to_json()
-    data = json.loads(raw)
-    assert data["schema_version"] == 1
-    assert isinstance(data["miniatures"], list)
-    assert len(data["miniatures"]) == 1
-
-
-def test_export_to_json_empty_db(client):
-    """export_to_json returns an empty miniatures list when the DB is empty."""
-    raw = export_to_json()
-    data = json.loads(raw)
-    assert data["miniatures"] == []
 
 
 def test_upgrade_schema_v1_dict(client):
@@ -261,13 +235,8 @@ def test_upgrade_schema_v0_list(client):
     assert result == payload
 
 
-# ===========================================================================
-# import_from_json
-# ===========================================================================
-
-
-def test_import_from_json_overwrite(client, tmp_path):
-    """import_from_json in overwrite mode replaces all existing miniatures."""
+def test_load_legacy_miniatures_via_project_service(client, tmp_path):
+    """Legacy miniature list JSON loads through inventory_project_service."""
     _add(unique_id=1)
     _add(unique_id=2, chassis="Atlas")
 
@@ -275,116 +244,46 @@ def test_import_from_json_overwrite(client, tmp_path):
         {"series": "A", "unique_id": 99, "chassis": "Timber Wolf", "prefix": "TBR", "type": "Mech"}
     ]
     path = _write_json(new_data, tmp_path)
-
-    count = import_from_json(path, merge=False)
-    assert count == 1
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    result = inventory_project_service.load_project_from_data(payload)
+    assert result["miniatures"] == 1
     minis = get_all_miniatures()
     assert len(minis) == 1
     assert minis[0].chassis == "Timber Wolf"
 
 
-def test_import_from_json_skips_invalid_unique_id(client, tmp_path):
-    """import_from_json silently skips records with a non-integer unique_id."""
-    items = [
-        {
-            "series": "A",
-            "unique_id": "bad-id",
-            "chassis": "Warhammer",
-            "prefix": "WHM",
-            "type": "Mech",
-        },
-        {"series": "A", "unique_id": 5, "chassis": "Atlas", "prefix": "AS7", "type": "Mech"},
+def test_load_legacy_skips_invalid_unique_id(client):
+    """Invalid unique_id records are skipped when loading inventory."""
+    payload = [
+        {"series": "A", "unique_id": "bad-id", "chassis": "Warhammer", "type": "Mech"},
+        {"series": "A", "unique_id": 5, "chassis": "Atlas", "type": "Mech"},
     ]
-    path = _write_json(items, tmp_path)
-
-    count = import_from_json(path, merge=False)
-    assert count == 1
-    minis = get_all_miniatures()
-    assert minis[0].chassis == "Atlas"
+    result = inventory_project_service.load_project_from_data(payload)
+    assert result["miniatures"] == 1
+    assert get_all_miniatures()[0].chassis == "Atlas"
 
 
-def test_import_from_json_merge_updates_existing(client, tmp_path):
-    """import_from_json in merge mode updates a matching (series, unique_id) record."""
-    _add(series="A", unique_id=1, chassis="Warhammer", status="New")
-
-    updated_items = [
-        {
-            "series": "A",
-            "unique_id": 1,
-            "chassis": "Warhammer",
-            "prefix": "WHM",
-            "type": "Mech",
-            "status": "Painted",
-        }
-    ]
-    path = _write_json(updated_items, tmp_path)
-
-    count = import_from_json(path, merge=True)
-    # Merge-update of existing records returns 0 (no new inserts)
-    assert count == 0
-    minis = get_all_miniatures()
-    assert len(minis) == 1
-    assert minis[0].status == "Painted"
-
-
-def test_import_from_json_merge_inserts_new(client, tmp_path):
-    """import_from_json in merge mode inserts records that don't already exist."""
-    _add(series="A", unique_id=1, chassis="Warhammer")
-
-    new_items = [
-        {"series": "A", "unique_id": 2, "chassis": "Atlas", "prefix": "AS7", "type": "Mech"}
-    ]
-    path = _write_json(new_items, tmp_path)
-
-    count = import_from_json(path, merge=True)
-    assert count == 1
-    minis = get_all_miniatures()
-    assert len(minis) == 2
-
-
-def test_import_from_json_v1_envelope(client, tmp_path):
-    """import_from_json accepts a schema v1 envelope (dict with schema_version)."""
+def test_load_legacy_v1_envelope(client):
     envelope = {
         "schema_version": 1,
         "miniatures": [
             {"series": "A", "unique_id": 7, "chassis": "Marauder", "prefix": "MAD", "type": "Mech"}
         ],
     }
-    path = _write_json(envelope, tmp_path)
-
-    count = import_from_json(path, merge=False)
-    assert count == 1
-    minis = get_all_miniatures()
-    assert minis[0].chassis == "Marauder"
+    result = inventory_project_service.load_project_from_data(envelope)
+    assert result["miniatures"] == 1
+    assert get_all_miniatures()[0].chassis == "Marauder"
 
 
-def test_import_from_json_rejects_invalid_root(client, tmp_path):
-    """import_from_json raises ValueError when the JSON root is not a list or object."""
-    path = Path(tmp_path) / "invalid.json"
-    path.write_text(json.dumps("not-a-list"), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="JSON must be a list or object"):
-        import_from_json(str(path), merge=False)
+def test_load_legacy_rejects_invalid_root(client):
+    with pytest.raises(ValueError, match="Invalid project file format"):
+        inventory_project_service.load_project_from_data("not-a-list")
 
 
-def test_import_from_json_defaults_series_to_a(client, tmp_path):
-    """Records without a 'series' key default to series 'A'."""
-    items = [{"unique_id": 3, "chassis": "Vulture", "prefix": "VT", "type": "Mech"}]
-    path = _write_json(items, tmp_path)
-
-    import_from_json(path, merge=False)
-    minis = get_all_miniatures()
-    assert minis[0].series == "A"
-
-
-def test_import_from_json_empty_series_defaults_to_a(client, tmp_path):
-    """Records with series='' default to series 'A'."""
-    items = [{"series": "", "unique_id": 5, "chassis": "Vulture", "prefix": "VT", "type": "Mech"}]
-    path = _write_json(items, tmp_path)
-
-    import_from_json(path, merge=False)
-    minis = get_all_miniatures()
-    assert minis[0].series == "A"
+def test_load_legacy_defaults_series_to_a(client):
+    payload = [{"unique_id": 3, "chassis": "Vulture", "prefix": "VT", "type": "Mech"}]
+    inventory_project_service.load_project_from_data(payload)
+    assert get_all_miniatures()[0].series == "A"
 
 
 # ===========================================================================

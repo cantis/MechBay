@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime
 from io import BytesIO
-from pathlib import Path
 
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
@@ -14,6 +12,7 @@ from ..services import (
     jeff_export_service,
     lance_template_service,
 )
+from ..services.force_service import INVENTORY_FACTION_ALL
 from ..services.jeff_export_service import JeffExportError
 from ..services.miniature_service import get_distinct_factions
 from ..services.mul_service import get_eras, get_factions
@@ -28,7 +27,13 @@ def list_forces():
     """List all forces with active indicator."""
     forces = force_service.get_all_forces()
     active_force = force_service.get_active_force()
-    return render_template("forces/list.html", forces=forces, active_force=active_force)
+    jeff_force_ids = alpha_strike_service.get_configured_force_ids([f.id for f in forces])
+    return render_template(
+        "forces/list.html",
+        forces=forces,
+        active_force=active_force,
+        jeff_force_ids=jeff_force_ids,
+    )
 
 
 @bp.route("/create", methods=["POST"])
@@ -88,11 +93,13 @@ def set_inventory_faction(id: int):  # noqa: A002
         flash("Force not found", "danger")
         return redirect(url_for("forces.list_forces"))
 
-    if force.inventory_faction:
+    if force.inventory_faction == INVENTORY_FACTION_ALL:
+        flash("Inventory faction set to All (showing every miniature)", "success")
+    elif force.inventory_faction:
         flash(f'Inventory faction set to "{force.inventory_faction}"', "success")
     else:
         flash("Inventory faction cleared", "info")
-    return redirect(url_for("forces.detail", id=id))
+    return redirect(f"{url_for('forces.detail', id=id)}#force-building")
 
 
 @bp.route("/<int:id>/activate", methods=["POST"])
@@ -352,22 +359,6 @@ def move_miniature(id: int):  # noqa: A002
     return jsonify(result), 200 if result["success"] else 400
 
 
-@bp.route("/<int:id>/export")
-def export(id: int):  # noqa: A002
-    """Export force to JSON file."""
-    try:
-        json_string, filename = force_service.export_force_to_json(id)
-        return send_file(
-            BytesIO(json_string.encode("utf-8")),
-            mimetype="application/json",
-            as_attachment=True,
-            download_name=filename,
-        )
-    except ValueError as e:
-        flash(str(e), "danger")
-        return redirect(url_for("forces.list_forces"))
-
-
 @bp.route("/<int:id>/export/jeff")
 def export_jeff(id: int):  # noqa: A002
     """Export all lances to Jeff's BT Tools JSON (one file per lance, zipped)."""
@@ -429,45 +420,6 @@ def print_report(id: int):  # noqa: A002
         as_summary=as_summary,
         as_assignments=as_assignments,
     )
-
-
-@bp.route("/import", methods=["GET", "POST"])
-def import_route():
-    """Import force from JSON file."""
-    if request.method == "POST":
-        uploaded = request.files.get("file")
-        if not uploaded or uploaded.filename == "":
-            flash("No file selected", "warning")
-            return redirect(url_for("forces.import_route"))
-
-        logger.info("force_import_started", filename=uploaded.filename)
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
-                tmp_path = tmp.name
-                uploaded.save(tmp_path)
-            result = force_service.import_force_from_json(tmp_path)
-
-            flash(
-                f"""Imported force '{result["force_name"]}' with {result["imported_count"]}
-                  miniatures""",
-                "success",
-            )
-
-            if result["missing_miniatures"]:
-                flash(f"Missing miniatures: {', '.join(result['missing_miniatures'])}", "warning")
-
-            return redirect(url_for("forces.detail", id=result["force_id"]))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("force_import_failed", exc_info=True)
-            flash(f"Import failed: {exc}", "danger")
-        finally:
-            if tmp_path:
-                Path(tmp_path).unlink(missing_ok=True)
-
-        return redirect(url_for("forces.import_route"))
-
-    return render_template("forces/import.html")
 
 
 @bp.route("/<int:id>/delete", methods=["POST"])

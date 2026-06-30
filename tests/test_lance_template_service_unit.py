@@ -10,19 +10,12 @@ For integration tests with realistic inventory, see test_lance_template_service_
 
 from __future__ import annotations
 
-import json
-import tempfile
-from pathlib import Path
-
-import pytest
-
 from app.services.lance_template_service import (
     create_template,
     delete_template,
     find_matching_miniature,
     get_all_templates,
     get_template_details,
-    import_templates_from_json,
     match_template_miniatures,
 )
 from tests.conftest import validate_expunged_object
@@ -127,51 +120,3 @@ def test_match_template_empty_inventory(client):
     assert len(result["missing"]) == 4
     assert "Atlas" in result["missing"]
     assert "Warhammer" in result["missing"]
-
-
-# ============================================================================
-# IMPORT/EXPORT - Unit Tests
-# ============================================================================
-
-
-def test_import_invalid_json_raises(client):
-    """Test importing malformed JSON raises ValueError."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        f.write("{not valid json")
-        temp_path = f.name
-
-    try:
-        with pytest.raises(ValueError):
-            import_templates_from_json(temp_path)
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
-
-
-def test_import_skips_invalid_entries(client):
-    """Test importing skips entries with missing required fields."""
-    templates_data = {
-        "export_timestamp": "2025-12-24T12:00:00",
-        "template_count": 5,
-        "templates": [
-            {"chassis_patterns": ["Atlas"]},  # Missing name
-            {"name": "Valid 1", "chassis_patterns": ["Warhammer"]},
-            {"name": "No Patterns", "chassis_patterns": []},  # Empty patterns
-            {"name": "Valid 2", "chassis_patterns": ["Timber Wolf"]},
-            {"name": ""},  # Empty name
-        ],
-    }
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(templates_data, f)
-        temp_path = f.name
-
-    try:
-        import_templates_from_json(temp_path)
-
-        # Only 2 valid templates should be imported
-        templates = get_all_templates()
-        assert len(templates) == 2
-        assert templates[0].name == "Valid 1"
-        assert templates[1].name == "Valid 2"
-    finally:
-        Path(temp_path).unlink(missing_ok=True)

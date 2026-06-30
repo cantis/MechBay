@@ -55,8 +55,8 @@ def test_delete_miniature(client, mini_data):
     assert str(mini_data["unique_id"]) not in resp.get_data(as_text=True)
 
 
-def test_export_import_json(client, mini_data):
-    # Add two entries
+def test_legacy_inventory_json_via_file_upload(client, mini_data):
+    """Legacy miniature JSON can be opened through File upload inventory."""
     client.post("/miniatures/add", data=mini_data)
     client.post(
         "/miniatures/add",
@@ -69,34 +69,31 @@ def test_export_import_json(client, mini_data):
         },
     )
 
-    # Export
-    export_resp = client.get("/miniatures/export")
-    assert export_resp.status_code == 200
-    exported_root = json.loads(export_resp.data.decode("utf-8"))
-    # Support schema v1 envelope ({"schema_version":1, "miniatures":[...]}) and legacy list
-    exported = (
-        exported_root.get("miniatures", exported_root)
-        if isinstance(exported_root, dict)
-        else exported_root
-    )
-    assert any(m["unique_id"] == mini_data["unique_id"] for m in exported)
-
-    # Overwrite import with only one piece (use legacy bare-list format — import handles both)
-    one = json.dumps([exported[0]]).encode("utf-8")
-    data = {"file": (io.BytesIO(one), "import.json")}
+    one = json.dumps(
+        [
+            {
+                "series": mini_data["series"],
+                "unique_id": mini_data["unique_id"],
+                "prefix": mini_data["prefix"],
+                "chassis": mini_data["chassis"],
+                "type": mini_data["type"],
+            }
+        ]
+    ).encode("utf-8")
+    data = {"file": (io.BytesIO(one), "legacy.json"), "confirm": "1"}
     import_resp = client.post(
-        "/miniatures/import",
+        "/files/upload/inventory",
         data=data,
         content_type="multipart/form-data",
+        headers={"X-Requested-With": "XMLHttpRequest"},
         follow_redirects=True,
     )
     assert import_resp.status_code == 200
 
-    # Now list should have only one record
     list_resp = client.get("/miniatures")
     body = list_resp.get_data(as_text=True)
-    assert str(exported[0]["unique_id"]) in body
-    assert str(exported[1]["unique_id"]) not in body
+    assert str(mini_data["unique_id"]) in body
+    assert "1002" not in body
 
 
 def test_series_independence(client):

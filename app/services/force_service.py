@@ -32,12 +32,13 @@ from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
 from ..models.lance import Lance
 from ..models.miniature import Miniature
-from . import alpha_strike_service, mul_service
+from . import alpha_strike_service, document_service, mul_service
 from .lance_colors import pick_lance_header_color
 
 logger = structlog.get_logger()
 
 FORCE_SCHEMA_VERSION = 2
+INVENTORY_FACTION_ALL = "All"
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,7 @@ def rename_force(force_id: int, new_name: str) -> Force | None:
         force.name = new_name.strip()
         force.updated_at = datetime.now(UTC)
         session.flush()
+        document_service.mark_force_dirty(force_id)
         return force
 
 
@@ -168,7 +170,30 @@ def delete_force(force_id: int) -> bool:
             return False
         session.delete(force)
         logger.info("force_deleted", force_id=force_id)
+        document_service.remove_force_document(force_id)
         return True
+
+
+def delete_all_forces() -> int:
+    """Delete every force in the database."""
+    force_ids = [force.id for force in get_all_forces()]
+    deleted = 0
+    for force_id in force_ids:
+        if delete_force(force_id):
+            deleted += 1
+    document_service.clear_all_force_documents()
+    return deleted
+
+
+def _allocate_force_name(session, base_name: str) -> str:
+    """Return base_name or 'Name (2)' style variant when the name is taken."""
+    existing = {row[0] for row in session.execute(select(Force.name)).all()}
+    if base_name not in existing:
+        return base_name
+    suffix = 2
+    while f"{base_name} ({suffix})" in existing:
+        suffix += 1
+    return f"{base_name} ({suffix})"
 
 
 def add_miniature_to_lance(
@@ -217,6 +242,7 @@ def add_miniature_to_lance(
         session.add(fm)
         session.flush()
 
+        document_service.mark_force_dirty(lance.force_id)
         return {"success": True, "force_miniature_id": fm.id}
 
 
@@ -237,6 +263,8 @@ def remove_miniature_from_force(miniature_id: int, force_id: int) -> bool:
             session.delete(fm)
             deleted_count += 1
 
+        if deleted_count > 0:
+            document_service.mark_force_dirty(force_id)
         return deleted_count > 0
 
 
@@ -270,6 +298,7 @@ def move_miniature_between_lances(
         fm.order = position
         session.flush()
 
+        document_service.mark_force_dirty(target_lance.force_id)
         return {"success": True}
 
 
@@ -306,6 +335,7 @@ def create_empty_lance(force_id: int, name: str | None = None) -> Lance | None:
 
         # Expunge to make accessible outside session
         session.expunge(lance)
+        document_service.mark_force_dirty(force_id)
         return lance
 
 
@@ -315,8 +345,10 @@ def delete_lance(lance_id: int) -> bool:
         lance = session.get(Lance, lance_id)
         if not lance:
             return False
+        force_id = lance.force_id
         session.delete(lance)
         logger.info("lance_deleted", lance_id=lance_id)
+        document_service.mark_force_dirty(force_id)
         return True
 
 
@@ -363,6 +395,7 @@ def ensure_lance_header_colors(force_id: int) -> None:
             updated = True
         if updated:
             session.flush()
+            document_service.mark_force_dirty(force_id)
 
 
 def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
@@ -377,12 +410,18 @@ def set_inventory_faction(force_id: int, faction: str | None) -> Force | None:
             cleaned = None
         else:
             stripped = faction.strip()
-            cleaned = None if not stripped or stripped.lower() == "none" else stripped
+            if not stripped or stripped.lower() == "none":
+                cleaned = None
+            elif stripped.lower() == "all":
+                cleaned = INVENTORY_FACTION_ALL
+            else:
+                cleaned = stripped
 
         force.inventory_faction = cleaned
         force.updated_at = datetime.now(UTC)
         session.flush()
         session.expunge(force)
+        document_service.mark_force_dirty(force_id)
         return force
 
 
@@ -396,15 +435,10 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
     mul_lookup: dict[tuple[str, int | None], bool] | None = None
 
     with session_scope() as session:
-        miniatures = list(
-            session.execute(
-                select(Miniature)
-                .where(Miniature.faction == force.inventory_faction)
-                .order_by(Miniature.series, Miniature.unique_id)
-            )
-            .scalars()
-            .all()
-        )
+        stmt = select(Miniature).order_by(Miniature.series, Miniature.unique_id)
+        if force.inventory_faction != INVENTORY_FACTION_ALL:
+            stmt = stmt.where(Miniature.faction == force.inventory_faction)
+        miniatures = list(session.execute(stmt).scalars().all())
 
         assignment_rows = session.execute(
             select(
@@ -454,6 +488,19 @@ def get_inventory_candidates(force_id: int) -> list[InventoryCandidate]:
         )
 
     return candidates
+
+
+def filter_inventory_candidates(
+    candidates: list[InventoryCandidate], *, hide_unavailable: bool
+) -> list[InventoryCandidate]:
+    """Optionally hide units not available under current MUL filters."""
+    if not hide_unavailable:
+        return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.in_force or candidate.mul_available is not False
+    ]
 
 
 def summarize_inventory_candidates(candidates: list[InventoryCandidate]) -> dict[str, int]:
@@ -549,10 +596,24 @@ def export_force_to_json(force_id: int) -> tuple[str, str]:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in force.name)
-    filename = f"Force_{safe_name}_{timestamp}.json"
+    filename = f"Force_{safe_name}_{timestamp}{document_service.FORCE_EXTENSION}"
 
     json_string = json.dumps(export_data, indent=2)
     return json_string, filename
+
+
+def save_force_to_path(force_id: int, path: str | Path) -> str:
+    """Write force v2 document to disk and link it to the force."""
+    json_string, _ = export_force_to_json(force_id)
+    file_path = Path(path)
+    if file_path.suffix.lower() != document_service.FORCE_EXTENSION:
+        file_path = file_path.with_suffix(document_service.FORCE_EXTENSION)
+    file_path.write_text(json_string, encoding="utf-8")
+    resolved = str(file_path.resolve())
+    document_service.set_force_path(force_id, resolved)
+    document_service.clear_force_dirty(force_id)
+    logger.info("force_saved", force_id=force_id, path=resolved)
+    return resolved
 
 
 def _resolve_lance_header_color(lance_data: dict[str, Any], used_colors: set[str]) -> str:
@@ -605,19 +666,17 @@ def _restore_alpha_strike_assignment(
     )
 
 
-def import_force_from_json(file_path: str) -> dict[str, Any]:
-    """Import force from JSON file, matching miniatures by series+unique_id."""
-    filepath = Path(file_path)
-
-    try:
-        data = json.loads(filepath.read_text(encoding="utf-8"))
-    except FileNotFoundError as err:
-        raise ValueError(f"File not found: {file_path}") from err
-
+def import_force_from_data(
+    data: dict[str, Any], *, rename_on_collision: bool = True
+) -> dict[str, Any]:
+    """Import a force document into the library."""
     force_name = data.get("force_name", "Imported Force")
     schema_version = int(data.get("schema_version") or 1)
 
     with session_scope() as session:
+        if rename_on_collision:
+            force_name = _allocate_force_name(session, force_name)
+
         force = Force(
             name=force_name,
             inventory_faction=data.get("inventory_faction") if schema_version >= 2 else None,
@@ -626,7 +685,7 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
         session.add(force)
         session.flush()
 
-        missing_miniatures = []
+        missing_miniatures: list[dict[str, Any]] = []
         imported_count = 0
         used_lance_colors: set[str] = set()
         pending_assignments: list[tuple[int, dict[str, Any]]] = []
@@ -673,7 +732,14 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
                     if schema_version >= 2 and assignment_data:
                         pending_assignments.append((fm.id, assignment_data))
                 else:
-                    missing_miniatures.append((mini_data["series"], mini_data["unique_id"]))
+                    missing_miniatures.append(
+                        {
+                            "series": mini_data.get("series"),
+                            "unique_id": mini_data.get("unique_id"),
+                            "prefix": mini_data.get("prefix"),
+                            "chassis": mini_data.get("chassis"),
+                        }
+                    )
 
         as_config = data.get("alpha_strike")
         if schema_version >= 2 and as_config:
@@ -683,17 +749,18 @@ def import_force_from_json(file_path: str) -> dict[str, Any]:
             _restore_alpha_strike_assignment(session, fm_id, assignment_data)
 
         session.flush()
+        force_id = force.id
         logger.info(
             "force_imported",
             force_name=force.name,
-            lance_count=imported_count,
+            imported_count=imported_count,
             missing_count=len(missing_miniatures),
         )
 
-        return {
-            "success": True,
-            "force_id": force.id,
-            "force_name": force.name,
-            "imported_miniatures": imported_count,
-            "missing_miniatures": missing_miniatures,
-        }
+    return {
+        "success": True,
+        "force_id": force_id,
+        "force_name": force_name,
+        "imported_miniatures": imported_count,
+        "missing_miniatures": missing_miniatures,
+    }

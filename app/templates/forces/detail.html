@@ -3,15 +3,36 @@
 
 <!-- SortableJS for drag and drop -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<style>
+    .point-budget-input::-webkit-outer-spin-button,
+    .point-budget-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .point-budget-input { -moz-appearance: textfield; appearance: textfield; }
+</style>
 
 <!-- Context for forces.js -->
-<div id="forceContext" data-force-id="{{ force.id }}" class="d-none"></div>
+<div id="forceContext" data-force-id="{{ force.id }}"
+    data-as-enabled="{% if as_config %}true{% else %}false{% endif %}" class="d-none"></div>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h2 class="m-0">{{ force.name }}</h2>
         <small class="text-muted">
-            {% if force.is_active %}<span class="badge bg-success">Active</span>{% endif %}
+            {% set ns = namespace(file_label=none) %}
+            {% if document_status is defined %}
+                {% for ff in document_status.force_files %}
+                    {% if ff.force_id == force.id %}
+                        {% set ns.file_label = ff.label %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            Force file:
+            {% if ns.file_label %}
+            <span class="{% if force.id in document_status.dirty_force_ids %}fw-semibold text-body{% endif %}">{{ ns.file_label }}</span>
+            {% else %}
+            <em>not saved to disk</em>
+            {% endif %}
+            <span class="mx-1">·</span>
+            {% if force.is_active %}<span class="badge bg-success">Active</span><span class="mx-1">·</span>{% endif %}
             {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
             {{ force.lances | length }} Lance(s), {{ total_minis }} Miniature(s)
         </small>
@@ -21,32 +42,27 @@
             <i class="fa-solid fa-print"></i> Print Report
         </a>
         <div class="btn-group">
-            <a href="{{ url_for('forces.export', id=force.id) }}" class="btn btn-outline-success">
-                <i class="fa-solid fa-download"></i> Export
-            </a>
-            <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split"
+            <button type="button" class="btn btn-outline-primary"
+                onclick="MechBayFiles.saveForce({{ force.id }})">
+                <i class="fa-solid fa-floppy-disk"></i> Save force
+            </button>
+            <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
                 data-bs-toggle="dropdown" aria-expanded="false">
-                <span class="visually-hidden">Export options</span>
+                <span class="visually-hidden">Force file options</span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li>
-                    <a class="dropdown-item" href="{{ url_for('forces.export', id=force.id) }}">
-                        <i class="fa-solid fa-file-code"></i> MechBay JSON
-                    </a>
+                    <button type="button" class="dropdown-item" onclick="MechBayFiles.saveForceAs({{ force.id }})">
+                        Save force as…
+                    </button>
                 </li>
-                {% if as_config %}
-                <li>
-                    <a class="dropdown-item" href="{{ url_for('forces.export_jeff', id=force.id) }}">
-                        <i class="fa-solid fa-file-export"></i> Jeff's BT Tools (all lances)
-                    </a>
-                </li>
-                {% else %}
-                <li>
-                    <span class="dropdown-item-text text-muted small">Jeff's export requires Alpha Strike</span>
-                </li>
-                {% endif %}
             </ul>
         </div>
+        {% if as_config %}
+        <a href="{{ url_for('forces.export_jeff', id=force.id) }}" class="btn btn-outline-success">
+            <i class="fa-solid fa-file-export"></i> Jeff's BT Tools
+        </a>
+        {% endif %}
         <a href="{{ url_for('miniatures.list_miniatures') }}" class="btn btn-outline-secondary">
             <i class="fa-solid fa-list"></i> Inventory
         </a>
@@ -93,10 +109,23 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label">Point Budget</label>
-                <input type="number" name="point_budget" id="pointBudget" class="form-control" min="10"
-                    step="10" placeholder="Optional"
-                    value="{{ as_config.point_budget if as_config and as_config.point_budget else '' }}">
+                <label class="form-label" for="pointBudget">Point Budget</label>
+                <div class="form-text mb-1">Optional PV cap</div>
+                <div class="input-group">
+                    <input type="number" name="point_budget" id="pointBudget" class="form-control point-budget-input"
+                        min="10" step="10" placeholder="Optional"
+                        value="{{ as_config.point_budget if as_config and as_config.point_budget else '' }}">
+                    <div class="btn-group-vertical" role="group" aria-label="Adjust point budget by 10">
+                        <button type="button" class="btn btn-outline-secondary px-2 py-0" id="pointBudgetUp"
+                            aria-label="Increase budget by 10" tabindex="-1">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary px-2 py-0" id="pointBudgetDown"
+                            aria-label="Decrease budget by 10" tabindex="-1">
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-primary w-100">
@@ -124,8 +153,17 @@
 
 <!-- Force Building -->
 <style>
-    .inventory-pool-table {
-        overflow: visible !important;
+    .inventory-pool-scroll {
+        max-height: min(22rem, 45vh);
+        overflow: auto;
+    }
+
+    .inventory-pool-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: var(--bs-body-bg);
+        box-shadow: inset 0 -1px 0 var(--bs-border-color);
     }
 
     #force-building,
@@ -134,8 +172,8 @@
     }
 
     @media (max-width: 767.98px) {
-        .inventory-pool-table {
-            overflow-x: auto !important;
+        .inventory-pool-scroll {
+            max-height: min(18rem, 40vh);
         }
     }
 </style>
@@ -152,18 +190,31 @@
                 <div class="form-text mb-1">Collection tag on your miniatures (matches inventory list factions).</div>
                 <select name="inventory_faction" id="inventoryFactionSelect" class="form-select">
                     <option value="none" {% if not force.inventory_faction %}selected{% endif %}>None</option>
+                    <option value="All" {% if force.inventory_faction == 'All' %}selected{% endif %}>All</option>
                     {% for f in inventory_factions %}
+                    {% if f != 'All' %}
                     <option value="{{ f }}" {% if force.inventory_faction == f %}selected{% endif %}>{{ f }}</option>
+                    {% endif %}
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100">Save</button>
+            <div class="col-md-4 d-flex flex-wrap align-items-end gap-3">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="hideUnavailable">
+                    <label class="form-check-label" for="hideUnavailable">Hide unavailable</label>
+                </div>
             </div>
         </form>
 
         {% if force.inventory_faction %}
-        <p class="small text-muted mb-2">
+        <p id="inventoryPoolSummary" class="small text-muted mb-2"
+            data-total="{{ inventory_summary.total }}"
+            data-mul-available="{{ inventory_summary.mul_available }}"
+            data-not-in-mul="{{ inventory_summary.not_in_mul }}"
+            data-available="{{ inventory_summary.available }}"
+            data-in-force="{{ inventory_summary.in_force }}"
+            data-has-mul="{{ 'true' if as_config else 'false' }}">
             {{ inventory_summary.total }} miniature{{ 's' if inventory_summary.total != 1 else '' }}
             {% if as_config %}
             · {{ inventory_summary.mul_available }} MUL available
@@ -173,8 +224,22 @@
             {% endif %}
             · {{ inventory_summary.in_force }} already in force
         </p>
+        <div class="row g-2 mb-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label visually-hidden" for="inventoryPoolSearch">Search miniatures</label>
+                <input type="search" id="inventoryPoolSearch" class="form-control form-control-sm"
+                    placeholder="Search by prefix or chassis…" autocomplete="off">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small text-muted mb-1" for="inventoryPoolType">Type</label>
+                <select id="inventoryPoolType" class="form-select form-select-sm" aria-label="Filter by type">
+                    <option value="">All types</option>
+                </select>
+            </div>
+        </div>
+        <p id="inventoryPoolSearchEmpty" class="text-muted small d-none mb-2">No miniatures match your filters.</p>
         {% if inventory_candidates %}
-        <div class="table-responsive inventory-pool-table">
+        <div class="inventory-pool-scroll border rounded">
             <table class="table table-sm table-hover mb-0">
                 <thead>
                     <tr>
@@ -182,6 +247,7 @@
                         <th>Prefix</th>
                         <th>Chassis</th>
                         <th>Type</th>
+                        {% if force.inventory_faction == 'All' %}<th>Faction</th>{% endif %}
                         <th>Status</th>
                         <th>Availability</th>
                         <th></th>
@@ -190,13 +256,24 @@
                 <tbody>
                     {% for candidate in inventory_candidates %}
                     {% set m = candidate.miniature %}
-                    <tr>
+                    {% set hide_when_filtered = not candidate.in_force and candidate.mul_available == false %}
+                    <tr class="inventory-candidate-row"{% if hide_when_filtered %} data-hide-when-filtered="true"{% endif %}
+                        data-miniature-id="{{ m.id }}"
+                        data-prefix="{{ m.prefix | lower }}"
+                        data-chassis="{{ m.chassis | lower }}"
+                        data-type="{{ m.type | lower }}"
+                        data-type-label="{{ m.type }}"
+                        data-prefix-label="{{ m.prefix }}"
+                        data-chassis-label="{{ m.chassis }}"
+                        data-series-id="{{ m.series }}-{{ m.unique_id }}"
+                        data-mul-state="{% if candidate.mul_available == false %}false{% elif candidate.mul_available %}true{% else %}none{% endif %}">
                         <td>{{ m.series }}-{{ m.unique_id }}</td>
                         <td>{{ m.prefix }}</td>
                         <td>{{ m.chassis }}</td>
                         <td>{{ m.type }}</td>
+                        {% if force.inventory_faction == 'All' %}<td>{{ m.faction or '—' }}</td>{% endif %}
                         <td>{{ m.status or '—' }}</td>
-                        <td>
+                        <td class="inventory-col-availability">
                             {% if candidate.in_force %}
                             <span class="badge text-dark border"
                                 style="background-color: {{ candidate.lance_color or '#e9ecef' }};">
@@ -210,20 +287,22 @@
                             <span class="badge bg-warning text-dark">Not in MUL filters</span>
                             {% endif %}
                         </td>
-                        <td class="text-end">
+                        <td class="inventory-col-actions text-end">
                             {% if not candidate.in_force and force.lances %}
                             <div class="dropdown dropstart d-inline position-static">
                                 <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
-                                    data-bs-toggle="dropdown">Add to lance</button>
+                                    data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'>Add to lance</button>
                                 <ul class="dropdown-menu">
                                     {% for lance in force.lances %}
                                     <li>
                                         <form method="post"
-                                            action="{{ url_for('forces.add_miniature', id=force.id) }}" class="m-0">
+                                            action="{{ url_for('forces.add_miniature', id=force.id) }}"
+                                            class="m-0 add-to-lance-form"
+                                            data-lance-name="{{ lance.name or ('Lance ' ~ loop.index) }}"
+                                            data-lance-color="{{ lance.header_color or '#e9ecef' }}">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="miniature_id" value="{{ m.id }}">
                                             <input type="hidden" name="lance_id" value="{{ lance.id }}">
-                                            <input type="hidden" name="return_to_force" value="1">
                                             <button type="submit" class="dropdown-item">
                                                 <span class="d-inline-block rounded-circle me-2 align-middle"
                                                     style="width: 0.75rem; height: 0.75rem; background-color: {{ lance.header_color or '#e9ecef' }};"></span>
@@ -244,7 +323,7 @@
             </table>
         </div>
         {% else %}
-        <p class="text-muted mb-0 small">No miniatures tagged with this inventory faction.</p>
+        <p class="text-muted mb-0 small">No miniatures in inventory.</p>
         {% endif %}
         {% else %}
         <p class="text-muted mb-0 small">
@@ -560,7 +639,7 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/forces.js') }}"></script>
+<script src="{{ url_for('static', filename='js/forces.js', v='8') }}"></script>
 {% if as_config %}
 <script src="{{ url_for('static', filename='js/alpha_strike.js', v='4') }}"></script>
 {% endif %}

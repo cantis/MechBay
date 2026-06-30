@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-
 from app.services.force_service import get_force_by_id
 
 
@@ -167,27 +165,6 @@ def test_bulk_action_unknown_action(client):
     payload = resp.get_json()
     assert payload is not None
     assert payload.get("success") is False
-
-
-def test_miniature_import_no_file(client):
-    """Test import without uploaded file flashes warning."""
-    resp = client.post("/miniatures/import", data={}, follow_redirects=True)
-
-    assert resp.status_code == 200
-    assert "no file selected" in resp.get_data(as_text=True).lower()
-
-
-def test_miniature_import_corrupt_json(client):
-    """Test import with invalid JSON content flashes import failed message."""
-    resp = client.post(
-        "/miniatures/import",
-        data={"file": (io.BytesIO(b"not json"), "broken.json")},
-        content_type="multipart/form-data",
-        follow_redirects=True,
-    )
-
-    assert resp.status_code == 200
-    assert "import failed" in resp.get_data(as_text=True).lower()
 
 
 def test_force_add_miniature_duplicate(client, minimal_force, sample_miniatures):

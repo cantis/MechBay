@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
-from pathlib import Path
 
 import structlog
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 
 from ..extensions import session_scope
 from ..models.miniature import Miniature
+from . import document_service
 
 logger = structlog.get_logger()
 
@@ -166,23 +165,13 @@ def add_miniature(data: dict) -> Miniature:
             chassis=data.get("chassis"),
         )
         session.expunge(mini)
+        document_service.mark_inventory_dirty()
         return mini
 
 
 ALLOWED_UPDATE_FIELDS = {
     "series",
     "unique_id",
-    "prefix",
-    "chassis",
-    "type",
-    "faction",
-    "status",
-    "tray_id",
-    "notes",
-}
-
-ALLOWED_IMPORT_FIELDS = {
-    "series",
     "prefix",
     "chassis",
     "type",
@@ -203,6 +192,7 @@ def update_miniature(id: int, data: dict) -> Miniature | None:  # noqa: A002
                 setattr(mini, k, v)
         session.flush()
         session.expunge(mini)
+        document_service.mark_inventory_dirty()
         return mini
 
 
@@ -228,6 +218,8 @@ def bulk_update_miniatures(ids: list[int], field: str, value: str) -> int:
             .filter(Miniature.id.in_(ids))
             .update({field: value or None}, synchronize_session="fetch")
         )
+        if updated:
+            document_service.mark_inventory_dirty()
         return updated
 
 
@@ -238,94 +230,14 @@ def delete_miniature(id: int) -> bool:  # noqa: A002
             return False
         session.delete(mini)
         logger.info("miniature_deleted", miniature_id=id)
+        document_service.mark_inventory_dirty()
         return True
 
 
-MINIATURE_SCHEMA_VERSION = 1
-
-
-def export_to_json() -> str:
-    """Export all miniatures to JSON string.
-
-    Returns:
-        str: JSON string with schema_version and miniatures array
-    """
-    minis = get_all_miniatures()
-    export_data = {
-        "schema_version": MINIATURE_SCHEMA_VERSION,
-        "miniatures": [m.to_dict() for m in minis],
-    }
-    logger.info("miniatures_exported", count=len(minis))
-    return json.dumps(export_data, indent=2)
-
-
 def _upgrade_miniature_schema(data: list | dict) -> list:
-    """Normalise any schema version to a plain list of miniature dicts."""
+    """Normalise legacy miniature JSON (bare list or v1 envelope) to miniature dicts."""
     if isinstance(data, list):
         # v0: bare array (no schema_version)
         return data
     # v1+: object with schema_version + miniatures key
     return data.get("miniatures", [])
-
-
-def import_from_json(path: str, merge: bool = False) -> int:
-    file_path = Path(path)
-    raw = json.loads(file_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, (list, dict)):
-        raise ValueError("JSON must be a list or object containing a miniatures list")
-    items = _upgrade_miniature_schema(raw)
-    if not isinstance(items, list):
-        raise ValueError("JSON must be a list of miniature objects")
-
-    imported = 0
-    with session_scope() as session:
-        if not merge:
-            # Clear existing
-            session.query(Miniature).delete()
-
-        for item in items:
-            raw_unique_id = item.get("unique_id")
-            # Coerce to int; skip if cannot convert
-            try:
-                unique_id = int(raw_unique_id) if raw_unique_id is not None else None
-            except (TypeError, ValueError):
-                continue  # skip invalid record
-
-            # Default series to "A" if not in import data
-            series = item.get("series", "A")
-            if not series:
-                series = "A"
-
-            if merge and unique_id is not None:
-                # Match on BOTH series and unique_id for merge
-                existing = (
-                    session.query(Miniature)
-                    .filter(and_(Miniature.series == series, Miniature.unique_id == unique_id))
-                    .first()
-                )
-                if existing:
-                    for k, v in item.items():
-                        if k in ALLOWED_IMPORT_FIELDS:
-                            setattr(existing, k, v)
-                    continue
-            mini = Miniature(
-                series=series,
-                unique_id=unique_id,
-                prefix=item.get("prefix"),
-                chassis=item.get("chassis"),
-                type=item.get("type"),
-                faction=item.get("faction"),
-                status=item.get("status"),
-                tray_id=item.get("tray_id"),
-                notes=item.get("notes"),
-            )
-            session.add(mini)
-            imported += 1
-        session.flush()
-    logger.info(
-        "miniatures_imported",
-        imported_count=imported,
-        total_in_file=len(items),
-        merge=merge,
-    )
-    return imported

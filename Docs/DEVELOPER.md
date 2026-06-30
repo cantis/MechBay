@@ -135,7 +135,7 @@ for record in records:
 ```
 MechBay/
 ├── app/
-│   ├── __init__.py           # Flask app factory, routes, auto-seeding
+│   ├── __init__.py           # Flask app factory, routes, session restore
 │   ├── config.py             # Configuration classes
 │   ├── extensions.py         # SQLAlchemy setup and session_scope()
 │   ├── migrations.py         # Database schema creation
@@ -196,7 +196,7 @@ Populates database with:
 - 2 sample miniatures (Warhammer WHM and Banshee BNC)
 - 6 lance templates (Command, Assault, Heavy, Fire Support, Recon, Battle)
 
-**Auto-seeding**: On first run, if database is empty (0 miniatures), seed data is automatically loaded with console message "Demo data loaded: X records created".
+Use **File → Load sample data…** in the app, or `uv run python -m app.seed` from the command line. The app does **not** auto-seed on startup; an empty first launch shows the inventory empty-state prompt instead.
 
 ### Key Relationships
 
@@ -207,12 +207,17 @@ Populates database with:
 
 **Active Force**: Only one force can be `is_active=True` at a time. Used for quick miniature assignment from inventory screen.
 
-### Import/Export
+### Save / Load
 
-All entities support JSON import/export via web interface:
-- **Export**: Downloads timestamped JSON file (e.g., `Miniature_Inventory_20251123_143025.json`)
-- **Import**: Supports merge mode (match on key field) or overwrite mode
-- File naming convention: `{EntityType}_YYYYMMDD_HHMMSS.json`
+Document files replace the early JSON export pages:
+
+- **`.mechbay`** — full inventory project (miniatures, lance templates, settings)
+- **`.mbforce`** — force document (schema v2)
+- **Jeff's BT Tools** — external export format only
+
+Open inventory accepts legacy miniature-only or template-only JSON exports.
+
+Service-layer `_upgrade_miniature_schema` in `miniature_service` supports legacy JSON normalization for inventory open.
 
 ## Testing
 
@@ -445,16 +450,19 @@ Returns JSON with app status and version:
 - `/miniatures/add` - Add new miniature
 - `/miniatures/<id>/edit` - Edit miniature
 - `/miniatures/<id>/delete` - Delete miniature
-- `/miniatures/export` - Export all miniatures to JSON
-- `/miniatures/import` - Import miniatures from JSON
 - `/forces` - List all forces
 - `/forces/<id>` - Force detail with drag-drop lance management
-- `/forces/<id>/export` - Export force to JSON
-- `/forces/import` - Import force from JSON
 - `/lance_templates` - List all lance templates
 - `/lance_templates/<id>` - Template detail
-- `/lance_templates/export` - Export templates to JSON
-- `/lance_templates/import` - Import templates from JSON
+- `/files/inventory/save` - Save linked inventory project
+- `/files/inventory/save-as` - Save inventory as `.mechbay`
+- `/files/inventory/open` - Open inventory project
+- `/files/inventory/sample-data` - Load sample miniatures and templates
+- `/files/force/<id>/save` - Save linked force file
+- `/files/force/<id>/save-as` - Save force as `.mbforce`
+- `/files/force/open` - Open force file (adds to library)
+- `/forces/<id>/export/jeff` - Jeff's BT Tools export (zip)
+- `/forces/<id>/lances/<lance_id>/export/jeff` - Single-lance Jeff export
 
 ## Future Considerations
 

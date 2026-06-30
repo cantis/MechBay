@@ -40,15 +40,15 @@ There is one content block. Do not add new layout blocks without updating all ex
 
 ## Navbar (`navbar.html`)
 
-Five nav items in fixed order:
+Nav items in fixed order:
 
-1. **Inventory** → `miniatures.list_miniatures`
-2. **Forces** → `forces.list_forces`
-3. **Lance Templates** → `lance_templates.list_templates`
-4. **Import/Export** → `miniatures.import_route`
+1. **File** — inventory and force document open/save
+2. **Inventory** → `miniatures.list_miniatures`
+3. **Forces** → `forces.list_forces`
+4. **Lance Templates** → `lance_templates.list_templates`
 5. **About** → `about`
 
-Brand link goes to **Inventory**. Use `bg-body-tertiary border-bottom` on `<nav>` and `container-fluid` inside. Do not reorder or remove nav items without updating `navbar.html`.
+The current inventory filename appears at the top right of the navbar (truncated on small screens). Brand link goes to **Inventory**. Use `bg-body-tertiary border-bottom` on `<nav>` and `container-fluid` inside.
 
 ## Flash Messages
 
@@ -83,12 +83,12 @@ Use Font Awesome 6 solid icons (`fas` shorthand). Standard icon assignments:
 
 | Purpose              | Icon class              |
 |----------------------|-------------------------|
+| File / save document | `fas fa-floppy-disk`    |
 | Add / create         | `fas fa-plus`           |
 | Edit                 | `fas fa-pencil`         |
 | Delete / remove      | `fas fa-trash`          |
 | Activate / confirm   | `fas fa-check-circle`   |
-| Import               | `fas fa-file-import`    |
-| Export               | `fas fa-file-export`    |
+| Jeff's BT Tools      | `fas fa-file-export`    |
 | Force / army         | `fas fa-shield-halved`  |
 | Miniature / mech     | `fas fa-robot`          |
 | Lance template       | `fas fa-layer-group`    |

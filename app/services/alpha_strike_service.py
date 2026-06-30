@@ -14,7 +14,7 @@ from ..models.alpha_strike_assignment import AlphaStrikeAssignment
 from ..models.alpha_strike_force import AlphaStrikeForce
 from ..models.force import Force
 from ..models.force_miniature import ForceMiniature
-from . import mul_service
+from . import document_service, mul_service
 
 logger = structlog.get_logger()
 
@@ -41,6 +41,17 @@ class BudgetStatus:
             "effective_budget": self.effective_budget,
             "status": self.status,
         }
+
+
+def get_configured_force_ids(force_ids: list[int]) -> set[int]:
+    """Return force IDs that have Alpha Strike configured."""
+    if not force_ids:
+        return set()
+    with session_scope() as session:
+        rows = session.execute(
+            select(AlphaStrikeForce.force_id).where(AlphaStrikeForce.force_id.in_(force_ids))
+        ).scalars()
+        return set(rows)
 
 
 def compute_budget_status(
@@ -149,6 +160,7 @@ def enable_alpha_strike(
             era=era["name"],
         )
         session.expunge(row)
+        document_service.mark_force_dirty(force_id)
         return row
 
 
@@ -170,6 +182,7 @@ def update_config(
             row.fudge_percent = fudge_percent
         session.flush()
         session.expunge(row)
+        document_service.mark_force_dirty(force_id)
         return row
 
 
@@ -315,6 +328,7 @@ def assign_variant(
             point_value=unit.point_value,
         )
         session.expunge(row)
+        document_service.mark_force_dirty(force_id)
         return row
 
 
@@ -334,6 +348,7 @@ def clear_assignment(force_id: int, force_miniature_id: int) -> bool:
         if not assignment:
             return False
         session.delete(assignment)
+        document_service.mark_force_dirty(force_id)
         return True
 
 

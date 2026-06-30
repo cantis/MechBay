@@ -75,14 +75,14 @@ Additionally, `miniature_service.update_miniature()` uses `setattr()` with only 
 **Priority:** High | **Effort:** Medium
 
 ### Current State
-- ~55 tests covering service-layer CRUD, search/sort/filter, and import/export.
+- ~200+ tests covering service-layer CRUD, file documents, search/sort/filter, and Jeff export.
 - Route-level tests exist for miniatures but are minimal for forces and lance templates.
 - No tests for error paths (invalid input, missing records, malformed JSON imports).
 - No tests for the dual-mode (JSON vs form) response pattern used in forces routes.
 
 ### Recommendation
 1. Add route-level tests for forces blueprint — especially `add_miniature`, `remove_miniature`, `move_miniature`, and `lances/from-template` covering both JSON and form submission modes.
-2. Add route-level tests for lance templates blueprint — create, edit, delete, import/export.
+2. Add route-level tests for the files blueprint (inventory/force save, open, upload fallbacks).
 3. Add negative tests: invalid IDs, missing required fields, duplicate entries, corrupt import files.
 4. Add a test that verifies the active force partial unique index actually prevents two active forces.
 

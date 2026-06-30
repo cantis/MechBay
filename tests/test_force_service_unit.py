@@ -11,6 +11,8 @@ For integration tests with realistic forces, see test_force_service_integration.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.services.force_service import (
@@ -23,7 +25,7 @@ from app.services.force_service import (
     get_active_force,
     get_all_forces,
     get_force_by_id,
-    import_force_from_json,
+    import_force_from_data,
     remove_miniature_from_force,
     rename_force,
 )
@@ -275,8 +277,6 @@ def test_export_force_not_found_raises(client):
         export_force_to_json(99999)
 
 
-def test_import_force_file_not_found_raises(client):
-    """Test importing from non-existent file raises ValueError."""
-    # Act & Assert
-    with pytest.raises(ValueError):
-        import_force_from_json("/nonexistent/path.json")
+def test_import_force_invalid_json_raises(client):
+    with pytest.raises(json.JSONDecodeError):
+        import_force_from_data(json.loads("{not valid"))

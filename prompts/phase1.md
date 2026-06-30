@@ -1,5 +1,7 @@
 # Build MechBay: A Flask Application
 
+> **Superseded:** Original Phase 1 plan. Current app uses File → `.mechbay` / `.mbforce` save/load instead of JSON import/export pages.
+
 You are GitHub Copilot in VSCode.
 Your task is to generate a Python 3.13 Flask web application named **MechBay**, used to manage a BattleTech miniature inventory.
 

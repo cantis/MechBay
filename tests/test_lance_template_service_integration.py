@@ -11,19 +11,13 @@ For fast unit tests, see test_lance_template_service_unit.py.
 
 from __future__ import annotations
 
-import json
-import re
-import tempfile
-from pathlib import Path
-
 import pytest
 
+from app.services import inventory_project_service
 from app.services.lance_template_service import (
     create_template,
-    export_templates_to_json,
     find_matching_miniature,
     get_all_templates,
-    import_templates_from_json,
     match_template_miniatures,
     update_template,
 )
@@ -182,152 +176,20 @@ def test_match_template_partial_missing(client, sample_miniatures):
 
 
 # ============================================================================
-# IMPORT/EXPORT - Integration Tests
+# Inventory project round-trip for templates
 # ============================================================================
 
 
 @pytest.mark.slow
-def test_export_all_templates_structure(client):
-    """Test export generates correct JSON structure and filename."""
-    # Create templates with varying complexity
-    create_template("Light Scout", ["Adder", "Kit Fox", "Mist Lynx"], "Fast recon")
-    create_template(
-        "Medium Striker", ["Stormcrow", "Summoner", "Mad Cat", "Timber Wolf"], "Balanced"
-    )
-    create_template(
-        "Heavy Assault",
-        ["Atlas", "Direwolf", "Warhammer", "Atlas", "Direwolf"],
-        "Maximum firepower",
-    )
-
-    json_str, filename = export_templates_to_json()
-
-    # Validate filename
-    assert re.match(r"LanceTemplates_\d{8}_\d{6}\.json", filename)
-
-    # Parse and validate JSON
-    data = json.loads(json_str)
-
-    assert "export_timestamp" in data
-    assert data["template_count"] == 3
-    assert "templates" in data
-    assert len(data["templates"]) == 3
-
-    # Validate template structure
-    for template in data["templates"]:
-        assert "name" in template
-        assert "description" in template
-        assert "chassis_patterns" in template
-        assert isinstance(template["chassis_patterns"], list)
-        assert len(template["chassis_patterns"]) > 0
-
-
-@pytest.mark.slow
-def test_import_creates_from_export(client):
-    """Test importing creates templates from exported JSON."""
-    # Create and export templates
+def test_templates_round_trip_via_inventory_project(client):
     create_template("Lance 1", ["Atlas", "Warhammer", "Timber Wolf"])
     create_template("Lance 2", ["Mad Cat", "Direwolf", "Summoner", "Stormcrow"])
-    create_template("Lance 3", ["Adder", "Kit Fox"])
 
-    json_str, filename = export_templates_to_json()
+    payload = inventory_project_service.build_project_data()
+    assert len(payload["templates"]) == 2
 
-    # Clear templates by deleting each one individually
-    from app.services.lance_template_service import delete_template
-
-    all_templates = get_all_templates()
-    for template in all_templates:
-        delete_template(template.id)
-
-    # Import
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        f.write(json_str)
-        temp_path = f.name
-
-    try:
-        import_templates_from_json(temp_path)
-
-        templates = get_all_templates()
-        assert len(templates) == 3
-
-        # Verify pattern counts
-        from app.extensions import session_scope
-        from app.models.lance_template_miniature import LanceTemplateMiniature
-
-        with session_scope() as session:
-            for template in templates:
-                pattern_count = (
-                    session.query(LanceTemplateMiniature)
-                    .filter(LanceTemplateMiniature.template_id == template.id)
-                    .count()
-                )
-
-                if template.name == "Lance 1":
-                    assert pattern_count == 3
-                elif template.name == "Lance 2":
-                    assert pattern_count == 4
-                elif template.name == "Lance 3":
-                    assert pattern_count == 2
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
-
-
-@pytest.mark.slow
-def test_import_merge_updates_existing(client):
-    """Test import merge mode updates existing template by name."""
-    # Create initial template
-    create_template(
-        "Heavy Lance", ["Atlas", "Warhammer", "Timber Wolf", "Mad Cat"], "Original description"
-    )
-    create_template("Light Lance", ["Adder", "Kit Fox"], "Light mechs")
-
-    # Export and modify
-    json_str, _ = export_templates_to_json()
-    data = json.loads(json_str)
-
-    # Modify Heavy Lance to have 3 patterns instead of 4
-    for template in data["templates"]:
-        if template["name"] == "Heavy Lance":
-            template["chassis_patterns"] = ["Direwolf", "Summoner", "Stormcrow"]
-            template["description"] = "Updated description"
-
-    # Import with merge
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(data, f)
-        temp_path = f.name
-
-    try:
-        import_templates_from_json(temp_path)
-
-        templates = get_all_templates()
-        assert len(templates) == 2  # No new templates created
-
-        # Find Heavy Lance and verify update
-        heavy_lance = next(t for t in templates if t.name == "Heavy Lance")
-        assert heavy_lance.description == "Updated description"
-
-        # Verify pattern count
-        from app.extensions import session_scope
-        from app.models.lance_template_miniature import LanceTemplateMiniature
-
-        with session_scope() as session:
-            pattern_count = (
-                session.query(LanceTemplateMiniature)
-                .filter(LanceTemplateMiniature.template_id == heavy_lance.id)
-                .count()
-            )
-            assert pattern_count == 3
-
-            # Verify patterns are the new ones
-            patterns = (
-                session.query(LanceTemplateMiniature)
-                .filter(LanceTemplateMiniature.template_id == heavy_lance.id)
-                .order_by(LanceTemplateMiniature.order)
-                .all()
-            )
-
-            assert patterns[0].chassis_pattern == "Direwolf"
-            assert patterns[1].chassis_pattern == "Summoner"
-            assert patterns[2].chassis_pattern == "Stormcrow"
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
+    inventory_project_service.load_project_from_data(payload)
+    templates = get_all_templates()
+    assert len(templates) == 2
+    names = {t.name for t in templates}
+    assert names == {"Lance 1", "Lance 2"}

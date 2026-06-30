@@ -23,7 +23,7 @@ See [DEVELOPER.md](Docs/DEVELOPER.md) for full setup instructions.
 ### Miniature Inventory Management
 - **Add, edit, duplicate, and delete** miniatures with detailed tracking
 - **Fields tracked**: Prefix, Chassis, Variant, Series, Unique ID, Tonnage, Tray location
-- **Import/Export** miniatures to/from JSON
+- **Save/load inventory** as `.mechbay` project files (miniatures, templates, settings)
 - **Quick actions**: Double-click to edit, borderless icon buttons
 - **Visual indicators**: Green borders for miniatures assigned to active force
 
@@ -34,12 +34,13 @@ See [DEVELOPER.md](Docs/DEVELOPER.md) for full setup instructions.
 - **Auto-matching** - Templates automatically find miniatures matching chassis patterns
 - **Force activation** - Set one force as active for quick miniature assignment
 - **Print reports** - Generate printer-friendly pick lists with checkboxes for gathering miniatures
-- **Export/Import forces** to/from JSON with full lance structure
+- **Save/load forces** as `.mbforce` files
+- **Jeff's BT Tools export** for Alpha Strike play
 
 ### Lance Template System
 - **Create custom templates** with chassis patterns (e.g., "Warhammer" matches all variants)
 - **Edit and delete** templates through intuitive UI
-- **Export/Import** all templates as a single JSON file (LanceTemplates_*.json)
+- **Saved with inventory** — lance templates are included in `.mechbay` project files
 - **Reusable configurations** - Apply templates to quickly build forces
 
 ## Quick Start
@@ -54,7 +55,7 @@ uv sync
 uv run python .\main.py
 ```
 
-Then open http://127.0.0.1:5000 in your browser.
+Then open http://127.0.0.1:5001 in your browser.
 
 ## Database Migrations
 
@@ -73,11 +74,13 @@ uv run ruff check .
 
 ## Seed Sample Data
 
-Populate the database with sample miniatures and lance templates:
+Add example miniatures and lance templates via **File → Load sample data…** in the app, or from the command line:
 
 ```powershell
 uv run python -m app.seed
 ```
+
+If your inventory already has data, the app asks for confirmation before adding sample records (duplicates are skipped).
 
 This creates 6 default lance templates:
 - Assault Lance (4x 80-100 ton 'mechs)
@@ -87,19 +90,20 @@ This creates 6 default lance templates:
 - Heavy Lance (4x 60-75 ton 'mechs)
 - Recon Lance (4x light/fast 'mechs)
 
-## Import/Export Formats
+## File Formats
 
-### Miniatures (miniatures_export.json)
-- **Export**: Produces JSON array of all miniature objects
-- **Import**: Can overwrite (default) or merge by matching on `unique_id`
+Use **File** in the menu bar to save and open documents.
 
-### Forces (forces/Force_*.json)
-- **Export**: Includes force name, lances, and assigned miniatures with full details
-- **Import**: Creates or updates forces with complete lance structure
+### Inventory (`.mechbay`)
+- Miniatures, lance templates, and app settings in one project file
+- Legacy miniature-only or template-only JSON exports can still be opened
 
-### Lance Templates (lance_templates/LanceTemplates_*.json)
-- **Export**: All templates with names, descriptions, and chassis patterns
-- **Import**: Updates existing templates by name or creates new ones
+### Forces (`.mbforce`)
+- Force name, lances, miniature assignments, lance colors, inventory faction, and Alpha Strike config
+- Open force always adds to your library; save links a file to the force
+
+### Jeff's BT Tools
+- Per-lance or all-lances JSON export for external Alpha Strike tools (not a MechBay save file)
 
 ## Project Structure
 

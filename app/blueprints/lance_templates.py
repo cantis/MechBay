@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import tempfile
-from io import BytesIO
-from pathlib import Path
-
 import structlog
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from ..services import lance_template_service
 
@@ -108,55 +104,3 @@ def delete(id: int):  # noqa: A002
         flash("Template not found", "danger")
 
     return redirect(url_for("lance_templates.list_templates"))
-
-
-@bp.route("/export")
-def export():
-    """Export all lance templates to JSON file."""
-    try:
-        json_string, filename = lance_template_service.export_templates_to_json()
-        return send_file(
-            BytesIO(json_string.encode("utf-8")),
-            mimetype="application/json",
-            as_attachment=True,
-            download_name=filename,
-        )
-    except Exception as e:
-        flash(f"Export failed: {str(e)}", "danger")
-        return redirect(url_for("lance_templates.list_templates"))
-
-
-@bp.route("/import", methods=["GET", "POST"])
-def import_route():
-    """Import lance templates from JSON file."""
-    if request.method == "POST":
-        uploaded = request.files.get("file")
-        if not uploaded or uploaded.filename == "":
-            flash("No file selected", "warning")
-            return redirect(url_for("lance_templates.import_route"))
-
-        logger.info("template_import_started", filename=uploaded.filename)
-
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
-                tmp_path = tmp.name
-                uploaded.save(tmp_path)
-            result = lance_template_service.import_templates_from_json(tmp_path)
-
-            flash(
-                f"Imported {result['imported_count']} template(s). "
-                f"Skipped {result['skipped_count']}.",
-                "success",
-            )
-            return redirect(url_for("lance_templates.list_templates"))
-        except ValueError as e:
-            logger.warning("template_import_failed", exc_info=True)
-            flash(f"Import failed: {str(e)}", "danger")
-        finally:
-            if tmp_path:
-                Path(tmp_path).unlink(missing_ok=True)
-
-        return redirect(url_for("lance_templates.import_route"))
-
-    return render_template("lance_templates/import.html")
