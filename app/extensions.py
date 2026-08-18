@@ -139,6 +139,40 @@ def _apply_schema_migrations(db_engine) -> None:
                 conn.commit()
                 logger.info("schema_migration_applied", table="travel_events", column="contract_id")
 
+        extra_columns = {
+            "sorties": {
+                "objectives_summary": "TEXT",
+                "combat_pay": "INTEGER DEFAULT 0",
+                "salvage_notes": "TEXT",
+                "salvage_wp": "INTEGER DEFAULT 0",
+                "mvp_pilot_id": "INTEGER",
+                "after_action_notes": "TEXT",
+            },
+            "sortie_units": {
+                "damage_outcome": "VARCHAR(32)",
+                "needs_rearm": "BOOLEAN DEFAULT 0",
+                "pilot_wounded": "BOOLEAN DEFAULT 0",
+                "pilot_killed": "BOOLEAN DEFAULT 0",
+            },
+            "campaign_units": {
+                "damage_category": "VARCHAR(32) DEFAULT 'none'",
+            },
+            "campaign_pilots": {
+                "wounded": "BOOLEAN DEFAULT 0",
+            },
+        }
+        for table, cols in extra_columns.items():
+            if table not in campaign_tables:
+                continue
+            existing = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            }
+            for column, col_type in cols.items():
+                if column not in existing:
+                    conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {col_type}'))
+                    conn.commit()
+                    logger.info("schema_migration_applied", table=table, column=column)
+
 
 @contextmanager
 def session_scope() -> Iterator:

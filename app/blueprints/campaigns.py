@@ -3,7 +3,7 @@ from __future__ import annotations
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from ..services import campaign_service, contract_service, force_service
+from ..services import after_action_service, campaign_service, contract_service, force_service
 from ..services.campaign_service import (
     CAMPAIGN_STATUSES,
     PILOT_STATUSES,
@@ -39,6 +39,8 @@ def _campaign_view_context(campaign) -> dict:
         "contracts": contract_service.get_contracts_for_campaign(campaign.id),
         "active_contract": contract_service.get_active_contract(campaign.id),
         "next_contract_number": contract_service.next_contract_number(campaign.id),
+        "repair_orders": after_action_service.get_repair_orders(campaign.id),
+        "open_repair_statuses": after_action_service.OPEN_REPAIR_STATUSES,
     }
 
 
@@ -390,3 +392,124 @@ def complete_travel(event_id: int):
     if target:
         return redirect(url_for("campaigns.detail", id=int(target)))
     return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/units/<int:unit_id>/truly-destroyed", methods=["POST"])
+def mark_truly_destroyed(unit_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        unit = after_action_service.mark_unit_truly_destroyed(unit_id)
+        flash(f"{unit.chassis} marked truly destroyed", "info")
+        target = unit.campaign_id
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/units/<int:unit_id>/omni", methods=["POST"])
+def reconfigure_omni(unit_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        cost = int(request.form.get("cost") or 0)
+        mul_unit_id = int(request.form.get("mul_unit_id"))
+        unit = after_action_service.reconfigure_omni_from_search(unit_id, mul_unit_id, cost=cost)
+        flash(f"{unit.chassis} reconfigured to {unit.variant}", "success")
+        target = unit.campaign_id
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid Omni configuration", "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/repairs/<int:order_id>/update", methods=["POST"])
+def update_repair(order_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        order = after_action_service.update_repair_order(
+            order_id,
+            gross_cost=int(request.form.get("gross_cost") or 0),
+            notes=request.form.get("notes"),
+        )
+        flash("Repair Order updated", "success")
+        target = order.campaign_id
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid repair cost", "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/repairs/<int:order_id>/complete", methods=["POST"])
+def complete_repair(order_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        after_action_service.update_repair_order(
+            order_id,
+            gross_cost=int(request.form.get("gross_cost") or 0),
+            notes=request.form.get("notes"),
+        )
+        order = after_action_service.complete_repair_order(order_id)
+        flash("Repair completed", "success")
+        target = order.campaign_id
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid repair", "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/repairs/<int:order_id>/cancel", methods=["POST"])
+def cancel_repair(order_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        order = after_action_service.cancel_repair_order(order_id)
+        flash("Repair Order cancelled", "info")
+        target = order.campaign_id
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
+
+
+@bp.route("/<int:id>/advance-month")
+def advance_month_form(id: int):  # noqa: A002
+    campaign = campaign_service.get_campaign_by_id(id)
+    if not campaign:
+        flash("Campaign not found", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    try:
+        preview = after_action_service.preview_month_advance(id)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("campaigns.detail", id=id))
+    return render_template(
+        "campaigns/advance_month.html",
+        campaign=campaign,
+        preview=preview,
+        active_contract=contract_service.get_active_contract(id),
+        month_label=campaign_service.campaign_month_label(campaign),
+    )
+
+
+@bp.route("/<int:id>/advance-month", methods=["POST"])
+def advance_month(id: int):  # noqa: A002
+    try:
+        campaign = after_action_service.advance_campaign_month(
+            id,
+            base_pay=int(request.form.get("base_pay") or 0),
+            maintenance=int(request.form.get("maintenance") or 0),
+        )
+        flash(f"Advanced to {campaign_service.campaign_month_label(campaign)}", "success")
+        return redirect(url_for("campaigns.detail", id=campaign.id))
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid month-advance values", "danger")
+        return redirect(url_for("campaigns.advance_month_form", id=id))

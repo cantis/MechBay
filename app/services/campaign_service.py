@@ -121,6 +121,16 @@ def _eager_load_campaign(campaign: Campaign) -> None:
         _ = contract.sorties
     for sortie in campaign.sorties:
         _ = sortie.units
+    for order in campaign.repair_orders:
+        _ = order.unit
+    for order in campaign.rearm_orders:
+        _ = order.unit
+    for event in campaign.damage_events:
+        _ = event.unit
+    for event in campaign.injury_events:
+        _ = event.pilot
+    for event in campaign.configuration_events:
+        _ = event.unit
 
 
 def _expunge_campaign(session, campaign: Campaign) -> Campaign:
@@ -410,13 +420,28 @@ def update_campaign(
 
 def delete_campaign(campaign_id: int) -> bool:
     from ..models.contract import Contract
+    from ..models.damage_event import DamageEvent
+    from ..models.pilot_injury_event import PilotInjuryEvent
+    from ..models.rearm_order import RearmOrder
+    from ..models.repair_order import RepairOrder
     from ..models.sortie import Sortie
     from ..models.sortie_unit import SortieUnit
+    from ..models.unit_configuration_event import UnitConfigurationEvent
 
     with session_scope() as session:
         campaign = session.get(Campaign, campaign_id)
         if not campaign:
             return False
+        for model in (
+            DamageEvent,
+            RepairOrder,
+            RearmOrder,
+            PilotInjuryEvent,
+            UnitConfigurationEvent,
+        ):
+            records = session.query(model).filter(model.campaign_id == campaign_id).all()
+            for record in records:
+                session.delete(record)
         sortie_ids = [
             row[0]
             for row in session.execute(select(Sortie.id).where(Sortie.campaign_id == campaign_id))

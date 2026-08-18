@@ -13,8 +13,13 @@ if TYPE_CHECKING:
     from .campaign_pilot import CampaignPilot
     from .campaign_unit import CampaignUnit
     from .contract import Contract
+    from .damage_event import DamageEvent
+    from .pilot_injury_event import PilotInjuryEvent
+    from .rearm_order import RearmOrder
+    from .repair_order import RepairOrder
     from .sortie import Sortie
     from .travel_event import TravelEvent
+    from .unit_configuration_event import UnitConfigurationEvent
     from .warchest_transaction import WarchestTransaction
 
 
@@ -84,6 +89,36 @@ class Campaign(Base):
         back_populates="campaign",
         cascade="all, delete-orphan",
         order_by="Sortie.id",
+    )
+    damage_events: Mapped[list[DamageEvent]] = relationship(
+        "DamageEvent",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="DamageEvent.id",
+    )
+    repair_orders: Mapped[list[RepairOrder]] = relationship(
+        "RepairOrder",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="RepairOrder.id",
+    )
+    rearm_orders: Mapped[list[RearmOrder]] = relationship(
+        "RearmOrder",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="RearmOrder.id",
+    )
+    injury_events: Mapped[list[PilotInjuryEvent]] = relationship(
+        "PilotInjuryEvent",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="PilotInjuryEvent.id",
+    )
+    configuration_events: Mapped[list[UnitConfigurationEvent]] = relationship(
+        "UnitConfigurationEvent",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="UnitConfigurationEvent.id",
     )
 
     def to_dict(self) -> dict:

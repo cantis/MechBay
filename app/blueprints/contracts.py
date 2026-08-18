@@ -3,7 +3,8 @@ from __future__ import annotations
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from ..services import campaign_service, contract_service
+from ..services import after_action_service, campaign_service, contract_service
+from ..services.after_action_service import DAMAGE_OUTCOMES
 from ..services.contract_service import CONTRACT_STATUSES, SORTIE_OUTCOMES, SORTIE_STATUSES
 
 logger = structlog.get_logger()
@@ -204,6 +205,10 @@ def sortie_detail(id: int):  # noqa: A002
         outcomes=SORTIE_OUTCOMES,
         statuses=SORTIE_STATUSES,
         editable=sortie.status == "planning",
+        damage_outcomes=DAMAGE_OUTCOMES,
+        named_sortie_pilots=[
+            unit for unit in sortie.units if unit.campaign_pilot_id and not unit.is_generic_crew
+        ],
     )
 
 
@@ -336,6 +341,52 @@ def mark_fought(id: int):  # noqa: A002
         outcome = request.form.get("outcome") or None
         contract_service.mark_sortie_fought(id, outcome=outcome)
         flash("Sortie marked as Fought", "success")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/after-action", methods=["POST"])
+def apply_after_action(id: int):  # noqa: A002
+    sortie = contract_service.get_sortie_by_id(id)
+    if not sortie:
+        flash("Sortie not found", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    try:
+        unit_results = []
+        for unit in sortie.units:
+            unit_results.append(
+                {
+                    "sortie_unit_id": unit.id,
+                    "damage_outcome": request.form.get(f"damage_outcome_{unit.id}") or "none",
+                    "pilot_wounded": str(request.form.get(f"pilot_wounded_{unit.id}") or "").lower()
+                    in {"1", "true", "on", "yes"},
+                    "pilot_killed": str(request.form.get(f"pilot_killed_{unit.id}") or "").lower()
+                    in {"1", "true", "on", "yes"},
+                }
+            )
+        after_action_service.apply_after_action(
+            id,
+            unit_results,
+            outcome=request.form.get("outcome") or None,
+            objectives_summary=request.form.get("objectives_summary"),
+            combat_pay=int(request.form.get("combat_pay") or 0),
+            salvage_notes=request.form.get("salvage_notes"),
+            salvage_wp=int(request.form.get("salvage_wp") or 0),
+            mvp_pilot_id=_optional_int(request.form.get("mvp_pilot_id")),
+            after_action_notes=request.form.get("after_action_notes"),
+        )
+        flash("After Action applied", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid After Action values", "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/close", methods=["POST"])
+def close_sortie(id: int):  # noqa: A002
+    try:
+        after_action_service.close_sortie(id)
+        flash("Sortie closed", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return redirect(url_for("contracts.sortie_detail", id=id))

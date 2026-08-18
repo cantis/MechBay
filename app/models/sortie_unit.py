@@ -48,6 +48,10 @@ class SortieUnit(Base):
     piloting: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     alpha_strike_skill: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     is_generic_crew: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    damage_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    needs_rearm: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pilot_wounded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pilot_killed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     sortie: Mapped[Sortie] = relationship("Sortie", back_populates="units")

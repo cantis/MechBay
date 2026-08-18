@@ -17,7 +17,10 @@
             {% endif %}
         </small>
     </div>
-    <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('campaigns.advance_month_form', id=campaign.id) }}" class="btn btn-primary">Advance Month</a>
+        <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
+    </div>
 </div>
 
 {% if missing_units %}
@@ -48,6 +51,7 @@
                 <label class="form-label">Campaign month</label>
                 <input type="number" name="current_campaign_month" min="1" class="form-control"
                     value="{{ campaign.current_campaign_month }}">
+                <div class="form-text">Use Advance Month for pay, maintenance, and arrivals.</div>
             </div>
             <div class="col-md-2">
                 <label class="form-label">Scale</label>
@@ -189,6 +193,9 @@
                             {{ unit.prefix }} {{ unit.chassis }}
                             {% if unit.is_omni %}<span class="badge rounded-pill bg-info text-dark">Omni</span>{% endif %}
                             {% if unit.miniature_missing %}<span class="badge rounded-pill bg-warning text-dark">Missing mini</span>{% endif %}
+                            {% if unit.damage_category and unit.damage_category != 'none' %}
+                            <span class="badge rounded-pill bg-secondary">{{ unit.damage_category }}</span>
+                            {% endif %}
                         </td>
                         <td>{{ unit.variant or '—' }}</td>
                         <td>
@@ -211,8 +218,39 @@
                                 <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
                             </form>
+                            {% if unit.condition == 'destroyed' %}
+                            <form method="post" action="{{ url_for('campaigns.mark_truly_destroyed', unit_id=unit.id) }}"
+                                class="mt-1" onsubmit="return confirm('Mark this hull truly destroyed? It cannot be fielded or repaired.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Truly destroy</button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
+                    {% if unit.is_omni %}
+                    <tr>
+                        <td></td>
+                        <td colspan="4">
+                            <form method="post" action="{{ url_for('campaigns.reconfigure_omni', unit_id=unit.id) }}" class="row g-2">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <div class="col-md-3">
+                                    <input type="number" name="mul_unit_id" class="form-control form-control-sm" placeholder="MUL unit id" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <input type="number" name="cost" min="0" class="form-control form-control-sm" value="0" placeholder="WP cost">
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Reconfigure Omni</button>
+                                </div>
+                                <div class="col-md-4 small text-muted">
+                                    Between Sorties only. Unit must be operational with no open Repair Orders.
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endif %}
                     {% else %}
                     <tr><td colspan="5" class="text-muted">No units in this lance.</td></tr>
                     {% endfor %}
@@ -290,7 +328,7 @@
                         <td>{{ pilot.gunnery }}/{{ pilot.piloting }}/{{ pilot.alpha_strike_skill }}</td>
                         <td>{{ pilot.edge_tokens }}</td>
                         <td>{{ pilot.preferred_unit.chassis if pilot.preferred_unit else '—' }}</td>
-                        <td>{{ pilot.status }}</td>
+                        <td>{{ pilot.status }}{% if pilot.wounded %} <span class="badge rounded-pill bg-warning text-dark">wounded</span>{% endif %}</td>
                         <td>
                             <form method="post" action="{{ url_for('campaigns.delete_pilot', pilot_id=pilot.id) }}"
                                 onsubmit="return confirm('Remove this pilot?');">
@@ -335,6 +373,62 @@
                 <button type="submit" class="btn btn-outline-secondary w-100">Add pilot</button>
             </div>
         </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Repair Orders</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">Gross cost is player-entered (starts at 0). Support coverage uses the active Contract Support %. Completing a repair posts the Warchest cost.</p>
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Damage</th>
+                        <th>Month</th>
+                        <th>Status</th>
+                        <th>Gross</th>
+                        <th>Covered</th>
+                        <th>Actual</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in repair_orders %}
+                    <tr>
+                        <td>{{ order.unit.chassis if order.unit else '—' }}</td>
+                        <td>{{ order.damage_category }}</td>
+                        <td>{{ order.campaign_month }}</td>
+                        <td>{{ order.status }}</td>
+                        {% if order.status in open_repair_statuses %}
+                        <td colspan="4">
+                            <form method="post" action="{{ url_for('campaigns.complete_repair', order_id=order.id) }}" class="row g-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <div class="col-md-3">
+                                    <input type="number" name="gross_cost" min="0" class="form-control form-control-sm" value="{{ order.gross_cost }}">
+                                </div>
+                                <div class="col-md-9 d-flex gap-1">
+                                    <button type="submit" class="btn btn-sm btn-primary">Complete</button>
+                                    <button type="submit" formaction="{{ url_for('campaigns.update_repair', order_id=order.id) }}" class="btn btn-sm btn-outline-secondary">Save</button>
+                                    <button type="submit" formaction="{{ url_for('campaigns.cancel_repair', order_id=order.id) }}" class="btn btn-sm btn-outline-danger">Cancel</button>
+                                </div>
+                            </form>
+                        </td>
+                        {% else %}
+                        <td>{{ order.gross_cost }}</td>
+                        <td>{{ order.covered_amount }}</td>
+                        <td>{{ order.actual_cost }}</td>
+                        <td></td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-muted">No Repair Orders yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 

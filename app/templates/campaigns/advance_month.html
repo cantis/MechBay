@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">Advance Campaign Month</h2>
+        <small class="text-muted">{{ campaign.name }} · {{ month_label }}</small>
+    </div>
+    <a href="{{ url_for('campaigns.detail', id=campaign.id) }}" class="btn btn-outline-secondary">Back to Campaign</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Month summary</h5></div>
+    <div class="card-body">
+        <dl class="row mb-0">
+            <dt class="col-sm-4">Current month</dt>
+            <dd class="col-sm-8">{{ preview.current_month }}</dd>
+            <dt class="col-sm-4">New month</dt>
+            <dd class="col-sm-8">{{ preview.month_label }}</dd>
+            <dt class="col-sm-4">Location</dt>
+            <dd class="col-sm-8">{{ preview.location }}</dd>
+            <dt class="col-sm-4">Warchest</dt>
+            <dd class="col-sm-8">{{ preview.warchest }} WP</dd>
+            <dt class="col-sm-4">Active contract</dt>
+            <dd class="col-sm-8">{{ preview.active_contract or 'None' }}{% if preview.contract_month %} · contract month {{ preview.contract_month }}{% endif %}</dd>
+            <dt class="col-sm-4">In transit</dt>
+            <dd class="col-sm-8">
+                {% if preview.in_transit %}
+                    {{ preview.in_transit | join('; ') }}
+                {% else %}
+                    None
+                {% endif %}
+            </dd>
+            <dt class="col-sm-4">Arriving this advance</dt>
+            <dd class="col-sm-8">
+                {% if preview.arriving %}
+                    {{ preview.arriving | join('; ') }}
+                {% else %}
+                    None
+                {% endif %}
+            </dd>
+            <dt class="col-sm-4">Outstanding repairs</dt>
+            <dd class="col-sm-8">{{ preview.outstanding_repairs }}</dd>
+            <dt class="col-sm-4">Wounded pilots</dt>
+            <dd class="col-sm-8">
+                {% if preview.wounded_pilots %}
+                    {{ preview.wounded_pilots | join(', ') }}
+                {% else %}
+                    None
+                {% endif %}
+            </dd>
+        </dl>
+        {% if active_contract %}
+        <p class="small text-muted mt-3 mb-0">
+            Active contract Support {{ active_contract.support_percent }}% · Base Pay {{ active_contract.base_pay_percent }}% ·
+            Transportation {{ active_contract.transportation_percent }}%. Enter the Warchest amounts to post; they are not recalculated from these percentages.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Confirm advance</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('campaigns.advance_month', id=campaign.id) }}" class="row g-3"
+            onsubmit="return confirm('Advance the campaign month? This posts Base Pay and maintenance and arrives travel due this month.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label">Base Pay WP</label>
+                <input type="number" name="base_pay" min="0" class="form-control" value="0" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Maintenance WP</label>
+                <input type="number" name="maintenance" min="0" class="form-control" value="0" required>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Advance month</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

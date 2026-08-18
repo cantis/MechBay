@@ -268,8 +268,8 @@ def test_sortie_snapshot_survives_campaign_edits(client, minimal_force):
     assert loaded.units[0].chassis != "Not The Original"
 
 
-def test_omni_reconfig_at_sortie_prep_costs_wp(client, minimal_force):
-    """Changing an Omni loadout at Sortie prep updates the unit and ledger."""
+def test_omni_reconfig_at_sortie_prep_is_rejected(client, minimal_force):
+    """Omni loadouts are changed between Sorties, not during Sortie prep."""
     # Arrange
     campaign = _campaign(minimal_force)
     with session_scope() as session:
@@ -293,16 +293,9 @@ def test_omni_reconfig_at_sortie_prep_costs_wp(client, minimal_force):
     sortie = contract_service.create_sortie(contract.id, "Omni prep")
     row = contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
 
-    # Act
-    updated = contract_service.apply_sortie_unit_configuration(row.id, OMNI_ALT, cost=15)
-    loaded = campaign_service.get_campaign_by_id(campaign.id)
-
-    # Assert
-    assert updated.variant == "A"
-    assert updated.configuration_changed is True
-    assert updated.reconfiguration_cost == 15
-    assert loaded.warchest_balance == 185
-    assert loaded.units[0].variant == "A"
+    # Act / Assert
+    with pytest.raises(ValueError, match="between-sortie"):
+        contract_service.apply_sortie_unit_configuration(row.id, OMNI_ALT, cost=15)
 
 
 def test_mark_ready_and_fought(client, minimal_force):

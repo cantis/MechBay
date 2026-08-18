@@ -72,21 +72,31 @@ def clear_seed_data(app):
     from app.models.campaign_pilot import CampaignPilot
     from app.models.campaign_unit import CampaignUnit
     from app.models.contract import Contract
+    from app.models.damage_event import DamageEvent
     from app.models.force import Force
     from app.models.force_miniature import ForceMiniature
     from app.models.lance import Lance
     from app.models.lance_template import LanceTemplate
     from app.models.lance_template_miniature import LanceTemplateMiniature
     from app.models.miniature import Miniature
+    from app.models.pilot_injury_event import PilotInjuryEvent
+    from app.models.rearm_order import RearmOrder
+    from app.models.repair_order import RepairOrder
     from app.models.sortie import Sortie
     from app.models.sortie_unit import SortieUnit
     from app.models.travel_event import TravelEvent
+    from app.models.unit_configuration_event import UnitConfigurationEvent
     from app.models.warchest_transaction import WarchestTransaction
 
     # Use a fresh session for cleanup
     session = db_session()
     try:
         # Delete in reverse dependency order to avoid foreign key issues
+        session.query(DamageEvent).delete()
+        session.query(RepairOrder).delete()
+        session.query(RearmOrder).delete()
+        session.query(PilotInjuryEvent).delete()
+        session.query(UnitConfigurationEvent).delete()
         session.query(SortieUnit).delete()
         session.query(Sortie).delete()
         session.query(WarchestTransaction).delete()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..extensions import Base
@@ -26,6 +26,7 @@ class CampaignPilot(Base):
     edge_abilities: Mapped[str | None] = mapped_column(Text, nullable=True)
     improvement_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wounds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wounded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="alive")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     preferred_unit_id: Mapped[int | None] = mapped_column(
@@ -52,6 +53,7 @@ class CampaignPilot(Base):
             "edge_abilities": self.edge_abilities,
             "improvement_sp": self.improvement_sp,
             "wounds": self.wounds,
+            "wounded": self.wounded,
             "status": self.status,
             "notes": self.notes,
             "preferred_unit_id": self.preferred_unit_id,

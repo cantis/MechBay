@@ -108,29 +108,6 @@
                             {% endif %}
                         </td>
                     </tr>
-                    {% if editable and unit.is_omni %}
-                    <tr>
-                        <td></td>
-                        <td colspan="5">
-                            <form method="post" action="{{ url_for('contracts.configure_omni', unit_id=unit.id) }}" class="row g-2">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="sortie_id" value="{{ sortie.id }}">
-                                <div class="col-md-3">
-                                    <input type="number" name="mul_unit_id" class="form-control form-control-sm" placeholder="MUL unit id" required>
-                                </div>
-                                <div class="col-md-2">
-                                    <input type="number" name="cost" min="0" class="form-control form-control-sm" value="0" placeholder="WP cost">
-                                </div>
-                                <div class="col-md-2">
-                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Apply config</button>
-                                </div>
-                                <div class="col-md-5 small text-muted">
-                                    Omni loadout is chosen at Sortie prep. Cost is charged only if the configuration changes.
-                                </div>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endif %}
                     {% else %}
                     <tr><td colspan="6" class="text-muted">No units selected.</td></tr>
                     {% endfor %}
@@ -203,9 +180,150 @@
         </form>
         {% endif %}
         {% if sortie.status == 'fought' %}
-        <p class="mb-0 text-muted">Fought. After Action processing comes in a later phase.</p>
+        <p class="mb-0 text-muted">Fought. Record After Action below. Closing the Sortie does not advance the campaign month.</p>
+        {% endif %}
+        {% if sortie.status == 'after_action' %}
+        <form method="post" action="{{ url_for('contracts.close_sortie', id=sortie.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-primary">Close Sortie</button>
+        </form>
+        {% endif %}
+        {% if sortie.status == 'closed' %}
+        <p class="mb-0 text-muted">Closed. Campaign month is advanced separately.</p>
         {% endif %}
     </div>
 </div>
+
+{% if sortie.status == 'fought' %}
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">After Action</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('contracts.apply_after_action', id=sortie.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="table-responsive mb-3">
+                <table class="table table-hover table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Unit</th>
+                            <th>Pilot</th>
+                            <th>Damage</th>
+                            <th>Wounded</th>
+                            <th>Killed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for unit in sortie.units %}
+                        <tr>
+                            <td>{{ unit.prefix }} {{ unit.chassis }}</td>
+                            <td>{{ unit.pilot_name }}{% if unit.is_generic_crew %} <span class="text-muted">(generic)</span>{% endif %}</td>
+                            <td>
+                                <select name="damage_outcome_{{ unit.id }}" class="form-select form-select-sm">
+                                    {% for damage in damage_outcomes %}
+                                    <option value="{{ damage }}">{{ damage }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                {% if not unit.is_generic_crew %}
+                                <input type="checkbox" name="pilot_wounded_{{ unit.id }}" value="on">
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if not unit.is_generic_crew %}
+                                <input type="checkbox" name="pilot_killed_{{ unit.id }}" value="on">
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Outcome</label>
+                    <select name="outcome" class="form-select">
+                        <option value="">{{ sortie.outcome or 'Outcome' }}</option>
+                        {% for outcome in outcomes %}
+                        <option value="{{ outcome }}" {% if sortie.outcome == outcome %}selected{% endif %}>{{ outcome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Combat pay WP</label>
+                    <input type="number" name="combat_pay" min="0" class="form-control" value="0">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Salvage WP</label>
+                    <input type="number" name="salvage_wp" min="0" class="form-control" value="0">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">MVP</label>
+                    <select name="mvp_pilot_id" class="form-select">
+                        <option value="">None</option>
+                        {% for unit in named_sortie_pilots %}
+                        <option value="{{ unit.campaign_pilot_id }}">{{ unit.pilot_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Objectives / result</label>
+                    <textarea name="objectives_summary" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Salvage notes</label>
+                    <textarea name="salvage_notes" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">After Action notes</label>
+                    <textarea name="after_action_notes" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Apply After Action</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if sortie.status in ['after_action', 'closed'] %}
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">After Action record</h5></div>
+    <div class="card-body">
+        <p class="mb-2">
+            {% if sortie.outcome %}<strong>{{ sortie.outcome }}</strong> · {% endif %}
+            Combat pay {{ sortie.combat_pay }} WP · Salvage {{ sortie.salvage_wp }} WP
+        </p>
+        {% if sortie.objectives_summary %}<p>{{ sortie.objectives_summary }}</p>{% endif %}
+        {% if sortie.salvage_notes %}<p><strong>Salvage:</strong> {{ sortie.salvage_notes }}</p>{% endif %}
+        {% if sortie.after_action_notes %}<p>{{ sortie.after_action_notes }}</p>{% endif %}
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Damage</th>
+                        <th>Rearm</th>
+                        <th>Pilot</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for unit in sortie.units %}
+                    <tr>
+                        <td>{{ unit.prefix }} {{ unit.chassis }} · {{ unit.variant or '—' }}</td>
+                        <td>{{ unit.damage_outcome or 'none' }}</td>
+                        <td>{% if unit.needs_rearm %}Yes{% else %}No{% endif %}</td>
+                        <td>
+                            {{ unit.pilot_name }}
+                            {% if unit.pilot_killed %} · killed{% elif unit.pilot_wounded %} · wounded{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 {% endblock %}

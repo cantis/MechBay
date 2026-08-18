@@ -7,7 +7,6 @@ roster is the Contract force; players pick lances or individuals per Sortie.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,7 +23,7 @@ from ..models.sortie import Sortie
 from ..models.sortie_unit import SortieUnit
 from ..models.warchest_transaction import WarchestTransaction
 from . import campaign_service, mul_service
-from .campaign_service import GENERIC_AS_SKILL, unit_is_omni
+from .campaign_service import GENERIC_AS_SKILL
 
 logger = structlog.get_logger()
 
@@ -507,6 +506,7 @@ def eligible_named_pilots(campaign_id: int) -> list[CampaignPilot]:
                 select(CampaignPilot).where(
                     CampaignPilot.campaign_id == campaign_id,
                     CampaignPilot.status == "alive",
+                    CampaignPilot.wounded == False,  # noqa: E712
                 )
             ).scalars()
         )
@@ -523,6 +523,7 @@ def _preferred_pilot_for_unit(session, unit: CampaignUnit, taken_pilot_ids: set[
                 CampaignPilot.campaign_id == unit.campaign_id,
                 CampaignPilot.preferred_unit_id == unit.id,
                 CampaignPilot.status == "alive",
+                CampaignPilot.wounded == False,  # noqa: E712
             )
         ).scalars()
     )
@@ -657,7 +658,7 @@ def assign_sortie_pilot(sortie_unit_id: int, campaign_pilot_id: int | None) -> S
             pilot = session.get(CampaignPilot, campaign_pilot_id)
             if not pilot or pilot.campaign_id != sortie.campaign_id:
                 raise ValueError("Pilot is not part of this campaign")
-            if pilot.status != "alive":
+            if pilot.status != "alive" or pilot.wounded:
                 raise ValueError("Pilot is not available")
             clash = session.execute(
                 select(SortieUnit).where(
@@ -675,79 +676,13 @@ def assign_sortie_pilot(sortie_unit_id: int, campaign_pilot_id: int | None) -> S
 
 
 def apply_sortie_unit_configuration(
-    sortie_unit_id: int,
-    mul_raw: dict[str, Any],
+    sortie_unit_id: int,  # noqa: ARG001
+    mul_raw: dict[str, Any],  # noqa: ARG001
     *,
-    cost: int = 0,
+    cost: int = 0,  # noqa: ARG001
 ) -> SortieUnit:
-    """Set the Omni loadout used for this Sortie. Cost is player-entered WP."""
-    if cost < 0:
-        raise ValueError("Reconfiguration cost must be zero or a positive WP amount")
-    parsed = mul_service.parse_mul_unit(mul_raw)
-    with session_scope() as session:
-        row = session.get(SortieUnit, sortie_unit_id)
-        if not row:
-            raise ValueError("Sortie unit not found")
-        sortie = session.get(Sortie, row.sortie_id)
-        if not sortie or sortie.status not in EDITABLE_SORTIE_STATUSES:
-            raise ValueError("Sortie force is locked")
-        unit = session.get(CampaignUnit, row.campaign_unit_id) if row.campaign_unit_id else None
-        is_omni = row.is_omni or (unit.is_omni if unit else False)
-        if unit:
-            is_omni = is_omni or unit_is_omni(
-                json.loads(unit.mul_snapshot_json) if unit.mul_snapshot_json else None,
-                unit.variant,
-            )
-        if not is_omni:
-            raise ValueError("Only Omni units can change configuration")
-        unchanged = row.mul_unit_id == parsed.id and (row.variant or "") == (parsed.variant or "")
-        snapshot = json.dumps(mul_raw)
-        row.mul_unit_id = parsed.id
-        row.variant = parsed.variant
-        row.class_name = parsed.class_name
-        row.tonnage = parsed.tonnage
-        row.point_value = parsed.point_value
-        row.unit_type_id = parsed.unit_type_id
-        row.unit_type_name = parsed.unit_type_name
-        row.display_name = parsed.name
-        row.mul_snapshot_json = snapshot
-        row.is_omni = True
-        if unit:
-            unit.mul_unit_id = parsed.id
-            unit.variant = parsed.variant
-            unit.class_name = parsed.class_name
-            unit.tonnage = parsed.tonnage
-            unit.point_value = parsed.point_value
-            unit.unit_type_id = parsed.unit_type_id
-            unit.unit_type_name = parsed.unit_type_name
-            unit.display_name = parsed.name
-            unit.mul_snapshot_json = snapshot
-            unit.is_omni = True
-        applied_cost = 0 if unchanged else cost
-        row.configuration_changed = not unchanged
-        row.reconfiguration_cost = applied_cost
-        if applied_cost:
-            campaign = session.get(Campaign, sortie.campaign_id)
-            if campaign:
-                new_balance = campaign.warchest_balance - applied_cost
-                session.add(
-                    WarchestTransaction(
-                        campaign_id=campaign.id,
-                        campaign_month=sortie.campaign_month,
-                        transaction_type="omni_reconfigure",
-                        description=f"Omni reconfiguration ({row.chassis} {parsed.variant})",
-                        gross_amount=-applied_cost,
-                        covered_amount=0,
-                        actual_amount=-applied_cost,
-                        resulting_balance=new_balance,
-                        related_entity_type="sortie",
-                        related_entity_id=sortie.id,
-                    )
-                )
-                campaign.warchest_balance = new_balance
-        session.flush()
-        session.expunge(row)
-        return row
+    """Omni loadouts are chosen between Sorties, not during Sortie prep."""
+    raise ValueError("Omni reconfiguration is a between-sortie activity")
 
 
 def sortie_point_total(sortie: Sortie) -> int:
@@ -763,6 +698,12 @@ def mark_sortie_ready(sortie_id: int) -> Sortie:
             raise ValueError("Only a planning Sortie can be marked Ready")
         if not sortie.units:
             raise ValueError("Select at least one unit before marking Ready")
+        for row in sortie.units:
+            if not row.campaign_pilot_id:
+                continue
+            pilot = session.get(CampaignPilot, row.campaign_pilot_id)
+            if pilot and (pilot.wounded or pilot.status != "alive"):
+                raise ValueError(f"{pilot.name} is not available")
         sortie.status = "ready"
         sortie.updated_at = datetime.now(UTC)
         session.flush()
@@ -796,6 +737,10 @@ def mark_sortie_fought(sortie_id: int, outcome: str | None = None) -> Sortie:
         sortie.status = "fought"
         sortie.updated_at = datetime.now(UTC)
         session.flush()
+        from .after_action_service import recover_wounded_pilots
+
+        recover_wounded_pilots(session, sortie)
+        session.flush()
         return _expunge_sortie(session, sortie)
 
 
@@ -818,28 +763,9 @@ def search_omni_variants(campaign_id: int, campaign_unit_id: int) -> list[dict[s
 
 
 def apply_omni_from_search(
-    sortie_unit_id: int,
-    mul_unit_id: int,
+    sortie_unit_id: int,  # noqa: ARG001
+    mul_unit_id: int,  # noqa: ARG001
     *,
-    cost: int = 0,
+    cost: int = 0,  # noqa: ARG001
 ) -> SortieUnit:
-    with session_scope() as session:
-        row = session.get(SortieUnit, sortie_unit_id)
-        if not row:
-            raise ValueError("Sortie unit not found")
-        sortie = session.get(Sortie, row.sortie_id)
-        campaign = session.get(Campaign, sortie.campaign_id) if sortie else None
-        if not campaign or campaign.mul_faction_id is None or campaign.mul_era_id is None:
-            raise ValueError("Set MUL faction and era on the campaign to change Omni loadouts")
-        chassis = row.chassis
-        type_id = row.unit_type_id
-        faction_id = campaign.mul_faction_id
-        era_id = campaign.mul_era_id
-    raw = mul_service.find_unit_in_search_results(
-        chassis,
-        mul_unit_id,
-        faction_id=faction_id,
-        era_id=era_id,
-        unit_type_id=type_id,
-    )
-    return apply_sortie_unit_configuration(sortie_unit_id, raw, cost=cost)
+    raise ValueError("Omni reconfiguration is a between-sortie activity")

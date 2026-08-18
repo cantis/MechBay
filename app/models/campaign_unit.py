@@ -42,6 +42,7 @@ class CampaignUnit(Base):
     mul_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_omni: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     condition: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    damage_category: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
     available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     miniature_missing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -75,6 +76,7 @@ class CampaignUnit(Base):
             "point_value": self.point_value,
             "is_omni": self.is_omni,
             "condition": self.condition,
+            "damage_category": self.damage_category,
             "available": self.available,
             "miniature_missing": self.miniature_missing,
             "notes": self.notes,
