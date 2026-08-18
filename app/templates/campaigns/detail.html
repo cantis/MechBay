@@ -1,0 +1,461 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">{{ campaign.name }}</h2>
+        <small class="text-muted">
+            {% if campaign.is_active %}<span class="badge rounded-pill bg-success">Loaded</span><span class="mx-1">·</span>{% endif %}
+            <span class="badge rounded-pill bg-secondary">{{ campaign.status }}</span>
+            <span class="mx-1">·</span>{{ month_label }}
+            <span class="mx-1">·</span>{{ location_label }}
+            <span class="mx-1">·</span>{{ campaign.warchest_balance }} WP
+            <span class="mx-1">·</span>Scale {{ campaign.scale }}
+            <span class="mx-1">·</span>Rep {{ campaign.reputation }}
+            {% if campaign.source_force_name %}
+            <span class="mx-1">·</span>Created from {{ campaign.source_force_name }}
+            {% endif %}
+        </small>
+    </div>
+    <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
+</div>
+
+{% if missing_units %}
+<div class="alert alert-warning">
+    {{ missing_units | length }} campaign unit(s) no longer match an inventory miniature.
+    Roster history is kept; the physical miniature link is missing.
+</div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Campaign</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('campaigns.update', id=campaign.id) }}" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label">Name</label>
+                <input type="text" name="name" class="form-control" value="{{ campaign.name }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    {% for status in statuses %}
+                    <option value="{{ status }}" {% if campaign.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Campaign month</label>
+                <input type="number" name="current_campaign_month" min="1" class="form-control"
+                    value="{{ campaign.current_campaign_month }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Scale</label>
+                <input type="number" name="scale" min="1" max="5" class="form-control" value="{{ campaign.scale }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Reputation</label>
+                <input type="number" name="reputation" class="form-control" value="{{ campaign.reputation }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Starting year</label>
+                <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
+                    value="{{ campaign.starting_bt_year or '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Starting month</label>
+                <input type="number" name="starting_bt_month" min="1" max="12" class="form-control"
+                    value="{{ campaign.starting_bt_month or '' }}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Current location</label>
+                <input type="text" name="current_location" class="form-control"
+                    value="{{ campaign.current_location or '' }}">
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea name="notes" class="form-control" rows="2">{{ campaign.notes or '' }}</textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Save Campaign</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Contracts</h5>
+        {% if active_contract %}
+        <span class="badge rounded-pill bg-success">Active: {{ active_contract.contract_number }}</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Number</th>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Scale</th>
+                        <th>Months</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for contract in contracts %}
+                    <tr>
+                        <td>{{ contract.contract_number }}</td>
+                        <td>{{ contract.name }}</td>
+                        <td><span class="badge rounded-pill bg-secondary">{{ contract.status }}</span></td>
+                        <td>{{ contract.scale }}</td>
+                        <td>{{ contract.start_campaign_month }}–{{ contract.end_campaign_month }}</td>
+                        <td>
+                            <a href="{{ url_for('contracts.detail', id=contract.id) }}" class="btn btn-sm btn-outline-secondary">Open</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-muted">No contracts yet. Create one, then activate it to plan Sorties.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="{{ url_for('contracts.create', campaign_id=campaign.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <input type="text" name="name" class="form-control" placeholder="Contract name" required>
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="contract_number" class="form-control" value="{{ next_contract_number }}">
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="employer" class="form-control" placeholder="Employer">
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="destination" class="form-control" placeholder="Destination">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="scale" min="1" max="5" class="form-control" value="{{ campaign.scale }}" title="Scale">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="length_months" min="1" class="form-control" value="1" title="Length">
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-outline-secondary w-100">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Roster</h5>
+        <span class="small text-muted">{{ campaign.units | length }} unit(s) · generic crew AS skill {{ generic_as_skill }}</span>
+    </div>
+    <div class="card-body">
+        {% for lance in campaign.lances %}
+        <h6 class="mt-2">{{ lance.name }}</h6>
+        {% if lance.special_rules %}<p class="small text-muted mb-2">{{ lance.special_rules }}</p>{% endif %}
+        <form method="post" action="{{ url_for('campaigns.update_lance', lance_id=lance.id) }}" class="row g-2 mb-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+            <div class="col-md-4">
+                <input type="text" name="name" class="form-control form-control-sm" value="{{ lance.name }}">
+            </div>
+            <div class="col-md-6">
+                <input type="text" name="special_rules" class="form-control form-control-sm"
+                    placeholder="Special rules / notes" value="{{ lance.special_rules or '' }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Save lance</button>
+            </div>
+        </form>
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Variant</th>
+                        <th>Condition</th>
+                        <th>Available</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for unit in lance.units %}
+                    <tr>
+                        <td>
+                            {{ unit.prefix }} {{ unit.chassis }}
+                            {% if unit.is_omni %}<span class="badge rounded-pill bg-info text-dark">Omni</span>{% endif %}
+                            {% if unit.miniature_missing %}<span class="badge rounded-pill bg-warning text-dark">Missing mini</span>{% endif %}
+                        </td>
+                        <td>{{ unit.variant or '—' }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('campaigns.update_unit', unit_id=unit.id) }}" class="d-flex gap-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <select name="condition" class="form-select form-select-sm">
+                                    {% for condition in conditions %}
+                                    <option value="{{ condition }}" {% if unit.condition == condition %}selected{% endif %}>{{ condition }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Save</button>
+                            </form>
+                        </td>
+                        <td>{% if unit.available %}Yes{% else %}No{% endif %}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('campaigns.delete_unit', unit_id=unit.id) }}"
+                                onsubmit="return confirm('Remove this unit from the campaign?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-muted">No units in this lance.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No lances yet.</p>
+        {% endfor %}
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <form method="post" action="{{ url_for('campaigns.add_lance', id=campaign.id) }}" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-7">
+                        <input type="text" name="name" class="form-control" placeholder="New lance name" required>
+                    </div>
+                    <div class="col-5">
+                        <button type="submit" class="btn btn-outline-secondary w-100">Add lance</button>
+                    </div>
+                    <div class="col-12">
+                        <input type="text" name="special_rules" class="form-control" placeholder="Special rules (optional)">
+                    </div>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <form method="post" action="{{ url_for('campaigns.add_unit', id=campaign.id) }}" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-6">
+                        <select name="miniature_id" class="form-select" required>
+                            <option value="">Add miniature…</option>
+                            {% for mini in inventory %}
+                            <option value="{{ mini.id }}">{{ mini.prefix }} {{ mini.chassis }} ({{ mini.series }}-{{ mini.unique_id }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <select name="lance_id" class="form-select">
+                            <option value="">Lance…</option>
+                            {% for lance in campaign.lances %}
+                            <option value="{{ lance.id }}">{{ lance.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-2">
+                        <button type="submit" class="btn btn-outline-secondary w-100">Add</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Named Pilots</h5></div>
+    <div class="card-body">
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Callsign</th>
+                        <th>G/P/AS</th>
+                        <th>Edge</th>
+                        <th>Preferred unit</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pilot in campaign.pilots %}
+                    <tr>
+                        <td>{{ pilot.name }}</td>
+                        <td>{{ pilot.callsign or '—' }}</td>
+                        <td>{{ pilot.gunnery }}/{{ pilot.piloting }}/{{ pilot.alpha_strike_skill }}</td>
+                        <td>{{ pilot.edge_tokens }}</td>
+                        <td>{{ pilot.preferred_unit.chassis if pilot.preferred_unit else '—' }}</td>
+                        <td>{{ pilot.status }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('campaigns.delete_pilot', pilot_id=pilot.id) }}"
+                                onsubmit="return confirm('Remove this pilot?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-muted">No named pilots. Unassigned units use a generic AS {{ generic_as_skill }} crew.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="{{ url_for('campaigns.add_pilot', id=campaign.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <input type="text" name="name" class="form-control" placeholder="Pilot name" required>
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="callsign" class="form-control" placeholder="Callsign">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="gunnery" class="form-control" value="4" title="Gunnery">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="piloting" class="form-control" value="4" title="Piloting">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="alpha_strike_skill" class="form-control" value="{{ generic_as_skill }}" title="AS skill">
+            </div>
+            <div class="col-md-2">
+                <select name="preferred_unit_id" class="form-select">
+                    <option value="">Preferred unit</option>
+                    {% for unit in campaign.units %}
+                    <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">Add pilot</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Warchest</h5></div>
+    <div class="card-body">
+        <p class="mb-3"><strong>{{ campaign.warchest_balance }} WP</strong> current balance. Positive amounts are income.</p>
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm">
+                <thead>
+                    <tr>
+                        <th>Month</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Gross</th>
+                        <th>Covered</th>
+                        <th>Actual</th>
+                        <th>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in campaign.transactions %}
+                    <tr>
+                        <td>{{ tx.campaign_month }}</td>
+                        <td>{{ tx.transaction_type }}</td>
+                        <td>{{ tx.description }}</td>
+                        <td>{{ tx.gross_amount }}</td>
+                        <td>{{ tx.covered_amount }}</td>
+                        <td>{{ tx.actual_amount }}</td>
+                        <td>{{ tx.resulting_balance }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-muted">No transactions yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="{{ url_for('campaigns.add_transaction', id=campaign.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-2">
+                <input type="text" name="transaction_type" class="form-control" value="adjustment" required>
+            </div>
+            <div class="col-md-4">
+                <input type="text" name="description" class="form-control" placeholder="Description" required>
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="actual_amount" class="form-control" placeholder="Actual WP" required>
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="covered_amount" class="form-control" value="0" placeholder="Covered">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">Record</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Travel</h5></div>
+    <div class="card-body">
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Route</th>
+                        <th>Months</th>
+                        <th>Jumps</th>
+                        <th>WP impact</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in campaign.travel_events %}
+                    <tr>
+                        <td>{{ event.origin }} → {{ event.destination }}</td>
+                        <td>{{ event.departure_campaign_month }}{% if event.arrival_campaign_month %}–{{ event.arrival_campaign_month }}{% endif %}</td>
+                        <td>{{ event.jump_count if event.jump_count is not none else '—' }}</td>
+                        <td>{{ event.actual_warchest_impact }}</td>
+                        <td>{{ event.status }}</td>
+                        <td>
+                            {% if event.status == 'in_transit' %}
+                            <form method="post" action="{{ url_for('campaigns.complete_travel', event_id=event.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-primary">Arrive</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-muted">No travel recorded.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="{{ url_for('campaigns.add_travel', id=campaign.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <input type="text" name="origin" class="form-control"
+                    placeholder="Origin" value="{{ campaign.current_location or '' }}" required>
+            </div>
+            <div class="col-md-3">
+                <input type="text" name="destination" class="form-control" placeholder="Destination"
+                    value="{{ active_contract.destination if active_contract and active_contract.destination else '' }}" required>
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="jump_count" class="form-control" placeholder="Jumps">
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="gross_cost" class="form-control" value="0" placeholder="Gross cost">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="covered_amount" class="form-control" value="0" placeholder="Covered">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">Start travel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

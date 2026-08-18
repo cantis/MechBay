@@ -67,6 +67,9 @@
             <i class="fa-solid fa-list"></i> Inventory
         </a>
         <a href="{{ url_for('forces.list_forces') }}" class="btn btn-outline-secondary">Back to Forces</a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createCampaignFromForceModal">
+            <i class="fa-solid fa-flag"></i> Create Campaign
+        </button>
     </div>
 </div>
 
@@ -635,6 +638,71 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createCampaignFromForceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('campaigns.create') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="force_id" value="{{ force.id }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Campaign from {{ force.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Campaign Name *</label>
+                        <input type="text" name="name" required class="form-control"
+                            value="{{ force.name }} Campaign">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Scale (1–5)</label>
+                            <input type="number" name="scale" min="1" max="5" value="1" class="form-control">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Reputation</label>
+                            <input type="number" name="reputation" value="1" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Starting year</label>
+                            <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
+                                placeholder="e.g. 3152">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Starting month</label>
+                            <input type="number" name="starting_bt_month" min="1" max="12" class="form-control"
+                                placeholder="1–12">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Starting location</label>
+                        <input type="text" name="current_location" class="form-control" placeholder="e.g. Galatea">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Opening Warchest (WP)</label>
+                        {% set suggested_wp = 0 %}
+                        {% if as_config and as_summary and as_config.point_budget %}
+                        {% set suggested_wp = as_config.point_budget - as_summary.total_pv %}
+                        {% endif %}
+                        <input type="number" name="opening_warchest" class="form-control" value="{{ suggested_wp }}">
+                        <div class="form-text">Leftover force PV becomes WP. Leave as suggested or adjust.</div>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Notes</label>
+                        <textarea name="notes" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Campaign</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

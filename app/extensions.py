@@ -42,24 +42,50 @@ def init_db(app: Flask) -> None:
 def _apply_schema_constraints(db_engine) -> None:
     """Apply database constraints not expressible via SQLAlchemy models alone."""
     dialect_name = db_engine.dialect.name
-    index_sql = None
-
+    indexes: list[tuple[str, str]] = []
     if dialect_name == "sqlite":
-        index_sql = (
-            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
-            'ON "forces"(is_active) WHERE is_active = 1'
-        )
+        indexes = [
+            (
+                "uix_one_active_force",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force "
+                'ON "forces"(is_active) WHERE is_active = 1',
+            ),
+            (
+                "uix_one_active_campaign",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_campaign "
+                'ON "campaigns"(is_active) WHERE is_active = 1',
+            ),
+            (
+                "uix_one_active_contract",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_contract "
+                "ON \"contracts\"(campaign_id) WHERE status = 'active'",
+            ),
+        ]
     elif dialect_name == "postgresql":
-        index_sql = (
-            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
-            'ON "forces"(is_active) WHERE is_active IS TRUE'
-        )
+        indexes = [
+            (
+                "uix_one_active_force",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force "
+                'ON "forces"(is_active) WHERE is_active IS TRUE',
+            ),
+            (
+                "uix_one_active_campaign",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_campaign "
+                'ON "campaigns"(is_active) WHERE is_active IS TRUE',
+            ),
+            (
+                "uix_one_active_contract",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_contract "
+                "ON \"contracts\"(campaign_id) WHERE status = 'active'",
+            ),
+        ]
 
-    if index_sql is not None:
+    if indexes:
         with db_engine.connect() as conn:
-            conn.execute(text(index_sql))
+            for name, index_sql in indexes:
+                conn.execute(text(index_sql))
+                logger.info("schema_constraint_applied", constraint=name)
             conn.commit()
-        logger.info("schema_constraint_applied", constraint="uix_one_active_force")
 
 
 def _apply_schema_migrations(db_engine) -> None:
@@ -68,23 +94,50 @@ def _apply_schema_migrations(db_engine) -> None:
         return
 
     with db_engine.connect() as conn:
-        columns = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(forces)")).fetchall()
-        }
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(forces)")).fetchall()}
         if "inventory_faction" not in columns:
             conn.execute(text('ALTER TABLE "forces" ADD COLUMN inventory_faction VARCHAR(64)'))
             conn.commit()
             logger.info("schema_migration_applied", table="forces", column="inventory_faction")
 
         lance_columns = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
+            row[1] for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
         }
         if "header_color" not in lance_columns:
             conn.execute(text('ALTER TABLE "lances" ADD COLUMN header_color VARCHAR(7)'))
             conn.commit()
             logger.info("schema_migration_applied", table="lances", column="header_color")
+
+        campaign_tables = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }
+        if "campaigns" in campaign_tables:
+            campaign_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(campaigns)")).fetchall()
+            }
+            campaign_adds = {
+                "mul_faction_id": "INTEGER",
+                "mul_era_id": "INTEGER",
+                "mul_faction_name": "VARCHAR(128)",
+                "mul_era_name": "VARCHAR(128)",
+            }
+            for column, col_type in campaign_adds.items():
+                if column not in campaign_columns:
+                    conn.execute(text(f'ALTER TABLE "campaigns" ADD COLUMN {column} {col_type}'))
+                    conn.commit()
+                    logger.info("schema_migration_applied", table="campaigns", column=column)
+
+        if "travel_events" in campaign_tables:
+            travel_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(travel_events)")).fetchall()
+            }
+            if "contract_id" not in travel_columns:
+                conn.execute(text('ALTER TABLE "travel_events" ADD COLUMN contract_id INTEGER'))
+                conn.commit()
+                logger.info("schema_migration_applied", table="travel_events", column="contract_id")
 
 
 @contextmanager

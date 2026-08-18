@@ -1,5 +1,10 @@
 from .alpha_strike_assignment import AlphaStrikeAssignment  # noqa: F401
 from .alpha_strike_force import AlphaStrikeForce  # noqa: F401
+from .campaign import Campaign  # noqa: F401
+from .campaign_lance import CampaignLance  # noqa: F401
+from .campaign_pilot import CampaignPilot  # noqa: F401
+from .campaign_unit import CampaignUnit  # noqa: F401
+from .contract import Contract  # noqa: F401
 from .force import Force  # noqa: F401
 from .force_miniature import ForceMiniature  # noqa: F401
 from .lance import Lance  # noqa: F401
@@ -7,3 +12,7 @@ from .lance_template import LanceTemplate  # noqa: F401
 from .lance_template_miniature import LanceTemplateMiniature  # noqa: F401
 from .miniature import Miniature  # noqa: F401
 from .mul_cache import MulCache  # noqa: F401
+from .sortie import Sortie  # noqa: F401
+from .sortie_unit import SortieUnit  # noqa: F401
+from .travel_event import TravelEvent  # noqa: F401
+from .warchest_transaction import WarchestTransaction  # noqa: F401

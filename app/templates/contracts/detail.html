@@ -1,0 +1,221 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">{{ contract.contract_number }} · {{ contract.name }}</h2>
+        <small class="text-muted">
+            <span class="badge rounded-pill bg-secondary">{{ contract.status }}</span>
+            <span class="mx-1">·</span>Scale {{ contract.scale }}
+            <span class="mx-1">·</span>Months {{ contract.start_campaign_month }}–{{ contract.end_campaign_month }}
+            {% if campaign %}
+            <span class="mx-1">·</span>{{ campaign.name }}
+            {% endif %}
+        </small>
+    </div>
+    <div class="d-flex gap-2">
+        {% if campaign %}
+        <a href="{{ url_for('campaigns.detail', id=campaign.id) }}" class="btn btn-outline-secondary">Back to Campaign</a>
+        {% endif %}
+        {% if contract.status == 'draft' %}
+        <form method="post" action="{{ url_for('contracts.activate', id=contract.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-primary">Activate</button>
+        </form>
+        {% endif %}
+        {% if contract.status == 'active' %}
+        <form method="post" action="{{ url_for('contracts.complete', id=contract.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-success">Complete</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Contract</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('contracts.update', id=contract.id) }}" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label">Name</label>
+                <input type="text" name="name" class="form-control" value="{{ contract.name }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Number</label>
+                <input type="text" name="contract_number" class="form-control" value="{{ contract.contract_number }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Employer</label>
+                <input type="text" name="employer" class="form-control" value="{{ contract.employer or '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Type of action</label>
+                <input type="text" name="type_of_action" class="form-control" value="{{ contract.type_of_action or '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Destination</label>
+                <input type="text" name="destination" class="form-control" value="{{ contract.destination or '' }}">
+            </div>
+            <div class="col-md-1">
+                <label class="form-label">Scale</label>
+                <input type="number" name="scale" min="1" max="5" class="form-control" value="{{ contract.scale }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Length (months)</label>
+                <input type="number" name="length_months" min="1" class="form-control" value="{{ contract.length_months }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Start month</label>
+                <input type="number" name="start_campaign_month" min="1" class="form-control" value="{{ contract.start_campaign_month }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">End month</label>
+                <input type="number" name="end_campaign_month" min="1" class="form-control" value="{{ contract.end_campaign_month }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Base Pay %</label>
+                <input type="number" name="base_pay_percent" min="0" max="100" class="form-control" value="{{ contract.base_pay_percent }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Support %</label>
+                <input type="number" name="support_percent" min="0" max="100" class="form-control" value="{{ contract.support_percent }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Transportation %</label>
+                <input type="number" name="transportation_percent" min="0" max="100" class="form-control" value="{{ contract.transportation_percent }}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Salvage rights</label>
+                <input type="text" name="salvage_rights" class="form-control" value="{{ contract.salvage_rights or '' }}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Command rights</label>
+                <input type="text" name="command_rights" class="form-control" value="{{ contract.command_rights or '' }}">
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea name="notes" class="form-control" rows="2">{{ contract.notes or '' }}</textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Save Contract</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if contract.status in ['draft', 'active'] %}
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Cancel</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('contracts.cancel', id=contract.id) }}" class="row g-2"
+            onsubmit="return confirm('Cancel this contract?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <input type="number" name="penalty_wp" min="0" class="form-control" value="0" placeholder="WP penalty">
+            </div>
+            <div class="col-md-3">
+                <input type="number" name="reputation_delta" class="form-control" value="0" placeholder="Reputation change">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-outline-danger">Cancel contract</button>
+            </div>
+        </form>
+        <div class="form-text">Penalties are player-entered. Positive WP is the cost charged to the Warchest.</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Travel to contract</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">Travel is an explicit campaign event. Leave coverage blank to use Transportation % of gross cost.</p>
+        <form method="post" action="{{ url_for('contracts.start_travel', id=contract.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <input type="text" name="origin" class="form-control" required
+                    placeholder="Origin" value="{{ campaign.current_location if campaign and campaign.current_location else '' }}">
+            </div>
+            <div class="col-md-3">
+                <input type="text" name="destination" class="form-control" required
+                    placeholder="Destination" value="{{ contract.destination or '' }}">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="jump_count" class="form-control" placeholder="Jumps">
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="gross_cost" class="form-control" value="0" placeholder="Gross">
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="covered_amount" class="form-control" placeholder="Covered">
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-outline-secondary w-100">Start</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Sorties</h5>
+        <span class="small text-muted">A Sortie is one tabletop battle (a Track).</span>
+    </div>
+    <div class="card-body">
+        {% if contract.status != 'active' %}
+        <div class="alert alert-info">Activate this contract before planning Sorties.</div>
+        {% endif %}
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Month</th>
+                        <th>Scale</th>
+                        <th>Status</th>
+                        <th>Outcome</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sortie in contract.sorties %}
+                    <tr>
+                        <td>{{ sortie.name }}</td>
+                        <td>{{ sortie.campaign_month }}</td>
+                        <td>{{ sortie.scale }}</td>
+                        <td>{{ sortie.status }}</td>
+                        <td>{{ sortie.outcome or '—' }}</td>
+                        <td>
+                            <a href="{{ url_for('contracts.sortie_detail', id=sortie.id) }}" class="btn btn-sm btn-outline-secondary">Open</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-muted">No Sorties yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if contract.status == 'active' %}
+        <form method="post" action="{{ url_for('contracts.create_sortie', id=contract.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <input type="text" name="name" class="form-control" placeholder="Sortie / Track name" required>
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="scenario_type" class="form-control" placeholder="Scenario type">
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="scale" min="1" max="{{ contract.scale }}" class="form-control" value="{{ contract.scale }}" title="Sortie Scale">
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="location" class="form-control" placeholder="Location" value="{{ contract.destination or '' }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Create Sortie</button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

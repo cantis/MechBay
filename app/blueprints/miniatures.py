@@ -421,7 +421,16 @@ def delete(id: int):  # noqa: A002
             force_names = ", ".join([f"{f[0]}" for f in force_assignments])
             flash(f"Warning: Miniature removed from forces: {force_names}", "warning")
 
-    if delete_miniature(id):
+    from ..services.campaign_service import MiniatureInActiveCampaignError
+
+    try:
+        deleted = delete_miniature(id)
+    except MiniatureInActiveCampaignError as exc:
+        flash(str(exc), "danger")
+        return_params = _preserve_filters(request.args, prefix="")
+        return redirect(url_for("miniatures.list_miniatures", **return_params))
+
+    if deleted:
         logger.info("miniature_deleted_via_ui", miniature_id=id)
         flash("Miniature deleted", "info")
     else:

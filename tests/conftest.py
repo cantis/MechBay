@@ -67,17 +67,35 @@ def mini_data():
 def clear_seed_data(app):
     """Clear any seed data and test data before each test to ensure clean state."""
     from app.extensions import db_session
+    from app.models.campaign import Campaign
+    from app.models.campaign_lance import CampaignLance
+    from app.models.campaign_pilot import CampaignPilot
+    from app.models.campaign_unit import CampaignUnit
+    from app.models.contract import Contract
     from app.models.force import Force
     from app.models.force_miniature import ForceMiniature
     from app.models.lance import Lance
     from app.models.lance_template import LanceTemplate
     from app.models.lance_template_miniature import LanceTemplateMiniature
     from app.models.miniature import Miniature
+    from app.models.sortie import Sortie
+    from app.models.sortie_unit import SortieUnit
+    from app.models.travel_event import TravelEvent
+    from app.models.warchest_transaction import WarchestTransaction
 
     # Use a fresh session for cleanup
     session = db_session()
     try:
         # Delete in reverse dependency order to avoid foreign key issues
+        session.query(SortieUnit).delete()
+        session.query(Sortie).delete()
+        session.query(WarchestTransaction).delete()
+        session.query(TravelEvent).delete()
+        session.query(Contract).delete()
+        session.query(CampaignPilot).delete()
+        session.query(CampaignUnit).delete()
+        session.query(CampaignLance).delete()
+        session.query(Campaign).delete()
         # ForceMiniature references both Lance and Miniature
         session.query(ForceMiniature).delete()
         # Lance references Force

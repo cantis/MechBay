@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="m-0">{{ sortie.name }}</h2>
+        <small class="text-muted">
+            <span class="badge rounded-pill bg-secondary">{{ sortie.status }}</span>
+            <span class="mx-1">·</span>Sortie Scale {{ sortie.scale }}
+            {% if contract %}<span class="mx-1">·</span>Contract Scale {{ contract.scale }} · {{ contract.contract_number }}{% endif %}
+            <span class="mx-1">·</span>{{ pv_total }} PV
+            {% if sortie.outcome %}<span class="mx-1">·</span>{{ sortie.outcome }}{% endif %}
+        </small>
+    </div>
+    <a href="{{ url_for('contracts.detail', id=sortie.contract_id) }}" class="btn btn-outline-secondary">Back to Contract</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Sortie</h5></div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('contracts.update_sortie', id=sortie.id) }}" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label">Name</label>
+                <input type="text" name="name" class="form-control" value="{{ sortie.name }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Campaign month</label>
+                <input type="number" name="campaign_month" min="1" class="form-control" value="{{ sortie.campaign_month }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Scale</label>
+                <input type="number" name="scale" min="1" max="{{ contract.scale if contract else 5 }}" class="form-control" value="{{ sortie.scale }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Scenario / Track</label>
+                <input type="text" name="scenario_type" class="form-control" value="{{ sortie.scenario_type or '' }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Location</label>
+                <input type="text" name="location" class="form-control" value="{{ sortie.location or '' }}">
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea name="notes" class="form-control" rows="2">{{ sortie.notes or '' }}</textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Save Sortie</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Sortie force</h5>
+        <span class="small text-muted">{{ sortie.units | length }} unit(s) · {{ pv_total }} PV</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Lance</th>
+                        <th>Unit</th>
+                        <th>Variant</th>
+                        <th>PV</th>
+                        <th>Pilot</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for unit in sortie.units %}
+                    <tr>
+                        <td>{{ unit.lance_name or '—' }}</td>
+                        <td>
+                            {{ unit.prefix }} {{ unit.chassis }}
+                            {% if unit.is_omni %}<span class="badge rounded-pill bg-info text-dark">Omni</span>{% endif %}
+                        </td>
+                        <td>{{ unit.variant or '—' }}{% if unit.configuration_changed %} <span class="small text-muted">(changed)</span>{% endif %}</td>
+                        <td>{{ unit.point_value if unit.point_value is not none else '—' }}</td>
+                        <td>
+                            {% if editable %}
+                            <form method="post" action="{{ url_for('contracts.assign_pilot', unit_id=unit.id) }}" class="d-flex gap-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="sortie_id" value="{{ sortie.id }}">
+                                <select name="campaign_pilot_id" class="form-select form-select-sm">
+                                    <option value="">Generic crew (AS 4)</option>
+                                    {% for pilot in pilots %}
+                                    <option value="{{ pilot.id }}" {% if unit.campaign_pilot_id == pilot.id %}selected{% endif %}>
+                                        {{ pilot.name }}{% if pilot.callsign %} “{{ pilot.callsign }}”{% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Set</button>
+                            </form>
+                            {% else %}
+                            {{ unit.pilot_name }}{% if unit.is_generic_crew %} <span class="text-muted">(generic)</span>{% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if editable %}
+                            <form method="post" action="{{ url_for('contracts.remove_sortie_unit', unit_id=unit.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="sortie_id" value="{{ sortie.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if editable and unit.is_omni %}
+                    <tr>
+                        <td></td>
+                        <td colspan="5">
+                            <form method="post" action="{{ url_for('contracts.configure_omni', unit_id=unit.id) }}" class="row g-2">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="sortie_id" value="{{ sortie.id }}">
+                                <div class="col-md-3">
+                                    <input type="number" name="mul_unit_id" class="form-control form-control-sm" placeholder="MUL unit id" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <input type="number" name="cost" min="0" class="form-control form-control-sm" value="0" placeholder="WP cost">
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Apply config</button>
+                                </div>
+                                <div class="col-md-5 small text-muted">
+                                    Omni loadout is chosen at Sortie prep. Cost is charged only if the configuration changes.
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% else %}
+                    <tr><td colspan="6" class="text-muted">No units selected.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if editable %}
+        <div class="row g-3">
+            <div class="col-md-6">
+                <form method="post" action="{{ url_for('contracts.add_sortie_unit', id=sortie.id) }}" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-8">
+                        <select name="lance_id" class="form-select" required>
+                            <option value="">Add lance…</option>
+                            {% for lance in lances %}
+                            <option value="{{ lance.id }}">{{ lance.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <button type="submit" class="btn btn-outline-secondary w-100">Add lance</button>
+                    </div>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <form method="post" action="{{ url_for('contracts.add_sortie_unit', id=sortie.id) }}" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-8">
+                        <select name="campaign_unit_id" class="form-select" required>
+                            <option value="">Add available unit…</option>
+                            {% for unit in available_units %}
+                            <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }}{% if unit.lance %} · {{ unit.lance.name }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <button type="submit" class="btn btn-outline-secondary w-100">Add unit</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Status</h5></div>
+    <div class="card-body d-flex flex-wrap gap-2 align-items-end">
+        {% if sortie.status == 'planning' %}
+        <form method="post" action="{{ url_for('contracts.mark_ready', id=sortie.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-primary">Mark Ready</button>
+        </form>
+        {% endif %}
+        {% if sortie.status == 'ready' %}
+        <form method="post" action="{{ url_for('contracts.reopen', id=sortie.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-secondary">Return to Planning</button>
+        </form>
+        <form method="post" action="{{ url_for('contracts.mark_fought', id=sortie.id) }}" class="d-flex gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="outcome" class="form-select">
+                <option value="">Outcome (optional)</option>
+                {% for outcome in outcomes %}
+                <option value="{{ outcome }}">{{ outcome }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">Mark Fought</button>
+        </form>
+        {% endif %}
+        {% if sortie.status == 'fought' %}
+        <p class="mb-0 text-muted">Fought. After Action processing comes in a later phase.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
