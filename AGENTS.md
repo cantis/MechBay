@@ -133,3 +133,6 @@ See `docs/DEVELOPMENT.md` for the full table.
 
 Export files: `{EntityType}_YYYYMMDD_HHMMSS.json`
 Generate with: `datetime.now().strftime("%Y%m%d_%H%M%S")`
+
+## Security 
+LLM API keys must never appear in prompts, logs, exceptions, telemetry, test fixtures, or committed configuration.
