@@ -12,6 +12,14 @@
             {% else %}
             <em>&lt;none&gt;</em>
             {% endif %}
+            <span class="mx-1">·</span>
+            Loaded Campaign:
+            {% if active_campaign %}
+            <strong>{{ active_campaign.name }}</strong>
+            <a href="{{ url_for('campaigns.detail', id=active_campaign.id) }}" class="text-decoration-none">[View]</a>
+            {% else %}
+            <em>&lt;none&gt;</em>
+            {% endif %}
         </small>
     </div>
         <a class="btn btn-primary"

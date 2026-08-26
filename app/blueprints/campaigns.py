@@ -68,13 +68,18 @@ def create():
     if not force_id_raw:
         flash("A saved Force is required to create a Campaign", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
+    if not (request.form.get("starting_bt_year") or "").strip() or not (
+        request.form.get("starting_bt_month") or ""
+    ).strip():
+        flash("Starting year and month are required", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
 
     try:
         force_id = int(force_id_raw)
         scale = int(request.form.get("scale") or 1)
         reputation = int(request.form.get("reputation") or 1)
-        starting_bt_year = _optional_int(request.form.get("starting_bt_year"))
-        starting_bt_month = _optional_int(request.form.get("starting_bt_month"))
+        starting_bt_year = int(request.form.get("starting_bt_year") or "")
+        starting_bt_month = int(request.form.get("starting_bt_month") or "")
         opening_warchest = _optional_int(request.form.get("opening_warchest"))
     except (TypeError, ValueError):
         flash("Invalid campaign values", "danger")
@@ -115,6 +120,8 @@ def activate(id: int):  # noqa: A002
     campaign = campaign_service.switch_campaign(id)
     if campaign:
         flash(f"Campaign '{campaign.name}' loaded", "success")
+        if request.form.get("return_to") == "detail":
+            return redirect(url_for("campaigns.detail", id=campaign.id))
     else:
         flash("Campaign not found", "danger")
     return redirect(url_for("campaigns.list_campaigns"))

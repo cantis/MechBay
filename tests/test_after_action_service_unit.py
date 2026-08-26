@@ -45,7 +45,12 @@ ENE_RAW = {
 
 def _campaign(force_id: int, name: str = "Reach"):
     return campaign_service.create_campaign_from_force(
-        force_id, name, current_location="Galatea", opening_warchest=200
+        force_id,
+        name,
+        current_location="Galatea",
+        opening_warchest=200,
+        starting_bt_year=3151,
+        starting_bt_month=1,
     )
 
 

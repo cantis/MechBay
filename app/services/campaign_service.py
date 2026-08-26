@@ -254,8 +254,8 @@ def create_campaign_from_force(
     scale: int = 1,
     reputation: int = 1,
     status: str = "planning",
-    starting_bt_year: int | None = None,
-    starting_bt_month: int | None = None,
+    starting_bt_year: int,
+    starting_bt_month: int,
     current_location: str | None = None,
     notes: str | None = None,
     opening_warchest: int | None = None,
@@ -268,10 +268,14 @@ def create_campaign_from_force(
         raise ValueError("Invalid campaign status")
     if scale < 1 or scale > 5:
         raise ValueError("Scale must be between 1 and 5")
-    if starting_bt_month is not None and (starting_bt_month < 1 or starting_bt_month > 12):
-        raise ValueError("Starting month must be between 1 and 12")
-    if starting_bt_year is not None and (starting_bt_year < 1000 or starting_bt_year > 9999):
+    if starting_bt_year is None:
+        raise ValueError("Starting year is required")
+    if starting_bt_year < 1000 or starting_bt_year > 9999:
         raise ValueError("Starting year must be a 4-digit year")
+    if starting_bt_month is None:
+        raise ValueError("Starting month is required")
+    if starting_bt_month < 1 or starting_bt_month > 12:
+        raise ValueError("Starting month must be between 1 and 12")
 
     force = force_service.get_force_by_id(force_id)
     if force is None:

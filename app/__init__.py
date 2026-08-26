@@ -117,6 +117,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         except OSError:
             return {"document_status": {}}
 
+    @app.context_processor
+    def inject_active_campaign():
+        from .services import campaign_service
+
+        return {"active_campaign": campaign_service.get_active_campaign()}
+
     @app.route("/")
     def index():
         return redirect(url_for("miniatures.list_miniatures"))

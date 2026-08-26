@@ -18,6 +18,13 @@
         </small>
     </div>
     <div class="d-flex gap-2">
+        {% if not campaign.is_active %}
+        <form method="post" action="{{ url_for('campaigns.activate', id=campaign.id) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="return_to" value="detail">
+            <button type="submit" class="btn btn-success">Load campaign</button>
+        </form>
+        {% endif %}
         <a href="{{ url_for('campaigns.advance_month_form', id=campaign.id) }}" class="btn btn-primary">Advance Month</a>
         <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
     </div>

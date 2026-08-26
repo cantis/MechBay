@@ -72,6 +72,12 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('campaigns.list_campaigns') }}">Campaigns</a>
                 </li>
+                {% if active_campaign %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('campaigns.detail', id=active_campaign.id) }}"
+                        title="Loaded campaign">{{ active_campaign.name }}</a>
+                </li>
+                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('lance_templates.list_templates') }}">Lance Templates</a>
                 </li>
