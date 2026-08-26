@@ -193,8 +193,8 @@ def test_preferred_unit_must_belong_to_same_campaign(client, multiple_forces):
         )
 
 
-def test_opening_warchest_uses_leftover_pv(client, minimal_force):
-    """Opening WP is leftover PV and is recorded on the ledger."""
+def test_opening_warchest_defaults_to_3000_sp(client, minimal_force):
+    """Default opening Warchest is 3,000 SP, not leftover force PV."""
     # Arrange
     minis = _first_force_miniatures(minimal_force)
     _enable_alpha_strike(minimal_force, 100)
@@ -202,35 +202,30 @@ def test_opening_warchest_uses_leftover_pv(client, minimal_force):
     _assign_variant(minis[1].id, OMNI_RAW, point_value=54)
 
     # Act
-    campaign = _create_campaign(minimal_force, "WP")
+    campaign = _create_campaign(minimal_force, "SP")
 
     # Assert
-    assert campaign.warchest_balance == 6
+    assert campaign.warchest_balance == 3000
     assert campaign.transactions[0].transaction_type == "opening_balance"
-    assert campaign.transactions[0].actual_amount == 6
-    assert campaign.transactions[0].resulting_balance == 6
+    assert campaign.transactions[0].description == "Opening Warchest"
+    assert campaign.transactions[0].actual_amount == 3000
+    assert campaign.transactions[0].resulting_balance == 3000
 
 
-def test_opening_warchest_zero_without_budget(client, minimal_force):
-    """Missing force budget yields a 0 WP opening the player can adjust."""
+def test_opening_warchest_default_without_budget(client, minimal_force):
+    """Missing force budget still opens at the Hot Spots 3,000 SP default."""
     # Act
     campaign = _create_campaign(minimal_force, "No Budget")
 
     # Assert
-    assert campaign.warchest_balance == 0
-    assert campaign.transactions[0].actual_amount == 0
+    assert campaign.warchest_balance == 3000
+    assert campaign.transactions[0].actual_amount == 3000
 
 
-def test_opening_warchest_allows_negative(client, minimal_force):
-    """Over-budget forces may start with a negative Warchest."""
-    # Arrange
-    minis = _first_force_miniatures(minimal_force)
-    _enable_alpha_strike(minimal_force, 50)
-    _assign_variant(minis[0].id, WHM_RAW, point_value=40)
-    _assign_variant(minis[1].id, OMNI_RAW, point_value=54)
-
+def test_opening_warchest_allows_negative_override(client, minimal_force):
+    """Players may override to a negative opening Warchest."""
     # Act
-    campaign = _create_campaign(minimal_force, "Over")
+    campaign = _create_campaign(minimal_force, "Over", opening_warchest=-44)
 
     # Assert
     assert campaign.warchest_balance == -44
@@ -245,6 +240,22 @@ def test_opening_warchest_override(client, minimal_force):
 
     # Assert
     assert campaign.warchest_balance == 250
+
+
+def test_named_pilot_defaults_gunnery_4_piloting_5(client, minimal_force):
+    """Hot Spots named pilots default to Gunnery 4 / Piloting 5 / AS 4."""
+    # Arrange
+    campaign = _create_campaign(minimal_force, "Pilots")
+
+    # Act
+    pilot = campaign_service.add_campaign_pilot(campaign.id, "Rayan")
+
+    # Assert
+    assert pilot.gunnery == 4
+    assert pilot.piloting == 5
+    assert pilot.alpha_strike_skill == 4
+    assert pilot.wounds == 0
+    assert pilot.wounded is False
 
 
 def test_warchest_transaction_updates_cached_balance(client, minimal_force):
@@ -326,14 +337,21 @@ def test_travel_in_transit_then_updates_location(client, minimal_force):
         campaign.id,
         "Galatea",
         "Hartford",
+        transport_mode="manual",
+        standard_amount=20,
+        employer_payment=5,
+        actual_expense=20,
         jump_count=3,
-        gross_cost=20,
-        covered_amount=5,
     )
     moving = campaign_service.get_campaign_by_id(campaign.id)
 
     # Assert
     assert event.status == "in_transit"
+    assert event.transport_mode == "manual"
+    assert event.gross_cost == 20
+    assert event.covered_amount == 5
+    assert event.actual_expense == 20
+    assert event.actual_warchest_impact == -15
     assert moving.current_location == "Galatea"
     assert "In transit" in location_display(moving)
     assert moving.warchest_balance == 85
@@ -346,6 +364,42 @@ def test_travel_in_transit_then_updates_location(client, minimal_force):
     assert arrived.current_location == "Hartford"
     assert arrived.travel_events[0].status == "arrived"
     assert "In transit" not in location_display(arrived)
+
+
+def test_travel_standard_mode_uses_scale(client, minimal_force):
+    """Unlinked standard travel uses Campaign scale and 0 employer payment."""
+    # Arrange
+    campaign = _create_campaign(
+        minimal_force, "StdTravel", current_location="Galatea", opening_warchest=1000, scale=2
+    )
+
+    # Act
+    event = campaign_service.create_travel_event(
+        campaign.id,
+        "Galatea",
+        "Outreach",
+        transport_mode="standard",
+    )
+    loaded = campaign_service.get_campaign_by_id(campaign.id)
+
+    # Assert
+    assert event.gross_cost == 600
+    assert event.covered_amount == 0
+    assert event.actual_expense == 600
+    assert event.actual_warchest_impact == -600
+    assert loaded.warchest_balance == 400
+
+
+def test_travel_jump_requires_jump_count(client, minimal_force):
+    """Jump-tracked travel requires jump_count >= 1."""
+    # Arrange
+    campaign = _create_campaign(minimal_force, "Jump", opening_warchest=1000)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="jump count"):
+        campaign_service.create_travel_event(
+            campaign.id, "A", "B", transport_mode="jump", jump_count=0
+        )
 
 
 def test_only_one_active_campaign(client, multiple_forces):

@@ -72,6 +72,7 @@ def clear_seed_data(app):
     from app.models.campaign_pilot import CampaignPilot
     from app.models.campaign_unit import CampaignUnit
     from app.models.contract import Contract
+    from app.models.contract_unit import ContractUnit
     from app.models.damage_event import DamageEvent
     from app.models.force import Force
     from app.models.force_miniature import ForceMiniature
@@ -101,6 +102,7 @@ def clear_seed_data(app):
         session.query(Sortie).delete()
         session.query(WarchestTransaction).delete()
         session.query(TravelEvent).delete()
+        session.query(ContractUnit).delete()
         session.query(Contract).delete()
         session.query(CampaignPilot).delete()
         session.query(CampaignUnit).delete()

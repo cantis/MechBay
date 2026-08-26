@@ -1,10 +1,11 @@
-"""Unit tests for after_action_service.py (Prompt 3: After Action and between-sortie)."""
+"""Unit tests for after_action_service.py (Prompt 3/4: After Action and between-sortie)."""
 
 from __future__ import annotations
 
 import json
 
 import pytest
+from sqlalchemy import select
 
 from app.extensions import session_scope
 from app.models.campaign_unit import CampaignUnit
@@ -54,8 +55,34 @@ def _campaign(force_id: int, name: str = "Reach"):
     )
 
 
-def _active_contract(campaign, **kwargs):
+def _ensure_units_as_ready(campaign, *, tonnage: int = 70, point_value: int = 40):
+    with session_scope() as session:
+        units = list(
+            session.execute(
+                select(CampaignUnit).where(CampaignUnit.campaign_id == campaign.id)
+            ).scalars()
+        )
+        for unit in units:
+            if unit.point_value is None:
+                unit.point_value = point_value
+            if unit.tonnage is None:
+                unit.tonnage = tonnage
+    return campaign_service.get_campaign_by_id(campaign.id)
+
+
+def _commit_roster(contract, campaign, unit_ids: list[int] | None = None):
+    ids = unit_ids if unit_ids is not None else [unit.id for unit in campaign.units]
+    for unit_id in ids:
+        try:
+            contract_service.add_unit_to_contract_roster(contract.id, unit_id)
+        except ValueError:
+            pass
+
+
+def _active_contract(campaign, *, roster_unit_ids: list[int] | None = None, **kwargs):
+    campaign = _ensure_units_as_ready(campaign)
     contract = contract_service.create_contract(campaign.id, "Garrison", **kwargs)
+    _commit_roster(contract, campaign, roster_unit_ids)
     return contract_service.activate_contract(contract.id)
 
 
@@ -104,9 +131,9 @@ def test_after_action_damage_and_fielding(client, minimal_force):
     assert [event.damage_category for event in loaded.damage_events] == ["armour", "structure"]
 
 
-def test_repair_orders_and_support_coverage(client, minimal_force):
-    """AAR creates Repair Orders; completing them posts Support-covered WP."""
-    # Arrange
+def test_repair_orders_auto_cost_and_support_coverage(client, minimal_force):
+    """AAR calculates repair SP from tonnage; completing uses originating Support %."""
+    # Arrange — 70 tons armour => ceil(35) = 35; 50% support => 18 covered (half-up)
     campaign = _campaign(minimal_force)
     _active_contract(campaign, support_percent=50)
     sortie = _fought_sortie(campaign)
@@ -115,14 +142,13 @@ def test_repair_orders_and_support_coverage(client, minimal_force):
     after_action_service.apply_after_action(sortie.id, _results(sortie, "armour"), combat_pay=0)
     orders = after_action_service.get_repair_orders(campaign.id)
     order = next(row for row in orders if row.damage_category == "armour")
+    assert order.gross_cost == 35
     after_action_service.update_repair_order(order.id, gross_cost=100)
     completed = after_action_service.complete_repair_order(order.id)
     loaded = campaign_service.get_campaign_by_id(campaign.id)
     unit = next(row for row in loaded.units if row.id == campaign.units[0].id)
 
     # Assert
-    assert order.status == "pending"
-    assert order.gross_cost == 0
     assert completed.status == "completed"
     assert completed.covered_amount == 50
     assert completed.actual_cost == -50
@@ -132,6 +158,57 @@ def test_repair_orders_and_support_coverage(client, minimal_force):
     assert repair_tx.covered_amount == 50
     assert repair_tx.actual_amount == -50
     validate_expunged_object(completed, "id", "status", "gross_cost")
+
+
+def test_standard_repair_cost_categories(client):
+    """Armour uses ceil(tonnage/2); other categories use tonnage multipliers."""
+    assert after_action_service.standard_repair_cost("armour", 70) == 35
+    assert after_action_service.standard_repair_cost("armour", 65) == 33
+    assert after_action_service.standard_repair_cost("armour", 55) == 28
+    assert after_action_service.standard_repair_cost("structure", 70) == 140
+    assert after_action_service.standard_repair_cost("crippled", 70) == 210
+    assert after_action_service.standard_repair_cost("destroyed", 70) == 350
+    assert after_action_service.standard_repair_cost("none", 70) == 0
+
+
+def test_repair_support_tied_to_originating_contract(client, minimal_force):
+    """Repair Support stays on the Sortie's Contract after a new Contract activates."""
+    # Arrange
+    campaign = _campaign(minimal_force)
+    first = _active_contract(campaign, support_percent=80)
+    sortie = _fought_sortie(campaign)
+    after_action_service.apply_after_action(sortie.id, _results(sortie, "armour"))
+    order = after_action_service.get_repair_orders(campaign.id)[0]
+    assert order.gross_cost == 35
+
+    # Act — end first contract, start a poorer support contract
+    contract_service.complete_contract(first.id)
+    second = contract_service.create_contract(campaign.id, "Next", support_percent=20)
+    contract_service.activate_contract(second.id)
+    completed = after_action_service.complete_repair_order(order.id)
+
+    # Assert — still 80% of 35 = 28 covered
+    assert completed.covered_amount == 28
+    assert completed.actual_cost == -7
+
+
+def test_repair_cost_override(client, minimal_force):
+    """Calculated repair gross cost remains editable."""
+    # Arrange
+    campaign = _campaign(minimal_force)
+    _active_contract(campaign, support_percent=0)
+    sortie = _fought_sortie(campaign)
+    after_action_service.apply_after_action(sortie.id, _results(sortie, "structure"))
+    order = after_action_service.get_repair_orders(campaign.id)[0]
+    assert order.gross_cost == 140
+
+    # Act
+    updated = after_action_service.update_repair_order(order.id, gross_cost=50)
+
+    # Assert
+    assert updated.gross_cost == 50
+    assert updated.covered_amount == 0
+    assert updated.actual_cost == -50
 
 
 def test_truly_destroyed_cancels_repairs_and_blocks_fielding(client, minimal_force):
@@ -161,10 +238,31 @@ def test_truly_destroyed_cancels_repairs_and_blocks_fielding(client, minimal_for
             unit.id,
         )
     assert any(event.damage_category == "truly-destroyed" for event in loaded.damage_events)
+    with pytest.raises(ValueError, match="truly destroyed"):
+        # Re-open a repair against a truly destroyed hull should still be blocked if pending
+        from app.extensions import session_scope as _scope
+        from app.models.repair_order import RepairOrder
+
+        with _scope() as session:
+            pending = RepairOrder(
+                campaign_id=campaign.id,
+                sortie_id=sortie.id,
+                campaign_unit_id=unit.id,
+                damage_category="destroyed",
+                gross_cost=10,
+                covered_amount=0,
+                actual_cost=-10,
+                campaign_month=1,
+                status="pending",
+            )
+            session.add(pending)
+            session.flush()
+            pending_id = pending.id
+        after_action_service.complete_repair_order(pending_id)
 
 
-def test_pilot_wounds_skip_next_sortie_then_recover(client, minimal_force):
-    """Wounded named pilots cannot be assigned, then recover after sitting one Fought Sortie out."""
+def test_pilot_wounds_do_not_auto_recover(client, minimal_force):
+    """Wounded named pilots stay wounded after sitting a Sortie out; recover manually."""
     # Arrange
     campaign = _campaign(minimal_force)
     _active_contract(campaign)
@@ -176,6 +274,7 @@ def test_pilot_wounds_skip_next_sortie_then_recover(client, minimal_force):
     # Act
     after_action_service.apply_after_action(first.id, _results(first, "none", pilot_wounded=True))
     wounded = campaign_service.get_campaign_by_id(campaign.id).pilots[0]
+    assert wounded.wounds == 1
     assert wounded.wounded is True
     with pytest.raises(ValueError, match="not available"):
         second = contract_service.create_sortie(
@@ -191,10 +290,20 @@ def test_pilot_wounds_skip_next_sortie_then_recover(client, minimal_force):
     contract_service.mark_sortie_ready(sit.id)
     contract_service.mark_sortie_fought(sit.id)
 
-    # Assert
-    recovered = campaign_service.get_campaign_by_id(campaign.id).pilots[0]
+    # Assert — still wounded after sitting out
+    still = campaign_service.get_campaign_by_id(campaign.id).pilots[0]
+    assert still.wounds == 1
+    assert still.wounded is True
+    injury_types = [
+        event.event_type
+        for event in campaign_service.get_campaign_by_id(campaign.id).injury_events
+    ]
+    assert injury_types == ["wounded"]
+
+    # Act — manual recover
+    recovered = campaign_service.recover_pilot_wound(pilot.id)
+    assert recovered.wounds == 0
     assert recovered.wounded is False
-    assert recovered.status == "alive"
     loaded = campaign_service.get_campaign_by_id(campaign.id)
     assert [event.event_type for event in loaded.injury_events] == ["wounded", "recovered"]
 
@@ -229,6 +338,7 @@ def test_omni_requires_repair_and_preserves_sortie_snapshot(client, minimal_forc
         unit.is_omni = True
         unit.variant = "Prime"
         unit.mul_unit_id = 12
+        unit.tonnage = 75
         unit.mul_snapshot_json = json.dumps(OMNI_PRIME)
     sortie = _fought_sortie(campaign)
     after_action_service.apply_after_action(sortie.id, _results(sortie, "armour"))
@@ -240,6 +350,8 @@ def test_omni_requires_repair_and_preserves_sortie_snapshot(client, minimal_forc
         after_action_service.reconfigure_omni_unit(campaign.units[1].id, OMNI_ALT)
 
     order = after_action_service.get_repair_orders(campaign.id)[0]
+    # armour on 75t = ceil(37.5) = 38; zero support
+    assert order.gross_cost == 38
     after_action_service.complete_repair_order(order.id)
     updated = after_action_service.reconfigure_omni_unit(campaign.units[0].id, OMNI_ALT, cost=15)
     frozen = contract_service.get_sortie_by_id(sortie.id)
@@ -247,13 +359,14 @@ def test_omni_requires_repair_and_preserves_sortie_snapshot(client, minimal_forc
 
     assert updated.variant == "A"
     assert frozen.units[0].variant == "Prime"
-    assert loaded.warchest_balance == 165
+    # 200 - 20 rearm - 38 repair - 15 omni = 127
+    assert loaded.warchest_balance == 127
     assert loaded.configuration_events[-1].previous_variant == "Prime"
     assert loaded.configuration_events[-1].new_variant == "A"
 
 
 def test_rearm_posts_ledger_except_ene(client, minimal_force):
-    """Every Sortie unit rearms at 20 WP except MUL ENE units."""
+    """Every Sortie unit rearms at 20 SP except MUL ENE units."""
     # Arrange
     campaign = _campaign(minimal_force)
     _active_contract(campaign, support_percent=50)
@@ -276,7 +389,7 @@ def test_rearm_posts_ledger_except_ene(client, minimal_force):
     assert loaded.rearm_orders[0].campaign_unit_id == campaign.units[0].id
 
 
-def test_explicit_month_advance_posts_typed_wp_and_arrives_travel(client, minimal_force):
+def test_explicit_month_advance_posts_typed_sp_and_arrives_travel(client, minimal_force):
     """Month advance is explicit, posts typed Base Pay/maintenance, and auto-arrives travel."""
     # Arrange
     campaign = _campaign(minimal_force)
@@ -286,6 +399,9 @@ def test_explicit_month_advance_posts_typed_wp_and_arrives_travel(client, minima
         "Galatea",
         "Outreach",
         arrival_campaign_month=2,
+        transport_mode="manual",
+        standard_amount=0,
+        actual_expense=0,
         jump_count=2,
     )
     preview = after_action_service.preview_month_advance(campaign.id)
@@ -358,3 +474,5 @@ def test_after_action_route_and_combat_pay(client, minimal_force):
     assert loaded.after_action_notes == "Dust and fire"
     assert campaign_loaded.units[0].available is False
     assert campaign_loaded.warchest_balance == 210
+    repair = after_action_service.get_repair_orders(campaign.id)[0]
+    assert repair.gross_cost == 210  # 70t * 3 crippled

@@ -9,7 +9,7 @@
             <span class="badge rounded-pill bg-secondary">{{ campaign.status }}</span>
             <span class="mx-1">·</span>{{ month_label }}
             <span class="mx-1">·</span>{{ location_label }}
-            <span class="mx-1">·</span>{{ campaign.warchest_balance }} WP
+            <span class="mx-1">·</span>{{ campaign.warchest_balance }} SP
             <span class="mx-1">·</span>Scale {{ campaign.scale }}
             <span class="mx-1">·</span>Rep {{ campaign.reputation }}
             {% if campaign.source_force_name %}
@@ -246,7 +246,7 @@
                                     <input type="number" name="mul_unit_id" class="form-control form-control-sm" placeholder="MUL unit id" required>
                                 </div>
                                 <div class="col-md-2">
-                                    <input type="number" name="cost" min="0" class="form-control form-control-sm" value="0" placeholder="WP cost">
+                                    <input type="number" name="cost" min="0" class="form-control form-control-sm" value="0" placeholder="SP cost">
                                 </div>
                                 <div class="col-md-3">
                                     <button type="submit" class="btn btn-sm btn-outline-secondary">Reconfigure Omni</button>
@@ -324,6 +324,7 @@
                         <th>Edge</th>
                         <th>Preferred unit</th>
                         <th>Status</th>
+                        <th>Wounds</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -335,8 +336,16 @@
                         <td>{{ pilot.gunnery }}/{{ pilot.piloting }}/{{ pilot.alpha_strike_skill }}</td>
                         <td>{{ pilot.edge_tokens }}</td>
                         <td>{{ pilot.preferred_unit.chassis if pilot.preferred_unit else '—' }}</td>
-                        <td>{{ pilot.status }}{% if pilot.wounded %} <span class="badge rounded-pill bg-warning text-dark">wounded</span>{% endif %}</td>
-                        <td>
+                        <td>{{ pilot.status }}{% if pilot.wounds > 0 %} <span class="badge rounded-pill bg-warning text-dark">wounded</span>{% endif %}</td>
+                        <td>{{ pilot.wounds }}</td>
+                        <td class="d-flex gap-1">
+                            {% if pilot.status == 'alive' and pilot.wounds > 0 %}
+                            <form method="post" action="{{ url_for('campaigns.recover_pilot_wound', pilot_id=pilot.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success">Recover 1 Wound</button>
+                            </form>
+                            {% endif %}
                             <form method="post" action="{{ url_for('campaigns.delete_pilot', pilot_id=pilot.id) }}"
                                 onsubmit="return confirm('Remove this pilot?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -346,7 +355,7 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="7" class="text-muted">No named pilots. Unassigned units use a generic AS {{ generic_as_skill }} crew.</td></tr>
+                    <tr><td colspan="8" class="text-muted">No named pilots. Unassigned units use a generic AS {{ generic_as_skill }} crew.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -360,10 +369,10 @@
                 <input type="text" name="callsign" class="form-control" placeholder="Callsign">
             </div>
             <div class="col-md-1">
-                <input type="number" name="gunnery" class="form-control" value="4" title="Gunnery">
+                <input type="number" name="gunnery" class="form-control" value="{{ default_pilot_gunnery }}" title="Gunnery">
             </div>
             <div class="col-md-1">
-                <input type="number" name="piloting" class="form-control" value="4" title="Piloting">
+                <input type="number" name="piloting" class="form-control" value="{{ default_pilot_piloting }}" title="Piloting">
             </div>
             <div class="col-md-1">
                 <input type="number" name="alpha_strike_skill" class="form-control" value="{{ generic_as_skill }}" title="AS skill">
@@ -386,7 +395,7 @@
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Repair Orders</h5></div>
     <div class="card-body">
-        <p class="small text-muted">Gross cost is player-entered (starts at 0). Support coverage uses the active Contract Support %. Completing a repair posts the Warchest cost.</p>
+        <p class="small text-muted">Gross repair cost is calculated from tonnage and damage (editable). Support coverage uses the originating Sortie's Contract Support %, not the currently active Contract.</p>
         <div class="table-responsive">
             <table class="table table-hover table-sm align-middle">
                 <thead>
@@ -442,7 +451,7 @@
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Warchest</h5></div>
     <div class="card-body">
-        <p class="mb-3"><strong>{{ campaign.warchest_balance }} WP</strong> current balance. Positive amounts are income.</p>
+        <p class="mb-3"><strong>{{ campaign.warchest_balance }} SP</strong> current balance. Positive amounts are income.</p>
         <div class="table-responsive mb-3">
             <table class="table table-hover table-sm">
                 <thead>
@@ -482,7 +491,7 @@
                 <input type="text" name="description" class="form-control" placeholder="Description" required>
             </div>
             <div class="col-md-2">
-                <input type="number" name="actual_amount" class="form-control" placeholder="Actual WP" required>
+                <input type="number" name="actual_amount" class="form-control" placeholder="Actual SP" required>
             </div>
             <div class="col-md-2">
                 <input type="number" name="covered_amount" class="form-control" value="0" placeholder="Covered">
@@ -504,7 +513,7 @@
                         <th>Route</th>
                         <th>Months</th>
                         <th>Jumps</th>
-                        <th>WP impact</th>
+                        <th>SP impact</th>
                         <th>Status</th>
                         <th></th>
                     </tr>
@@ -535,27 +544,41 @@
         </div>
         <form method="post" action="{{ url_for('campaigns.add_travel', id=campaign.id) }}" class="row g-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-3">
+            {% if active_contract %}
+            <input type="hidden" name="contract_id" value="{{ active_contract.id }}">
+            {% endif %}
+            <div class="col-md-2">
                 <input type="text" name="origin" class="form-control"
                     placeholder="Origin" value="{{ campaign.current_location or '' }}" required>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <input type="text" name="destination" class="form-control" placeholder="Destination"
                     value="{{ active_contract.destination if active_contract and active_contract.destination else '' }}" required>
             </div>
-            <div class="col-md-1">
-                <input type="number" name="jump_count" class="form-control" placeholder="Jumps">
-            </div>
             <div class="col-md-2">
-                <input type="number" name="gross_cost" class="form-control" value="0" placeholder="Gross cost">
+                <select name="transport_mode" class="form-select" title="Transport mode">
+                    <option value="standard">Standard</option>
+                    <option value="jump">Jump</option>
+                    <option value="manual" selected>Manual</option>
+                </select>
             </div>
             <div class="col-md-1">
-                <input type="number" name="covered_amount" class="form-control" value="0" placeholder="Covered">
+                <input type="number" name="jump_count" class="form-control" placeholder="Jumps" min="1">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="standard_amount" class="form-control" placeholder="Standard">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="employer_payment" class="form-control" placeholder="Employer">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="actual_expense" class="form-control" placeholder="Expense">
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-outline-secondary w-100">Start travel</button>
             </div>
         </form>
+        <div class="form-text mt-2">Standard = 300×Scale SP. Jump = (50 + 50×jumps)×Scale. Net SP = employer payment − actual expense. Unlinked travel has 0 employer payment.</div>
     </div>
 </div>
 

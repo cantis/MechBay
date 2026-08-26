@@ -40,6 +40,9 @@ BT_MONTHS = (
     "December",
 )
 GENERIC_AS_SKILL = 4
+DEFAULT_PILOT_GUNNERY = 4
+DEFAULT_PILOT_PILOTING = 5
+DEFAULT_OPENING_WARCHEST = 3000
 UNAVAILABLE_CONDITIONS = {"destroyed", "truly-destroyed"}
 
 
@@ -97,13 +100,20 @@ def location_display(campaign: Campaign) -> str:
     return campaign.current_location or "Unknown"
 
 
-def compute_opening_warchest(force_id: int, override: int | None = None) -> int:
+def compute_opening_warchest(override: int | None = None) -> int:
+    """Hot Spots default opening Warchest is 3,000 SP unless the player overrides."""
     if override is not None:
         return override
-    summary = alpha_strike_service.get_force_summary(force_id)
-    if summary.point_budget is None:
-        return 0
-    return summary.point_budget - summary.total_pv
+    return DEFAULT_OPENING_WARCHEST
+
+
+def sync_pilot_wounded_flag(pilot: CampaignPilot) -> None:
+    """Keep legacy wounded boolean aligned with wounds; wounds are authoritative."""
+    pilot.wounded = pilot.wounds > 0
+
+
+def pilot_is_available(pilot: CampaignPilot) -> bool:
+    return pilot.status == "alive" and pilot.wounds == 0
 
 
 def _eager_load_campaign(campaign: Campaign) -> None:
@@ -119,6 +129,8 @@ def _eager_load_campaign(campaign: Campaign) -> None:
     _ = campaign.travel_events
     for contract in campaign.contracts:
         _ = contract.sorties
+        for roster in contract.roster_units:
+            _ = roster.campaign_unit
     for sortie in campaign.sorties:
         _ = sortie.units
     for order in campaign.repair_orders:
@@ -281,7 +293,7 @@ def create_campaign_from_force(
     if force is None:
         raise ValueError("Force not found")
 
-    opening = compute_opening_warchest(force_id, opening_warchest)
+    opening = compute_opening_warchest(opening_warchest)
     assignments = alpha_strike_service.get_assignments_for_force(force_id)
     as_force = alpha_strike_service.get_alpha_strike_force(force_id)
 
@@ -331,7 +343,7 @@ def create_campaign_from_force(
             campaign_id=campaign.id,
             campaign_month=1,
             transaction_type="opening_balance",
-            description="Opening Warchest from leftover force points",
+            description="Opening Warchest",
             gross_amount=opening,
             covered_amount=0,
             actual_amount=opening,
@@ -424,6 +436,7 @@ def update_campaign(
 
 def delete_campaign(campaign_id: int) -> bool:
     from ..models.contract import Contract
+    from ..models.contract_unit import ContractUnit
     from ..models.damage_event import DamageEvent
     from ..models.pilot_injury_event import PilotInjuryEvent
     from ..models.rearm_order import RearmOrder
@@ -455,6 +468,18 @@ def delete_campaign(campaign_id: int) -> bool:
             for record in records:
                 session.delete(record)
         session.query(Sortie).filter(Sortie.campaign_id == campaign_id).delete()
+        contract_ids = [
+            row[0]
+            for row in session.execute(
+                select(Contract.id).where(Contract.campaign_id == campaign_id)
+            )
+        ]
+        if contract_ids:
+            roster = (
+                session.query(ContractUnit).filter(ContractUnit.contract_id.in_(contract_ids)).all()
+            )
+            for record in roster:
+                session.delete(record)
         session.query(WarchestTransaction).filter(
             WarchestTransaction.campaign_id == campaign_id
         ).delete()
@@ -624,8 +649,8 @@ def add_campaign_pilot(
     name: str,
     *,
     callsign: str | None = None,
-    gunnery: int = 4,
-    piloting: int = 4,
+    gunnery: int = DEFAULT_PILOT_GUNNERY,
+    piloting: int = DEFAULT_PILOT_PILOTING,
     alpha_strike_skill: int = GENERIC_AS_SKILL,
     edge_tokens: int = 0,
     edge_abilities: str | None = None,
@@ -640,6 +665,8 @@ def add_campaign_pilot(
         raise ValueError("Pilot name is required")
     if status not in PILOT_STATUSES:
         raise ValueError("Invalid pilot status")
+    if wounds < 0:
+        raise ValueError("Wounds cannot be negative")
     with session_scope() as session:
         campaign = session.get(Campaign, campaign_id)
         if not campaign:
@@ -663,6 +690,7 @@ def add_campaign_pilot(
             notes=notes.strip() if notes else None,
             preferred_unit_id=preferred_unit_id,
         )
+        sync_pilot_wounded_flag(pilot)
         session.add(pilot)
         session.flush()
         _ = pilot.preferred_unit
@@ -715,11 +743,16 @@ def update_campaign_pilot(
         if improvement_sp is not None:
             pilot.improvement_sp = improvement_sp
         if wounds is not None:
+            if wounds < 0:
+                raise ValueError("Wounds cannot be negative")
             pilot.wounds = wounds
+            sync_pilot_wounded_flag(pilot)
         if status is not None:
             if status not in PILOT_STATUSES:
                 raise ValueError("Invalid pilot status")
             pilot.status = status
+            if status != "alive":
+                sync_pilot_wounded_flag(pilot)
         if notes is not ...:
             value = notes
             pilot.notes = value.strip() if isinstance(value, str) and value.strip() else None
@@ -744,6 +777,38 @@ def delete_campaign_pilot(pilot_id: int) -> bool:
             return False
         session.delete(pilot)
         return True
+
+
+def recover_pilot_wound(pilot_id: int) -> CampaignPilot:
+    """Manually clear one wound from a living named pilot."""
+    from ..models.pilot_injury_event import PilotInjuryEvent
+
+    with session_scope() as session:
+        pilot = session.get(CampaignPilot, pilot_id)
+        if not pilot:
+            raise ValueError("Pilot not found")
+        if pilot.status != "alive":
+            raise ValueError("Only living pilots can recover wounds")
+        if pilot.wounds <= 0:
+            raise ValueError("Pilot has no wounds to recover")
+        campaign = session.get(Campaign, pilot.campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        pilot.wounds -= 1
+        sync_pilot_wounded_flag(pilot)
+        session.add(
+            PilotInjuryEvent(
+                campaign_id=campaign.id,
+                campaign_pilot_id=pilot.id,
+                campaign_month=campaign.current_campaign_month,
+                event_type="recovered",
+                notes="Recovered 1 wound",
+            )
+        )
+        session.flush()
+        _ = pilot.preferred_unit
+        session.expunge(pilot)
+        return pilot
 
 
 def add_warchest_transaction(
@@ -802,15 +867,29 @@ def create_travel_event(
     departure_campaign_month: int | None = None,
     arrival_campaign_month: int | None = None,
     jump_count: int | None = None,
-    gross_cost: int = 0,
-    covered_amount: int = 0,
+    transport_mode: str = "manual",
+    standard_amount: int | None = None,
+    employer_payment: int | None = None,
+    actual_expense: int | None = None,
+    gross_cost: int | None = None,
+    covered_amount: int | None = None,
     actual_warchest_impact: int | None = None,
     status: str = "in_transit",
     notes: str | None = None,
     contract_id: int | None = None,
 ) -> TravelEvent:
+    """Record travel. Net SP = employer payment - actual expense."""
+    from .contract_service import (
+        TRANSPORT_MODES,
+        calculate_standard_transport,
+        round_half_up_sp,
+    )
+
     if status not in TRAVEL_STATUSES:
         raise ValueError("Invalid travel status")
+    mode = (transport_mode or "manual").strip().lower()
+    if mode not in TRANSPORT_MODES:
+        raise ValueError("Invalid transportation mode")
     origin_clean = origin.strip()
     dest_clean = destination.strip()
     if not origin_clean or not dest_clean:
@@ -819,34 +898,66 @@ def create_travel_event(
         campaign = session.get(Campaign, campaign_id)
         if not campaign:
             raise ValueError("Campaign not found")
-        linked_contract_id = None
+        linked_contract = None
         if contract_id is not None:
             from ..models.contract import Contract
 
-            contract = session.get(Contract, contract_id)
-            if not contract or contract.campaign_id != campaign_id:
+            linked_contract = session.get(Contract, contract_id)
+            if not linked_contract or linked_contract.campaign_id != campaign_id:
                 raise ValueError("Contract not found in this campaign")
-            linked_contract_id = contract.id
+        scale = linked_contract.scale if linked_contract else campaign.scale
+        transport_percent = linked_contract.transportation_percent if linked_contract else 0
+
+        if standard_amount is None and gross_cost is not None:
+            standard_amount = gross_cost
+        if mode in {"standard", "jump"}:
+            calculated = calculate_standard_transport(
+                mode, scale=scale, jump_count=jump_count
+            )
+            if standard_amount is None:
+                standard_amount = calculated
+        if standard_amount is None:
+            raise ValueError("Standard transportation amount is required")
+        if standard_amount < 0:
+            raise ValueError("Standard transportation amount cannot be negative")
+
+        if employer_payment is None and covered_amount is not None:
+            employer_payment = covered_amount
+        if employer_payment is None:
+            if linked_contract:
+                employer_payment = round_half_up_sp(standard_amount * transport_percent / 100)
+            else:
+                employer_payment = 0
+        if employer_payment < 0:
+            raise ValueError("Employer transportation payment cannot be negative")
+
+        if actual_expense is None:
+            actual_expense = standard_amount
+        if actual_expense < 0:
+            raise ValueError("Actual transportation expense cannot be negative")
+
+        impact = (
+            actual_warchest_impact
+            if actual_warchest_impact is not None
+            else employer_payment - actual_expense
+        )
         departure = (
             departure_campaign_month
             if departure_campaign_month is not None
             else campaign.current_campaign_month
         )
-        impact = (
-            actual_warchest_impact
-            if actual_warchest_impact is not None
-            else -(gross_cost - covered_amount)
-        )
         event = TravelEvent(
             campaign_id=campaign_id,
-            contract_id=linked_contract_id,
+            contract_id=linked_contract.id if linked_contract else None,
             origin=origin_clean,
             destination=dest_clean,
             departure_campaign_month=departure,
             arrival_campaign_month=arrival_campaign_month,
             jump_count=jump_count,
-            gross_cost=gross_cost,
-            covered_amount=covered_amount,
+            transport_mode=mode,
+            gross_cost=standard_amount,
+            covered_amount=employer_payment,
+            actual_expense=actual_expense,
             actual_warchest_impact=impact,
             status=status,
             notes=notes.strip() if notes else None,
@@ -861,9 +972,12 @@ def create_travel_event(
                     campaign_id=campaign_id,
                     campaign_month=departure,
                     transaction_type="travel",
-                    description=f"Travel {origin_clean} → {dest_clean}",
-                    gross_amount=-gross_cost,
-                    covered_amount=covered_amount,
+                    description=(
+                        f"Travel {origin_clean} → {dest_clean} "
+                        f"(employer {employer_payment} SP − expense {actual_expense} SP)"
+                    ),
+                    gross_amount=-actual_expense,
+                    covered_amount=employer_payment,
                     actual_amount=impact,
                     resulting_balance=new_balance,
                     related_entity_type="travel_event",

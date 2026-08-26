@@ -44,7 +44,7 @@
                 <td><span class="badge rounded-pill bg-secondary">{{ campaign.status }}</span></td>
                 <td>{{ campaign.current_campaign_month }}</td>
                 <td>{{ campaign.current_location or '—' }}</td>
-                <td>{{ campaign.warchest_balance }} WP</td>
+                <td>{{ campaign.warchest_balance }} SP</td>
                 <td>
                     <div class="d-flex gap-3 align-items-center">
                         <a href="{{ url_for('campaigns.detail', id=campaign.id) }}"
@@ -136,9 +136,10 @@
                         <input type="text" name="current_location" class="form-control">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Opening Warchest override (WP)</label>
+                        <label class="form-label">Opening Warchest override (SP)</label>
                         <input type="number" name="opening_warchest" class="form-control"
-                            placeholder="Leave blank to use leftover PV">
+                            placeholder="Leave blank for {{ default_opening_warchest }} SP">
+                        <div class="form-text">Default opening Warchest is {{ default_opening_warchest }} SP.</div>
                     </div>
                     <div class="mb-0">
                         <label class="form-label">Notes</label>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from sqlalchemy import select
 
 from app.extensions import session_scope
 from app.models.campaign_unit import CampaignUnit
@@ -34,8 +35,34 @@ def _campaign(force_id: int, name: str = "Reach"):
     )
 
 
-def _active_contract(campaign, **kwargs):
+def _ensure_units_as_ready(campaign, *, tonnage: int = 70, point_value: int = 40):
+    with session_scope() as session:
+        units = list(
+            session.execute(
+                select(CampaignUnit).where(CampaignUnit.campaign_id == campaign.id)
+            ).scalars()
+        )
+        for unit in units:
+            if unit.point_value is None:
+                unit.point_value = point_value
+            if unit.tonnage is None:
+                unit.tonnage = tonnage
+    return campaign_service.get_campaign_by_id(campaign.id)
+
+
+def _commit_roster(contract, campaign, unit_ids: list[int] | None = None):
+    ids = unit_ids if unit_ids is not None else [unit.id for unit in campaign.units]
+    for unit_id in ids:
+        try:
+            contract_service.add_unit_to_contract_roster(contract.id, unit_id)
+        except ValueError:
+            pass
+
+
+def _active_contract(campaign, *, roster_unit_ids: list[int] | None = None, **kwargs):
+    campaign = _ensure_units_as_ready(campaign)
     contract = contract_service.create_contract(campaign.id, "Garrison", **kwargs)
+    _commit_roster(contract, campaign, roster_unit_ids)
     return contract_service.activate_contract(contract.id)
 
 
@@ -97,8 +124,22 @@ def test_one_active_contract(client, minimal_force):
     assert contract_service.get_contract_by_id(first.id).status == "completed"
 
 
+def test_empty_roster_may_activate(client, minimal_force):
+    """A Contract with an empty roster may still be activated."""
+    # Arrange
+    campaign = _campaign(minimal_force)
+    contract = contract_service.create_contract(campaign.id, "Empty")
+
+    # Act
+    activated = contract_service.activate_contract(contract.id)
+
+    # Assert
+    assert activated.status == "active"
+    assert activated.roster_units == []
+
+
 def test_cancel_contract_records_penalty(client, minimal_force):
-    """Cancelling posts a player-entered WP penalty to the ledger."""
+    """Cancelling posts a player-entered SP penalty to the ledger."""
     # Arrange
     campaign = _campaign(minimal_force, "Penalty")
     contract = _active_contract(campaign)
@@ -142,29 +183,104 @@ def test_sortie_scale_cannot_exceed_contract(client, minimal_force):
         contract_service.update_sortie(sortie.id, scale=3)
 
 
-def test_transportation_coverage_calculation(client, minimal_force):
-    """gross → Transportation % coverage → actual Warchest impact."""
+def test_transportation_employer_payment_vs_actual_expense(client, minimal_force):
+    """Employer payment is % of standard amount; excess vs actual expense is kept."""
     # Arrange
     campaign = _campaign(minimal_force)
-    contract = _active_contract(campaign, transportation_percent=50, destination="Hartford")
+    contract = _active_contract(
+        campaign, transportation_percent=50, destination="Hartford", scale=1
+    )
 
-    # Act
-    covered = contract_service.transportation_coverage(20, contract.transportation_percent)
+    # Act — standard 300, employer 150, actual expense 100 → net +50
     event = campaign_service.create_travel_event(
         campaign.id,
         "Galatea",
         "Hartford",
-        gross_cost=20,
-        covered_amount=covered,
+        transport_mode="standard",
+        actual_expense=100,
         contract_id=contract.id,
     )
     loaded = campaign_service.get_campaign_by_id(campaign.id)
 
     # Assert
-    assert covered == 10
-    assert event.actual_warchest_impact == -10
-    assert event.contract_id == contract.id
-    assert loaded.warchest_balance == 190
+    assert event.gross_cost == 300
+    assert event.covered_amount == 150
+    assert event.actual_expense == 100
+    assert event.actual_warchest_impact == 50
+    assert loaded.warchest_balance == 250
+
+
+def test_base_pay_allows_110_percent(client, minimal_force):
+    """Base Pay may exceed 100%, including 110%."""
+    # Arrange
+    campaign = _campaign(minimal_force)
+
+    # Act
+    contract = contract_service.create_contract(campaign.id, "Fat", base_pay_percent=110)
+
+    # Assert
+    assert contract.base_pay_percent == 110
+    with pytest.raises(ValueError, match="Base Pay"):
+        contract_service.create_contract(campaign.id, "Too fat", base_pay_percent=201)
+
+
+def test_contract_roster_selection_and_sortie_eligibility(client, minimal_force):
+    """Sorties may only use units committed to the Contract roster."""
+    # Arrange
+    campaign = _ensure_units_as_ready(_campaign(minimal_force))
+    contract = contract_service.create_contract(campaign.id, "Roster")
+    contract_service.add_unit_to_contract_roster(contract.id, campaign.units[0].id)
+    contract = contract_service.activate_contract(contract.id)
+    sortie = contract_service.create_sortie(contract.id, "Fight")
+
+    # Act
+    eligible = contract_service.eligible_campaign_units(campaign.id, contract_id=contract.id)
+
+    # Assert
+    assert {unit.id for unit in eligible} == {campaign.units[0].id}
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
+    with pytest.raises(ValueError, match="not committed"):
+        contract_service.add_unit_to_sortie(sortie.id, campaign.units[1].id)
+
+
+def test_contract_scale_pv_and_unit_limits(client, minimal_force):
+    """Contract roster additions are hard-blocked at Scale PV/unit limits."""
+    # Arrange
+    campaign = _ensure_units_as_ready(_campaign(minimal_force), point_value=80)
+    contract = contract_service.create_contract(campaign.id, "Tight", scale=1)
+    contract_service.add_unit_to_contract_roster(contract.id, campaign.units[0].id)
+
+    # Act / Assert — Scale 1 = 150 PV / 3 units; second 80 PV unit → 160 > 150
+    with pytest.raises(ValueError, match="150 PV"):
+        contract_service.add_unit_to_contract_roster(contract.id, campaign.units[1].id)
+
+
+def test_add_lance_to_roster_skips_already_on_roster(client, minimal_force):
+    """Adding a lance skips units already on the Contract roster."""
+    # Arrange
+    campaign = _ensure_units_as_ready(_campaign(minimal_force))
+    contract = contract_service.create_contract(campaign.id, "Lance")
+    contract_service.add_unit_to_contract_roster(contract.id, campaign.units[0].id)
+
+    # Act
+    added = contract_service.add_lance_to_contract_roster(contract.id, campaign.lances[0].id)
+
+    # Assert
+    assert len(added) == 1
+    assert added[0].campaign_unit_id == campaign.units[1].id
+
+
+def test_add_lance_to_roster_empty_eligible_raises(client, minimal_force):
+    """Adding a lance when every unit is already on the roster raises."""
+    # Arrange
+    campaign = _ensure_units_as_ready(_campaign(minimal_force))
+    contract = contract_service.create_contract(campaign.id, "Full")
+    for unit in campaign.units:
+        contract_service.add_unit_to_contract_roster(contract.id, unit.id)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="already on the Contract roster"):
+        contract_service.add_lance_to_contract_roster(contract.id, campaign.lances[0].id)
 
 
 def test_eligible_unit_filtering(client, minimal_force):
@@ -176,7 +292,7 @@ def test_eligible_unit_filtering(client, minimal_force):
     campaign_service.update_campaign_unit(downed.id, condition="destroyed")
 
     # Act
-    eligible = contract_service.eligible_campaign_units(campaign.id)
+    eligible = contract_service.eligible_campaign_units(campaign.id, contract_id=contract.id)
     sortie = contract_service.create_sortie(contract.id, "Fight")
 
     # Assert
@@ -186,7 +302,7 @@ def test_eligible_unit_filtering(client, minimal_force):
 
 
 def test_add_lance_skips_unavailable(client, minimal_force):
-    """Adding a lance adds available units only."""
+    """Adding a lance adds available roster units only."""
     # Arrange
     campaign = _campaign(minimal_force)
     contract = _active_contract(campaign)
@@ -321,6 +437,33 @@ def test_mark_ready_and_fought(client, minimal_force):
     fought = contract_service.mark_sortie_fought(sortie.id, outcome="victory")
     assert fought.status == "fought"
     assert fought.outcome == "victory"
+
+
+def test_sortie_ready_rejects_over_limits(client, minimal_force):
+    """Sortie cannot become Ready when over its PV or unit limits."""
+    # Arrange — Scale 1 sortie PV limit = 100; two 60 PV units = 120
+    campaign = _ensure_units_as_ready(_campaign(minimal_force), point_value=60)
+    contract = contract_service.create_contract(campaign.id, "Limits", scale=1)
+    for unit in campaign.units:
+        contract_service.add_unit_to_contract_roster(contract.id, unit.id)
+    contract = contract_service.activate_contract(contract.id)
+    sortie = contract_service.create_sortie(contract.id, "Over", scale=1)
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[1].id)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="PV"):
+        contract_service.mark_sortie_ready(sortie.id)
+
+
+def test_scale_limit_helpers(client):
+    """Alpha Strike Contract/Sortie Scale formulas match Hot Spots progression."""
+    assert contract_service.contract_pv_limit(2) == 300
+    assert contract_service.contract_unit_limit(2) == 6
+    assert contract_service.sortie_pv_limit(2) == 200
+    assert contract_service.sortie_unit_limit(2) == 6
+    assert contract_service.calculate_standard_transport("standard", scale=2) == 600
+    assert contract_service.calculate_standard_transport("jump", scale=2, jump_count=3) == 400
 
 
 def test_create_contract_and_sortie_routes(client, minimal_force):

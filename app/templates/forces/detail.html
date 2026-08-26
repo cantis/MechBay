@@ -685,13 +685,9 @@
                         <input type="text" name="current_location" class="form-control" placeholder="e.g. Galatea">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Opening Warchest (WP)</label>
-                        {% set suggested_wp = 0 %}
-                        {% if as_config and as_summary and as_config.point_budget %}
-                        {% set suggested_wp = as_config.point_budget - as_summary.total_pv %}
-                        {% endif %}
-                        <input type="number" name="opening_warchest" class="form-control" value="{{ suggested_wp }}">
-                        <div class="form-text">Leftover force PV becomes WP. Leave as suggested or adjust.</div>
+                        <label class="form-label">Opening Warchest (SP)</label>
+                        <input type="number" name="opening_warchest" class="form-control" value="3000">
+                        <div class="form-text">Default Hot Spots opening Warchest is 3,000 SP. Override if needed.</div>
                     </div>
                     <div class="mb-0">
                         <label class="form-label">Notes</label>

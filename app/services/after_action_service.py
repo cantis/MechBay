@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -24,7 +25,7 @@ from ..models.travel_event import TravelEvent
 from ..models.unit_configuration_event import UnitConfigurationEvent
 from ..models.warchest_transaction import WarchestTransaction
 from . import campaign_service, contract_service, mul_service
-from .campaign_service import unit_is_omni
+from .campaign_service import sync_pilot_wounded_flag, unit_is_omni
 from .contract_service import SORTIE_OUTCOMES, transportation_coverage
 
 DAMAGE_OUTCOMES = (
@@ -58,6 +59,22 @@ def unit_has_ene(unit: CampaignUnit | SortieUnit) -> bool:
 
 def support_coverage(gross_cost: int, support_percent: int) -> int:
     return transportation_coverage(gross_cost, support_percent)
+
+
+def standard_repair_cost(damage: str, tonnage: int | None) -> int:
+    """Hot Spots repair SP from damage category and tonnage (MechBay: ceil armour/2)."""
+    tons = int(tonnage or 0)
+    if tons < 0:
+        tons = 0
+    if damage == "armour":
+        return math.ceil(tons / 2)
+    if damage == "structure":
+        return tons * 2
+    if damage == "crippled":
+        return tons * 3
+    if damage == "destroyed":
+        return tons * 5
+    return 0
 
 
 def _condition_for_damage(damage: str) -> tuple[str, bool]:
@@ -105,11 +122,27 @@ def _post_wp(
     campaign.warchest_balance = new_balance
 
 
-def _active_support_percent(session, campaign_id: int) -> int:
-    contract = session.execute(
-        select(Contract).where(Contract.campaign_id == campaign_id, Contract.status == "active")
-    ).scalar_one_or_none()
-    return contract.support_percent if contract else 0
+def _originating_support_percent(session, order_or_sortie: RepairOrder | Sortie) -> int | None:
+    """Support % from the originating Sortie's Contract, or None if unlinked."""
+    sortie_id = getattr(order_or_sortie, "sortie_id", None)
+    if sortie_id is None and isinstance(order_or_sortie, Sortie):
+        sortie = order_or_sortie
+    else:
+        sortie = session.get(Sortie, sortie_id) if sortie_id else None
+    if not sortie or not sortie.contract_id:
+        return None
+    contract = session.get(Contract, sortie.contract_id)
+    if not contract:
+        return None
+    return int(contract.support_percent)
+
+
+def _support_for_order(session, order: RepairOrder) -> tuple[int, bool]:
+    """Return (support_percent, has_originating_contract)."""
+    percent = _originating_support_percent(session, order)
+    if percent is None:
+        return 0, False
+    return percent, True
 
 
 def _open_repairs(session, campaign_unit_id: int) -> list[RepairOrder]:
@@ -131,34 +164,6 @@ def unit_is_fully_repaired(session, unit: CampaignUnit) -> bool:
     return not _open_repairs(session, unit.id)
 
 
-def recover_wounded_pilots(session, sortie: Sortie) -> None:
-    """Wounded pilots who sat this Sortie out become available for the next one."""
-    fought_ids = {row.campaign_pilot_id for row in sortie.units if row.campaign_pilot_id}
-    pilots = list(
-        session.execute(
-            select(CampaignPilot).where(
-                CampaignPilot.campaign_id == sortie.campaign_id,
-                CampaignPilot.wounded == True,  # noqa: E712
-                CampaignPilot.status == "alive",
-            )
-        ).scalars()
-    )
-    for pilot in pilots:
-        if pilot.id in fought_ids:
-            continue
-        pilot.wounded = False
-        session.add(
-            PilotInjuryEvent(
-                campaign_id=sortie.campaign_id,
-                campaign_pilot_id=pilot.id,
-                sortie_id=sortie.id,
-                campaign_month=sortie.campaign_month,
-                event_type="recovered",
-                notes="Auto-cleared after sitting out one Sortie",
-            )
-        )
-
-
 def apply_after_action(
     sortie_id: int,
     unit_results: list[dict[str, Any]],
@@ -172,7 +177,7 @@ def apply_after_action(
     after_action_notes: str | None = None,
 ) -> Sortie:
     if combat_pay < 0 or salvage_wp < 0:
-        raise ValueError("Combat pay and salvage must be zero or positive WP")
+        raise ValueError("Combat pay and salvage must be zero or positive SP")
     by_id = {int(item["sortie_unit_id"]): item for item in unit_results}
     with session_scope() as session:
         sortie = session.get(Sortie, sortie_id)
@@ -196,7 +201,8 @@ def apply_after_action(
         campaign = session.get(Campaign, sortie.campaign_id)
         if not campaign:
             raise ValueError("Campaign not found")
-        support = _active_support_percent(session, campaign.id)
+        support_percent = _originating_support_percent(session, sortie)
+        support = support_percent if support_percent is not None else 0
 
         for row in sortie.units:
             result = by_id.get(row.id, {})
@@ -224,22 +230,31 @@ def apply_after_action(
                     )
                 )
                 if damage in REPAIRABLE_DAMAGE:
+                    gross = standard_repair_cost(damage, unit.tonnage)
+                    covered = (
+                        support_coverage(gross, support) if support_percent is not None else 0
+                    )
+                    actual = -(gross - covered)
                     session.add(
                         RepairOrder(
                             campaign_id=campaign.id,
                             sortie_id=sortie.id,
                             campaign_unit_id=unit.id,
                             damage_category=damage,
-                            gross_cost=0,
-                            covered_amount=0,
-                            actual_cost=0,
+                            gross_cost=gross,
+                            covered_amount=covered,
+                            actual_cost=actual,
                             campaign_month=sortie.campaign_month,
                             status="pending",
                         )
                     )
                 should_rearm = not unit_has_ene(row)
                 if should_rearm:
-                    covered = support_coverage(REARM_COST, support)
+                    covered = (
+                        support_coverage(REARM_COST, support)
+                        if support_percent is not None
+                        else 0
+                    )
                     actual = -(REARM_COST - covered)
                     rearm = RearmOrder(
                         campaign_id=campaign.id,
@@ -270,6 +285,7 @@ def apply_after_action(
                 if pilot:
                     if row.pilot_killed:
                         pilot.status = "dead"
+                        # Retain wounds for history; clear legacy flag (dead takes precedence).
                         pilot.wounded = False
                         session.add(
                             PilotInjuryEvent(
@@ -281,7 +297,8 @@ def apply_after_action(
                             )
                         )
                     elif row.pilot_wounded:
-                        pilot.wounded = True
+                        pilot.wounds += 1
+                        sync_pilot_wounded_flag(pilot)
                         session.add(
                             PilotInjuryEvent(
                                 campaign_id=campaign.id,
@@ -403,8 +420,8 @@ def update_repair_order(
             if gross_cost < 0:
                 raise ValueError("Repair cost must be zero or positive")
             order.gross_cost = gross_cost
-            support = _active_support_percent(session, order.campaign_id)
-            order.covered_amount = support_coverage(gross_cost, support)
+            support, has_contract = _support_for_order(session, order)
+            order.covered_amount = support_coverage(gross_cost, support) if has_contract else 0
             order.actual_cost = -(gross_cost - order.covered_amount)
         if notes is not None:
             order.notes = notes.strip() or None
@@ -426,8 +443,10 @@ def complete_repair_order(order_id: int) -> RepairOrder:
         campaign = session.get(Campaign, order.campaign_id)
         if not campaign:
             raise ValueError("Campaign not found")
-        support = _active_support_percent(session, order.campaign_id)
-        order.covered_amount = support_coverage(order.gross_cost, support)
+        support, has_contract = _support_for_order(session, order)
+        order.covered_amount = (
+            support_coverage(order.gross_cost, support) if has_contract else 0
+        )
         order.actual_cost = -(order.gross_cost - order.covered_amount)
         order.status = "completed"
         order.completed_at = datetime.now(UTC)
@@ -474,7 +493,7 @@ def reconfigure_omni_unit(
     cost: int = 0,
 ) -> CampaignUnit:
     if cost < 0:
-        raise ValueError("Reconfiguration cost must be zero or a positive WP amount")
+        raise ValueError("Reconfiguration cost must be zero or a positive SP amount")
     parsed = mul_service.parse_mul_unit(mul_raw)
     with session_scope() as session:
         unit = session.get(CampaignUnit, campaign_unit_id)
@@ -585,7 +604,7 @@ def preview_month_advance(campaign_id: int) -> dict[str, Any]:
             session.execute(
                 select(CampaignPilot).where(
                     CampaignPilot.campaign_id == campaign_id,
-                    CampaignPilot.wounded == True,  # noqa: E712
+                    CampaignPilot.wounds > 0,
                     CampaignPilot.status == "alive",
                 )
             )

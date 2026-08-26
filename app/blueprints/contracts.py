@@ -57,12 +57,24 @@ def detail(id: int):  # noqa: A002
         flash("Contract not found", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
     campaign = campaign_service.get_campaign_by_id(contract.campaign_id)
+    roster_summary = contract_service.contract_roster_summary(contract)
+    available_for_roster = []
+    if campaign and contract.status in {"draft", "active"}:
+        on_roster = {row.campaign_unit_id for row in contract.roster_units}
+        available_for_roster = [
+            unit
+            for unit in campaign.units
+            if unit.id not in on_roster and unit.point_value is not None
+        ]
     return render_template(
         "contracts/detail.html",
         contract=contract,
         campaign=campaign,
         month_label=campaign_service.campaign_month_label(campaign) if campaign else "",
         statuses=CONTRACT_STATUSES,
+        roster_summary=roster_summary,
+        available_for_roster=available_for_roster,
+        transport_modes=contract_service.TRANSPORT_MODES,
     )
 
 
@@ -138,27 +150,51 @@ def start_travel(id: int):  # noqa: A002
         flash("Contract not found", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
     try:
-        gross = int(request.form.get("gross_cost") or 0)
-        covered_raw = request.form.get("covered_amount")
-        if covered_raw is None or str(covered_raw).strip() == "":
-            covered = contract_service.transportation_coverage(
-                gross, contract.transportation_percent
-            )
-        else:
-            covered = int(covered_raw)
         campaign_service.create_travel_event(
             contract.campaign_id,
             request.form.get("origin") or "",
             request.form.get("destination") or "",
             jump_count=_optional_int(request.form.get("jump_count")),
-            gross_cost=gross,
-            covered_amount=covered,
+            transport_mode=request.form.get("transport_mode") or "manual",
+            standard_amount=_optional_int(request.form.get("standard_amount")),
+            employer_payment=_optional_int(request.form.get("employer_payment")),
+            actual_expense=_optional_int(request.form.get("actual_expense")),
+            gross_cost=_optional_int(request.form.get("gross_cost")),
+            covered_amount=_optional_int(request.form.get("covered_amount")),
             notes=request.form.get("notes"),
             contract_id=contract.id,
         )
         flash("Travel started", "success")
     except (TypeError, ValueError) as exc:
         flash(str(exc) if isinstance(exc, ValueError) else "Invalid travel values", "danger")
+    return redirect(url_for("contracts.detail", id=id))
+
+
+@bp.route("/contracts/<int:id>/roster/units", methods=["POST"])
+def add_roster_unit(id: int):  # noqa: A002
+    try:
+        lance_id = _optional_int(request.form.get("lance_id"))
+        unit_id = _optional_int(request.form.get("campaign_unit_id"))
+        if lance_id:
+            added = contract_service.add_lance_to_contract_roster(id, lance_id)
+            flash(f"Added {len(added)} unit(s) to the Contract roster", "success")
+        elif unit_id:
+            contract_service.add_unit_to_contract_roster(id, unit_id)
+            flash("Unit added to Contract roster", "success")
+        else:
+            flash("Select a lance or unit", "danger")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid roster unit", "danger")
+    return redirect(url_for("contracts.detail", id=id))
+
+
+@bp.route("/contracts/<int:id>/roster/units/<int:campaign_unit_id>/remove", methods=["POST"])
+def remove_roster_unit(id: int, campaign_unit_id: int):  # noqa: A002
+    try:
+        contract_service.remove_unit_from_contract_roster(id, campaign_unit_id)
+        flash("Unit removed from Contract roster", "info")
+    except ValueError as exc:
+        flash(str(exc), "danger")
     return redirect(url_for("contracts.detail", id=id))
 
 
@@ -189,16 +225,22 @@ def sortie_detail(id: int):  # noqa: A002
         return redirect(url_for("campaigns.list_campaigns"))
     campaign = campaign_service.get_campaign_by_id(sortie.campaign_id)
     contract = contract_service.get_contract_by_id(sortie.contract_id)
-    eligible_units = contract_service.eligible_campaign_units(sortie.campaign_id)
+    eligible_units = contract_service.eligible_campaign_units(
+        sortie.campaign_id, contract_id=sortie.contract_id
+    )
     selected_ids = {unit.campaign_unit_id for unit in sortie.units}
     available_units = [unit for unit in eligible_units if unit.id not in selected_ids]
     lances = campaign.lances if campaign else []
+    pv_limit = contract_service.sortie_pv_limit(sortie.scale)
+    unit_limit = contract_service.sortie_unit_limit(sortie.scale)
     return render_template(
         "sorties/detail.html",
         sortie=sortie,
         campaign=campaign,
         contract=contract,
         pv_total=contract_service.sortie_point_total(sortie),
+        pv_limit=pv_limit,
+        unit_limit=unit_limit,
         available_units=available_units,
         lances=lances,
         pilots=contract_service.eligible_named_pilots(sortie.campaign_id),

@@ -10,6 +10,7 @@ from ..extensions import Base
 
 if TYPE_CHECKING:
     from .campaign import Campaign
+    from .contract_unit import ContractUnit
     from .sortie import Sortie
     from .travel_event import TravelEvent
 
@@ -41,6 +42,12 @@ class Contract(Base):
     )
 
     campaign: Mapped[Campaign] = relationship("Campaign", back_populates="contracts")
+    roster_units: Mapped[list[ContractUnit]] = relationship(
+        "ContractUnit",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        order_by="ContractUnit.order",
+    )
     sorties: Mapped[list[Sortie]] = relationship(
         "Sortie",
         back_populates="contract",

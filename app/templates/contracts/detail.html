@@ -75,7 +75,7 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label">Base Pay %</label>
-                <input type="number" name="base_pay_percent" min="0" max="100" class="form-control" value="{{ contract.base_pay_percent }}">
+                <input type="number" name="base_pay_percent" min="0" max="200" class="form-control" value="{{ contract.base_pay_percent }}">
             </div>
             <div class="col-md-2">
                 <label class="form-label">Support %</label>
@@ -106,13 +106,82 @@
 
 {% if contract.status in ['draft', 'active'] %}
 <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Contract roster</h5>
+        <span class="small text-muted">
+            {{ roster_summary.unit_count }} / {{ roster_summary.unit_limit }} units ·
+            {{ roster_summary.pv_total }} / {{ roster_summary.pv_limit }} PV
+        </span>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">Only units on this roster can be fielded on Sorties for this Contract.</p>
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Variant</th>
+                        <th>PV</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in contract.roster_units %}
+                    <tr>
+                        <td>{{ row.campaign_unit.prefix }} {{ row.campaign_unit.chassis }}</td>
+                        <td>{{ row.campaign_unit.variant or '—' }}</td>
+                        <td>{{ row.campaign_unit.point_value if row.campaign_unit.point_value is not none else '—' }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('contracts.remove_roster_unit', id=contract.id, campaign_unit_id=row.campaign_unit_id) }}"
+                                onsubmit="return confirm('Remove this unit from the Contract roster?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-muted">No units committed yet. Empty roster may be activated.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="{{ url_for('contracts.add_roster_unit', id=contract.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if campaign and campaign.lances %}
+            <div class="col-md-4">
+                <select name="lance_id" class="form-select">
+                    <option value="">Add lance…</option>
+                    {% for lance in campaign.lances %}
+                    <option value="{{ lance.id }}">{{ lance.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="col-md-4">
+                <select name="campaign_unit_id" class="form-select">
+                    <option value="">Add unit…</option>
+                    {% for unit in available_for_roster %}
+                    <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }} ({{ unit.point_value }} PV)</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if contract.status in ['draft', 'active'] %}
+<div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Cancel</h5></div>
     <div class="card-body">
         <form method="post" action="{{ url_for('contracts.cancel', id=contract.id) }}" class="row g-2"
             onsubmit="return confirm('Cancel this contract?');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-3">
-                <input type="number" name="penalty_wp" min="0" class="form-control" value="0" placeholder="WP penalty">
+                <input type="number" name="penalty_wp" min="0" class="form-control" value="0" placeholder="SP penalty">
             </div>
             <div class="col-md-3">
                 <input type="number" name="reputation_delta" class="form-control" value="0" placeholder="Reputation change">
@@ -121,7 +190,7 @@
                 <button type="submit" class="btn btn-outline-danger">Cancel contract</button>
             </div>
         </form>
-        <div class="form-text">Penalties are player-entered. Positive WP is the cost charged to the Warchest.</div>
+        <div class="form-text">Penalties are player-entered. Positive SP is the cost charged to the Warchest.</div>
     </div>
 </div>
 {% endif %}
@@ -129,27 +198,37 @@
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Travel to contract</h5></div>
     <div class="card-body">
-        <p class="small text-muted">Travel is an explicit campaign event. Leave coverage blank to use Transportation % of gross cost.</p>
+        <p class="small text-muted">Employer payment = standard amount × Transportation %. Net SP = employer payment − actual expense.</p>
         <form method="post" action="{{ url_for('contracts.start_travel', id=contract.id) }}" class="row g-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <input type="text" name="origin" class="form-control" required
                     placeholder="Origin" value="{{ campaign.current_location if campaign and campaign.current_location else '' }}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <input type="text" name="destination" class="form-control" required
                     placeholder="Destination" value="{{ contract.destination or '' }}">
             </div>
-            <div class="col-md-1">
-                <input type="number" name="jump_count" class="form-control" placeholder="Jumps">
-            </div>
             <div class="col-md-2">
-                <input type="number" name="gross_cost" class="form-control" value="0" placeholder="Gross">
-            </div>
-            <div class="col-md-2">
-                <input type="number" name="covered_amount" class="form-control" placeholder="Covered">
+                <select name="transport_mode" class="form-select">
+                    <option value="standard" selected>Standard</option>
+                    <option value="jump">Jump</option>
+                    <option value="manual">Manual</option>
+                </select>
             </div>
             <div class="col-md-1">
+                <input type="number" name="jump_count" class="form-control" placeholder="Jumps" min="1">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="standard_amount" class="form-control" placeholder="Standard">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="employer_payment" class="form-control" placeholder="Employer">
+            </div>
+            <div class="col-md-1">
+                <input type="number" name="actual_expense" class="form-control" placeholder="Expense">
+            </div>
+            <div class="col-md-2">
                 <button type="submit" class="btn btn-outline-secondary w-100">Start</button>
             </div>
         </form>

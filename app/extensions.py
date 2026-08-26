@@ -160,6 +160,10 @@ def _apply_schema_migrations(db_engine) -> None:
             "campaign_pilots": {
                 "wounded": "BOOLEAN DEFAULT 0",
             },
+            "travel_events": {
+                "transport_mode": "VARCHAR(32) DEFAULT 'manual'",
+                "actual_expense": "INTEGER DEFAULT 0",
+            },
         }
         for table, cols in extra_columns.items():
             if table not in campaign_tables:

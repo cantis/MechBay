@@ -6,6 +6,9 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from ..services import after_action_service, campaign_service, contract_service, force_service
 from ..services.campaign_service import (
     CAMPAIGN_STATUSES,
+    DEFAULT_OPENING_WARCHEST,
+    DEFAULT_PILOT_GUNNERY,
+    DEFAULT_PILOT_PILOTING,
     PILOT_STATUSES,
     UNIT_CONDITIONS,
 )
@@ -36,6 +39,8 @@ def _campaign_view_context(campaign) -> dict:
         "pilot_statuses": PILOT_STATUSES,
         "inventory": get_all_miniatures(),
         "generic_as_skill": campaign_service.GENERIC_AS_SKILL,
+        "default_pilot_gunnery": DEFAULT_PILOT_GUNNERY,
+        "default_pilot_piloting": DEFAULT_PILOT_PILOTING,
         "contracts": contract_service.get_contracts_for_campaign(campaign.id),
         "active_contract": contract_service.get_active_contract(campaign.id),
         "next_contract_number": contract_service.next_contract_number(campaign.id),
@@ -55,6 +60,7 @@ def list_campaigns():
         active_campaign=active_campaign,
         forces=forces,
         statuses=CAMPAIGN_STATUSES,
+        default_opening_warchest=DEFAULT_OPENING_WARCHEST,
     )
 
 
@@ -284,8 +290,8 @@ def add_pilot(id: int):  # noqa: A002
             id,
             request.form.get("name", ""),
             callsign=request.form.get("callsign"),
-            gunnery=int(request.form.get("gunnery") or 4),
-            piloting=int(request.form.get("piloting") or 4),
+            gunnery=int(request.form.get("gunnery") or DEFAULT_PILOT_GUNNERY),
+            piloting=int(request.form.get("piloting") or DEFAULT_PILOT_PILOTING),
             alpha_strike_skill=int(
                 request.form.get("alpha_strike_skill") or campaign_service.GENERIC_AS_SKILL
             ),
@@ -301,6 +307,21 @@ def add_pilot(id: int):  # noqa: A002
     except (TypeError, ValueError) as exc:
         flash(str(exc) if isinstance(exc, ValueError) else "Invalid pilot values", "danger")
     return redirect(url_for("campaigns.detail", id=id))
+
+
+@bp.route("/pilots/<int:pilot_id>/recover-wound", methods=["POST"])
+def recover_pilot_wound(pilot_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        pilot = campaign_service.recover_pilot_wound(pilot_id)
+        flash(f"{pilot.name} recovered 1 wound ({pilot.wounds} remaining)", "success")
+        target = pilot.campaign_id
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))
 
 
 @bp.route("/pilots/<int:pilot_id>/update", methods=["POST"])
@@ -370,8 +391,12 @@ def add_travel(id: int):  # noqa: A002
             request.form.get("destination") or "",
             departure_campaign_month=_optional_int(request.form.get("departure_campaign_month")),
             jump_count=_optional_int(request.form.get("jump_count")),
-            gross_cost=int(request.form.get("gross_cost") or 0),
-            covered_amount=int(request.form.get("covered_amount") or 0),
+            transport_mode=request.form.get("transport_mode") or "manual",
+            standard_amount=_optional_int(request.form.get("standard_amount")),
+            employer_payment=_optional_int(request.form.get("employer_payment")),
+            actual_expense=_optional_int(request.form.get("actual_expense")),
+            gross_cost=_optional_int(request.form.get("gross_cost")),
+            covered_amount=_optional_int(request.form.get("covered_amount")),
             actual_warchest_impact=_optional_int(request.form.get("actual_warchest_impact")),
             notes=request.form.get("notes"),
             contract_id=_optional_int(request.form.get("contract_id")),

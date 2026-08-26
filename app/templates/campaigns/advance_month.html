@@ -20,7 +20,7 @@
             <dt class="col-sm-4">Location</dt>
             <dd class="col-sm-8">{{ preview.location }}</dd>
             <dt class="col-sm-4">Warchest</dt>
-            <dd class="col-sm-8">{{ preview.warchest }} WP</dd>
+            <dd class="col-sm-8">{{ preview.warchest }} SP</dd>
             <dt class="col-sm-4">Active contract</dt>
             <dd class="col-sm-8">{{ preview.active_contract or 'None' }}{% if preview.contract_month %} · contract month {{ preview.contract_month }}{% endif %}</dd>
             <dt class="col-sm-4">In transit</dt>
@@ -66,11 +66,11 @@
             onsubmit="return confirm('Advance the campaign month? This posts Base Pay and maintenance and arrives travel due this month.');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-4">
-                <label class="form-label">Base Pay WP</label>
+                <label class="form-label">Base Pay SP</label>
                 <input type="number" name="base_pay" min="0" class="form-control" value="0" required>
             </div>
             <div class="col-md-4">
-                <label class="form-label">Maintenance WP</label>
+                <label class="form-label">Maintenance SP</label>
                 <input type="number" name="maintenance" min="0" class="form-control" value="0" required>
             </div>
             <div class="col-12">

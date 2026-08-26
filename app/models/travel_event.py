@@ -25,8 +25,10 @@ class TravelEvent(Base):
     departure_campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
     arrival_campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     jump_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transport_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
     gross_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     covered_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_expense: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     actual_warchest_impact: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_transit")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -43,8 +45,10 @@ class TravelEvent(Base):
             "departure_campaign_month": self.departure_campaign_month,
             "arrival_campaign_month": self.arrival_campaign_month,
             "jump_count": self.jump_count,
+            "transport_mode": self.transport_mode,
             "gross_cost": self.gross_cost,
             "covered_amount": self.covered_amount,
+            "actual_expense": self.actual_expense,
             "actual_warchest_impact": self.actual_warchest_impact,
             "status": self.status,
             "notes": self.notes,

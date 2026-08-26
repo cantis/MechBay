@@ -5,6 +5,7 @@ from .campaign_lance import CampaignLance  # noqa: F401
 from .campaign_pilot import CampaignPilot  # noqa: F401
 from .campaign_unit import CampaignUnit  # noqa: F401
 from .contract import Contract  # noqa: F401
+from .contract_unit import ContractUnit  # noqa: F401
 from .damage_event import DamageEvent  # noqa: F401
 from .force import Force  # noqa: F401
 from .force_miniature import ForceMiniature  # noqa: F401

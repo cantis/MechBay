@@ -20,7 +20,7 @@ class CampaignPilot(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     callsign: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gunnery: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
-    piloting: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    piloting: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     alpha_strike_skill: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     edge_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     edge_abilities: Mapped[str | None] = mapped_column(Text, nullable=True)
