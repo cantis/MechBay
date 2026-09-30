@@ -30,8 +30,14 @@
 </div>
 
 {% if forces %}
+{% if forces|length > 5 %}
+<div class="mb-3">
+    <input type="search" id="forceSearchInput" class="form-control" placeholder="Search forces by name..."
+        aria-label="Search forces by name" autocomplete="off">
+</div>
+{% endif %}
 <div class="table-responsive">
-    <table class="table table-striped align-middle">
+    <table class="table table-striped align-middle" id="forcesTable">
         <thead>
             <tr>
                 <th>Name</th>
@@ -43,6 +49,7 @@
         <tbody>
             {% for force in forces %}
             <tr {% if force.is_active %}class="table-active" {% endif %}
+                data-force-name="{{ force.name|lower }}"
                 ondblclick="window.location='{{ url_for('forces.detail', id=force.id) }}';" style="cursor: pointer;">
                 <td>
                     <strong>{{ force.name }}</strong>
@@ -116,6 +123,7 @@
             {% endfor %}
         </tbody>
     </table>
+    <div id="forceSearchNoResults" class="alert alert-info d-none">No forces match your search.</div>
 </div>
 {% else %}
 <div class="alert alert-info">
@@ -193,6 +201,22 @@
         };
         modal.show();
         document.getElementById('renameForceModal').addEventListener('shown.bs.modal', () => input.select(), { once: true });
+    }
+
+    const forceSearchInput = document.getElementById('forceSearchInput');
+    if (forceSearchInput) {
+        const rows = Array.from(document.querySelectorAll('#forcesTable tbody tr'));
+        const noResults = document.getElementById('forceSearchNoResults');
+        forceSearchInput.addEventListener('input', () => {
+            const term = forceSearchInput.value.trim().toLowerCase();
+            let visibleCount = 0;
+            rows.forEach(row => {
+                const match = !term || row.dataset.forceName.includes(term);
+                row.classList.toggle('d-none', !match);
+                if (match) visibleCount++;
+            });
+            noResults.classList.toggle('d-none', visibleCount !== 0);
+        });
     }
 </script>
 
