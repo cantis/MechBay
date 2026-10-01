@@ -491,3 +491,57 @@ def test_create_contract_and_sortie_routes(client, minimal_force):
     assert sortie_resp.status_code == 200
     assert b"First Track" in sortie_resp.data
     assert b"Track" in sortie_resp.data
+
+
+def test_chaos_sortie_still_requires_contract_after_aces_support(client, minimal_force):
+    """Chaos Sortie creation is unaffected by Aces Sorties becoming Contract-free."""
+    campaign = _campaign(minimal_force)
+    draft = contract_service.create_contract(campaign.id, "Draft")
+
+    with pytest.raises(ValueError, match="active contract"):
+        contract_service.create_sortie(draft.id, "Ambush")
+
+
+def test_eligible_campaign_units_with_no_contract_returns_full_roster(client, minimal_force):
+    """A None contract_id (Aces-style) returns the whole eligible Campaign roster."""
+    campaign = _ensure_units_as_ready(_campaign(minimal_force))
+
+    eligible = contract_service.eligible_campaign_units(campaign.id, contract_id=None)
+
+    assert {unit.id for unit in eligible} == {unit.id for unit in campaign.units}
+
+
+def test_add_unit_to_sortie_without_contract(client, minimal_force):
+    """add_unit_to_sortie skips the Contract-roster check for a Contract-free Sortie."""
+    aces = campaign_service.create_campaign_from_force(
+        minimal_force,
+        "Aces Shadow",
+        ruleset="aces",
+        starting_bt_year=3151,
+        starting_bt_month=1,
+    )
+    aces = _ensure_units_as_ready(aces)
+    sortie = campaign_service.create_aces_sortie(aces.id, "Direct Sortie")
+
+    row = contract_service.add_unit_to_sortie(sortie.id, aces.units[0].id)
+
+    assert row.campaign_unit_id == aces.units[0].id
+
+
+def test_mark_sortie_ready_without_contract(client, minimal_force):
+    """mark_sortie_ready skips Contract Scale/roster checks for a Contract-free Sortie."""
+    aces = _ensure_units_as_ready(
+        campaign_service.create_campaign_from_force(
+            minimal_force,
+            "Aces Shadow",
+            ruleset="aces",
+            starting_bt_year=3151,
+            starting_bt_month=1,
+        )
+    )
+    sortie = campaign_service.create_aces_sortie(aces.id, "Direct Sortie")
+    contract_service.add_unit_to_sortie(sortie.id, aces.units[0].id)
+
+    ready = contract_service.mark_sortie_ready(sortie.id)
+
+    assert ready.status == "ready"

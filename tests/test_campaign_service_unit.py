@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -569,3 +570,132 @@ def test_miniatures_page_links_to_loaded_campaign(client, minimal_force):
     assert "Loaded Campaign" in body
     assert "Reach" in body
     assert f"/campaigns/{campaign.id}" in body
+
+
+# --- Aces ruleset ---
+
+
+def test_create_campaign_defaults_to_chaos_ruleset(client, minimal_force):
+    """Campaigns default to the Chaos Campaign ruleset when none is given."""
+    campaign = _create_campaign(minimal_force, "Default Ruleset")
+
+    assert campaign.ruleset == "chaos"
+    assert campaign.difficulty is None
+
+
+def test_create_campaign_aces_ruleset_and_difficulty(client, minimal_force):
+    """Aces campaigns persist their ruleset and optional difficulty."""
+    campaign = _create_campaign(
+        minimal_force, "Aces Campaign", ruleset="aces", difficulty="veteran"
+    )
+
+    assert campaign.ruleset == "aces"
+    assert campaign.difficulty == "veteran"
+
+
+def test_create_campaign_rejects_invalid_ruleset(client, minimal_force):
+    with pytest.raises(ValueError, match="Unknown campaign ruleset"):
+        _create_campaign(minimal_force, "Bad Ruleset", ruleset="not-a-ruleset")
+
+
+def test_create_aces_sortie_requires_aces_campaign(client, minimal_force):
+    """A Chaos Campaign cannot create a Contract-free Sortie."""
+    campaign = _create_campaign(minimal_force, "Chaos Campaign")
+
+    with pytest.raises(ValueError, match="only available for aces campaigns"):
+        campaign_service.create_aces_sortie(campaign.id, "Sortie 1")
+
+
+def test_create_aces_sortie_has_no_contract(client, minimal_force):
+    """Aces Sorties attach directly to the Campaign, with no Contract."""
+    campaign = _create_campaign(minimal_force, "Aces Campaign", ruleset="aces")
+
+    sortie = campaign_service.create_aces_sortie(
+        campaign.id, "Waypoint Alpha", scenario_type="Recon"
+    )
+
+    assert sortie.campaign_id == campaign.id
+    assert sortie.contract_id is None
+    assert sortie.status == "planning"
+    assert sortie.scenario_type == "Recon"
+
+
+@patch("app.services.campaign_service.mul_service.find_unit_in_search_results")
+def test_purchase_campaign_unit_cost_and_ledger(mock_find, client, minimal_force):
+    """Purchase cost is PV x 40 SP and is recorded as a new CampaignUnit + ledger entry."""
+    _enable_alpha_strike(minimal_force, 400)
+    campaign = _create_campaign(
+        minimal_force, "Aces Campaign", ruleset="aces", opening_warchest=2000
+    )
+    mock_find.return_value = WHM_RAW  # BFPointValue 40
+
+    unit = campaign_service.purchase_campaign_unit(
+        campaign.id, 7563, search_name="Warhammer"
+    )
+
+    assert unit.miniature_id is None
+    assert unit.point_value == 40
+    assert unit.campaign_id == campaign.id
+
+    reloaded = campaign_service.get_campaign_by_id(campaign.id)
+    assert reloaded.warchest_balance == 2000 - (40 * 40)
+    purchase_tx = next(
+        tx for tx in reloaded.transactions if tx.transaction_type == "unit_purchase"
+    )
+    assert purchase_tx.actual_amount == -(40 * 40)
+
+
+@patch("app.services.campaign_service.mul_service.find_unit_in_search_results")
+def test_purchase_campaign_unit_rejects_missing_pv(mock_find, client, minimal_force):
+    _enable_alpha_strike(minimal_force, 400)
+    campaign = _create_campaign(minimal_force, "Aces Campaign", ruleset="aces")
+    mock_find.return_value = {**WHM_RAW, "BFPointValue": 0}
+
+    with pytest.raises(ValueError, match="no valid MUL Point Value"):
+        campaign_service.purchase_campaign_unit(campaign.id, 7563, search_name="Warhammer")
+
+
+@patch("app.services.campaign_service.mul_service.find_unit_in_search_results")
+def test_purchase_campaign_unit_rejects_insufficient_warchest(mock_find, client, minimal_force):
+    _enable_alpha_strike(minimal_force, 400)
+    campaign = _create_campaign(
+        minimal_force, "Aces Campaign", ruleset="aces", opening_warchest=100
+    )
+    mock_find.return_value = WHM_RAW  # cost = 1600
+
+    with pytest.raises(ValueError, match="Insufficient Warchest"):
+        campaign_service.purchase_campaign_unit(campaign.id, 7563, search_name="Warhammer")
+
+
+@patch("app.services.campaign_service.mul_service.find_unit_in_search_results")
+def test_purchase_campaign_unit_requires_aces_campaign(mock_find, client, minimal_force):
+    campaign = _create_campaign(minimal_force, "Chaos Campaign")
+    mock_find.return_value = WHM_RAW
+
+    with pytest.raises(ValueError, match="only available for aces campaigns"):
+        campaign_service.purchase_campaign_unit(campaign.id, 7563, search_name="Warhammer")
+
+
+def test_get_units_missing_pv(client, minimal_force):
+    """Units without a MUL PV are reported as ineligible for force accounting."""
+    campaign = _create_campaign(minimal_force, "Aces Campaign", ruleset="aces")
+
+    missing = campaign_service.get_units_missing_pv(campaign.id)
+
+    assert len(missing) == 2  # neither seeded unit has an Alpha Strike assignment
+
+
+def test_get_aces_force_summary(client, minimal_force):
+    minis = _first_force_miniatures(minimal_force)
+    _enable_alpha_strike(minimal_force, 400)
+    _assign_variant(minis[0].id, WHM_RAW)
+    campaign = _create_campaign(
+        minimal_force, "Aces Campaign", ruleset="aces", difficulty="veteran"
+    )
+
+    summary = campaign_service.get_aces_force_summary(campaign.id)
+
+    assert summary["total_active_pv"] == 40
+    assert summary["difficulty"] == "veteran"
+    assert summary["units_missing_pv"] == 1
+    assert summary["completed_sortie_count"] == 0

@@ -224,7 +224,9 @@ def sortie_detail(id: int):  # noqa: A002
         flash("Sortie not found", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
     campaign = campaign_service.get_campaign_by_id(sortie.campaign_id)
-    contract = contract_service.get_contract_by_id(sortie.contract_id)
+    contract = (
+        contract_service.get_contract_by_id(sortie.contract_id) if sortie.contract_id else None
+    )
     eligible_units = contract_service.eligible_campaign_units(
         sortie.campaign_id, contract_id=sortie.contract_id
     )

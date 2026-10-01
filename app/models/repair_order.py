@@ -26,6 +26,7 @@ class RepairOrder(Base):
         Integer, ForeignKey("campaign_units.id"), nullable=False
     )
     damage_category: Mapped[str] = mapped_column(String(32), nullable=False)
+    ruleset: Mapped[str] = mapped_column(String(16), nullable=False, default="chaos")
     gross_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     covered_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     actual_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

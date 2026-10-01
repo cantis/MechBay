@@ -915,7 +915,9 @@ def add_unit_to_sortie(sortie_id: int, campaign_unit_id: int) -> SortieUnit:
             raise ValueError(
                 "This unit has no Alpha Strike Point Value and cannot be added to a campaign force."
             )
-        if not unit_on_contract_roster(session, sortie.contract_id, campaign_unit_id):
+        if sortie.contract_id is not None and not unit_on_contract_roster(
+            session, sortie.contract_id, campaign_unit_id
+        ):
             raise ValueError("Unit is not committed to this Contract roster")
         existing = session.execute(
             select(SortieUnit).where(
@@ -960,17 +962,19 @@ def add_lance_to_sortie(sortie_id: int, campaign_lance_id: int) -> list[SortieUn
         lance = session.get(CampaignLance, campaign_lance_id)
         if not lance or lance.campaign_id != sortie.campaign_id:
             raise ValueError("Lance is not part of this campaign")
-        roster_ids = {
-            row.campaign_unit_id
-            for row in session.execute(
-                select(ContractUnit).where(ContractUnit.contract_id == sortie.contract_id)
-            ).scalars()
-        }
+        roster_ids: set[int] | None = None
+        if sortie.contract_id is not None:
+            roster_ids = {
+                row.campaign_unit_id
+                for row in session.execute(
+                    select(ContractUnit).where(ContractUnit.contract_id == sortie.contract_id)
+                ).scalars()
+            }
         unit_ids = [
             unit.id
             for unit in lance.units
             if unit_is_available(unit)
-            and unit.id in roster_ids
+            and (roster_ids is None or unit.id in roster_ids)
             and unit.point_value is not None
         ]
     added: list[SortieUnit] = []
@@ -1048,30 +1052,34 @@ def mark_sortie_ready(sortie_id: int) -> Sortie:
             raise ValueError("Only a planning Sortie can be marked Ready")
         if not sortie.units:
             raise ValueError("Select at least one unit before marking Ready")
-        contract = session.get(Contract, sortie.contract_id)
-        if not contract:
-            raise ValueError("Contract not found")
-        if sortie.scale > contract.scale:
-            raise ValueError("Sortie Scale cannot exceed Contract Scale")
-        unit_count = len(sortie.units)
-        max_units = sortie_unit_limit(sortie.scale)
-        if unit_count > max_units:
-            raise ValueError(
-                f"Sortie force would be {unit_count} / {max_units} units for Scale {sortie.scale}"
-            )
-        pv_total = sum(int(row.point_value or 0) for row in sortie.units)
-        max_pv = sortie_pv_limit(sortie.scale)
         if any(row.point_value is None for row in sortie.units):
             raise ValueError(
                 "This unit has no Alpha Strike Point Value and cannot be added to a campaign force."
             )
-        if pv_total > max_pv:
-            raise ValueError(
-                f"Sortie force would be {pv_total} / {max_pv} PV for Scale {sortie.scale}"
-            )
+        if sortie.contract_id is not None:
+            contract = session.get(Contract, sortie.contract_id)
+            if not contract:
+                raise ValueError("Contract not found")
+            if sortie.scale > contract.scale:
+                raise ValueError("Sortie Scale cannot exceed Contract Scale")
+            unit_count = len(sortie.units)
+            max_units = sortie_unit_limit(sortie.scale)
+            if unit_count > max_units:
+                raise ValueError(
+                    f"Sortie force would be {unit_count} / {max_units} units "
+                    f"for Scale {sortie.scale}"
+                )
+            pv_total = sum(int(row.point_value or 0) for row in sortie.units)
+            max_pv = sortie_pv_limit(sortie.scale)
+            if pv_total > max_pv:
+                raise ValueError(
+                    f"Sortie force would be {pv_total} / {max_pv} PV for Scale {sortie.scale}"
+                )
         for row in sortie.units:
-            if row.campaign_unit_id and not unit_on_contract_roster(
-                session, sortie.contract_id, row.campaign_unit_id
+            if (
+                sortie.contract_id is not None
+                and row.campaign_unit_id
+                and not unit_on_contract_roster(session, sortie.contract_id, row.campaign_unit_id)
             ):
                 raise ValueError(f"{row.chassis} is not on this Contract roster")
             if not row.campaign_pilot_id:

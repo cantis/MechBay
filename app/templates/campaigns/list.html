@@ -41,7 +41,12 @@
                     <div class="small text-muted">Created from {{ campaign.source_force_name }}</div>
                     {% endif %}
                 </td>
-                <td><span class="badge rounded-pill bg-secondary">{{ campaign.status }}</span></td>
+                <td>
+                    <span class="badge rounded-pill bg-secondary">{{ campaign.status }}</span>
+                    {% if campaign.ruleset == 'aces' %}
+                    <span class="badge rounded-pill bg-info text-dark">Aces</span>
+                    {% endif %}
+                </td>
                 <td>{{ campaign.current_campaign_month }}</td>
                 <td>{{ campaign.current_location or '—' }}</td>
                 <td>{{ campaign.warchest_balance }} SP</td>
@@ -109,6 +114,21 @@
                         <label class="form-label">Campaign Name *</label>
                         <input type="text" name="name" required class="form-control"
                             placeholder="e.g. Draconis Reach">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Ruleset</label>
+                            <select name="ruleset" id="campaignRulesetSelect" class="form-select"
+                                onchange="document.getElementById('acesDifficultyRow').classList.toggle('d-none', this.value !== 'aces')">
+                                <option value="chaos" selected>Chaos Campaign (Hot Spots)</option>
+                                <option value="aces">BattleTech Aces</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3 d-none" id="acesDifficultyRow">
+                            <label class="form-label">Aces Difficulty</label>
+                            <input type="text" name="difficulty" class="form-control"
+                                placeholder="e.g. Veteran">
+                        </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">

@@ -24,7 +24,7 @@ from ..models.sortie_unit import SortieUnit
 from ..models.travel_event import TravelEvent
 from ..models.unit_configuration_event import UnitConfigurationEvent
 from ..models.warchest_transaction import WarchestTransaction
-from . import campaign_service, contract_service, mul_service
+from . import campaign_rules, campaign_service, contract_service, mul_service
 from .campaign_service import sync_pilot_wounded_flag, unit_is_omni
 from .contract_service import SORTIE_OUTCOMES, transportation_coverage
 
@@ -230,7 +230,7 @@ def apply_after_action(
                     )
                 )
                 if damage in REPAIRABLE_DAMAGE:
-                    gross = standard_repair_cost(damage, unit.tonnage)
+                    gross = campaign_rules.repair_cost(campaign.ruleset, damage, unit.tonnage)
                     covered = (
                         support_coverage(gross, support) if support_percent is not None else 0
                     )
@@ -241,6 +241,7 @@ def apply_after_action(
                             sortie_id=sortie.id,
                             campaign_unit_id=unit.id,
                             damage_category=damage,
+                            ruleset=campaign.ruleset,
                             gross_cost=gross,
                             covered_amount=covered,
                             actual_cost=actual,
@@ -373,6 +374,24 @@ def mark_unit_truly_destroyed(campaign_unit_id: int) -> CampaignUnit:
                 notes="Marked truly destroyed after recovery check",
             )
         )
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
+def retire_campaign_unit(campaign_unit_id: int) -> CampaignUnit:
+    """Voluntarily retire an active Campaign Unit from service (not a casualty)."""
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, campaign_unit_id)
+        if not unit:
+            raise ValueError("Campaign unit not found")
+        if unit.condition in {"truly-destroyed", "retired"}:
+            raise ValueError(f"Unit is already {unit.condition}")
+        unit.condition = "retired"
+        unit.available = False
+        for order in _open_repairs(session, unit.id):
+            order.status = "cancelled"
         session.flush()
         _ = unit.miniature
         session.expunge(unit)

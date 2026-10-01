@@ -476,3 +476,106 @@ def test_after_action_route_and_combat_pay(client, minimal_force):
     assert campaign_loaded.warchest_balance == 210
     repair = after_action_service.get_repair_orders(campaign.id)[0]
     assert repair.gross_cost == 210  # 70t * 3 crippled
+
+
+# --- Aces ruleset ---
+
+
+def _aces_campaign(force_id: int, name: str = "Aces Reach"):
+    return campaign_service.create_campaign_from_force(
+        force_id,
+        name,
+        ruleset="aces",
+        opening_warchest=200,
+        starting_bt_year=3151,
+        starting_bt_month=1,
+    )
+
+
+def _fought_aces_sortie(campaign, *, name: str = "Waypoint", unit_ids: list[int] | None = None):
+    sortie = campaign_service.create_aces_sortie(campaign.id, name)
+    ids = unit_ids or [campaign.units[0].id]
+    for unit_id in ids:
+        contract_service.add_unit_to_sortie(sortie.id, unit_id)
+    contract_service.mark_sortie_ready(sortie.id)
+    return contract_service.mark_sortie_fought(sortie.id)
+
+
+@pytest.mark.parametrize(
+    ("damage", "expected"),
+    [("armour", 20), ("structure", 40), ("crippled", 50), ("destroyed", 100)],
+)
+def test_aces_repair_cost_tiers(client, minimal_force, damage, expected):
+    """Aces repair costs are flat SP tiers, not tonnage-based like Chaos."""
+    campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
+    sortie = _fought_aces_sortie(campaign, name=f"Sortie-{damage}")
+
+    after_action_service.apply_after_action(sortie.id, _results(sortie, damage))
+
+    order = after_action_service.get_repair_orders(campaign.id)[0]
+    assert order.damage_category == damage
+    assert order.gross_cost == expected
+    assert order.ruleset == "aces"
+
+
+def test_aces_sortie_has_no_contract_support_coverage(client, minimal_force):
+    """A Contract-free Aces Sortie gets no Contract Support coverage on repairs."""
+    campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
+    sortie = _fought_aces_sortie(campaign)
+
+    after_action_service.apply_after_action(sortie.id, _results(sortie, "armour"))
+
+    order = after_action_service.get_repair_orders(campaign.id)[0]
+    assert order.covered_amount == 0
+    assert order.actual_cost == -20
+
+
+def test_aces_rearm_matches_chaos_rule(client, minimal_force):
+    """Aces rearm reuses the existing 20 SP / non-ENE rule unchanged."""
+    campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, campaign.units[1].id)
+        unit.mul_snapshot_json = json.dumps(ENE_RAW)
+    sortie = _fought_aces_sortie(
+        campaign, unit_ids=[campaign.units[0].id, campaign.units[1].id]
+    )
+
+    after_action_service.apply_after_action(sortie.id, _results(sortie, "none"))
+    loaded = campaign_service.get_campaign_by_id(campaign.id)
+    rearm_txs = [tx for tx in loaded.transactions if tx.transaction_type == "rearm"]
+
+    assert len(rearm_txs) == 1
+    assert rearm_txs[0].gross_amount == -20
+    assert rearm_txs[0].covered_amount == 0
+    assert rearm_txs[0].actual_amount == -20
+
+
+def test_aces_truly_destroyed_unit_cannot_be_repaired(client, minimal_force):
+    """A Truly Destroyed Aces unit is excluded from force accounting and repair."""
+    campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
+    sortie = _fought_aces_sortie(campaign)
+    after_action_service.apply_after_action(sortie.id, _results(sortie, "destroyed"))
+
+    unit = after_action_service.mark_unit_truly_destroyed(campaign.units[0].id)
+    orders = after_action_service.get_repair_orders(campaign.id)
+
+    assert unit.condition == "truly-destroyed"
+    assert unit.available is False
+    assert all(order.status == "cancelled" for order in orders)
+    with pytest.raises(ValueError, match="not currently available"):
+        contract_service.add_unit_to_sortie(
+            campaign_service.create_aces_sortie(campaign.id, "Later").id, unit.id
+        )
+
+
+def test_retire_campaign_unit(client, minimal_force):
+    """Voluntary retirement removes a unit from the active Player Force."""
+    campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
+    unit_id = campaign.units[0].id
+
+    unit = after_action_service.retire_campaign_unit(unit_id)
+
+    assert unit.condition == "retired"
+    assert unit.available is False
+    with pytest.raises(ValueError, match="already retired"):
+        after_action_service.retire_campaign_unit(unit_id)

@@ -7,13 +7,17 @@
         <small class="text-muted">
             <span class="badge rounded-pill bg-secondary">{{ sortie.status }}</span>
             <span class="mx-1">·</span>Sortie Scale {{ sortie.scale }}
-            {% if contract %}<span class="mx-1">·</span>Contract Scale {{ contract.scale }} · {{ contract.contract_number }}{% endif %}
+            {% if contract %}<span class="mx-1">·</span>Contract Scale {{ contract.scale }} · {{ contract.contract_number }}{% else %}<span class="mx-1">·</span>Direct Campaign Sortie{% endif %}
             <span class="mx-1">·</span>{{ pv_total }} / {{ pv_limit }} PV
             <span class="mx-1">·</span>{{ sortie.units | length }} / {{ unit_limit }} units
             {% if sortie.outcome %}<span class="mx-1">·</span>{{ sortie.outcome }}{% endif %}
         </small>
     </div>
+    {% if contract %}
     <a href="{{ url_for('contracts.detail', id=sortie.contract_id) }}" class="btn btn-outline-secondary">Back to Contract</a>
+    {% else %}
+    <a href="{{ url_for('campaigns.detail', id=sortie.campaign_id) }}" class="btn btn-outline-secondary">Back to Campaign</a>
+    {% endif %}
 </div>
 
 <div class="card mb-3">

@@ -3,7 +3,13 @@ from __future__ import annotations
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from ..services import after_action_service, campaign_service, contract_service, force_service
+from ..services import (
+    after_action_service,
+    campaign_service,
+    contract_service,
+    force_service,
+    mul_service,
+)
 from ..services.campaign_service import (
     CAMPAIGN_STATUSES,
     DEFAULT_OPENING_WARCHEST,
@@ -29,7 +35,7 @@ def _optional_int(value: str | None) -> int | None:
 
 
 def _campaign_view_context(campaign) -> dict:
-    return {
+    context = {
         "campaign": campaign,
         "month_label": campaign_service.campaign_month_label(campaign),
         "location_label": campaign_service.location_display(campaign),
@@ -41,12 +47,18 @@ def _campaign_view_context(campaign) -> dict:
         "generic_as_skill": campaign_service.GENERIC_AS_SKILL,
         "default_pilot_gunnery": DEFAULT_PILOT_GUNNERY,
         "default_pilot_piloting": DEFAULT_PILOT_PILOTING,
-        "contracts": contract_service.get_contracts_for_campaign(campaign.id),
-        "active_contract": contract_service.get_active_contract(campaign.id),
-        "next_contract_number": contract_service.next_contract_number(campaign.id),
         "repair_orders": after_action_service.get_repair_orders(campaign.id),
         "open_repair_statuses": after_action_service.OPEN_REPAIR_STATUSES,
     }
+    if campaign.ruleset == "aces":
+        context["aces_summary"] = campaign_service.get_aces_force_summary(campaign.id)
+        context["campaign_log"] = campaign_service.get_campaign_log(campaign.id)
+        context["units_missing_pv"] = campaign_service.get_units_missing_pv(campaign.id)
+    else:
+        context["contracts"] = contract_service.get_contracts_for_campaign(campaign.id)
+        context["active_contract"] = contract_service.get_active_contract(campaign.id)
+        context["next_contract_number"] = contract_service.next_contract_number(campaign.id)
+    return context
 
 
 @bp.route("")
@@ -91,10 +103,15 @@ def create():
         flash("Invalid campaign values", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
 
+    ruleset = (request.form.get("ruleset") or "chaos").strip()
+    difficulty = request.form.get("difficulty")
+
     try:
         campaign = campaign_service.create_campaign_from_force(
             force_id,
             name,
+            ruleset=ruleset,
+            difficulty=difficulty,
             scale=scale,
             reputation=reputation,
             status=request.form.get("status", "planning").strip() or "planning",
@@ -545,3 +562,76 @@ def advance_month(id: int):  # noqa: A002
     except (TypeError, ValueError) as exc:
         flash(str(exc) if isinstance(exc, ValueError) else "Invalid month-advance values", "danger")
         return redirect(url_for("campaigns.advance_month_form", id=id))
+
+
+@bp.route("/<int:id>/sorties", methods=["POST"])
+def create_aces_sortie(id: int):  # noqa: A002
+    try:
+        sortie = campaign_service.create_aces_sortie(
+            id,
+            request.form.get("name") or "",
+            campaign_month=_optional_int(request.form.get("campaign_month")),
+            scenario_type=request.form.get("scenario_type"),
+            location=request.form.get("location"),
+            notes=request.form.get("notes"),
+        )
+        flash("Sortie created", "success")
+        return redirect(url_for("contracts.sortie_detail", id=sortie.id))
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid Sortie values", "danger")
+        return redirect(url_for("campaigns.detail", id=id))
+
+
+@bp.route("/<int:id>/mul-search")
+def mul_search(id: int):  # noqa: A002
+    campaign = campaign_service.get_campaign_by_id(id)
+    if not campaign:
+        return jsonify({"success": False, "error": "Campaign not found"}), 404
+    if campaign.mul_faction_id is None or campaign.mul_era_id is None:
+        return (
+            jsonify({"success": False, "error": "Campaign has no MUL faction/era configured"}),
+            400,
+        )
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"success": True, "data": {"results": []}})
+    try:
+        results = mul_service.search_variants(
+            query,
+            faction_id=campaign.mul_faction_id,
+            era_id=campaign.mul_era_id,
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    return jsonify({"success": True, "data": {"results": results}})
+
+
+@bp.route("/<int:id>/purchase-unit", methods=["POST"])
+def purchase_unit(id: int):  # noqa: A002
+    try:
+        unit = campaign_service.purchase_campaign_unit(
+            id,
+            int(request.form.get("mul_unit_id")),
+            search_name=request.form.get("search_name") or "",
+            unit_type_id=_optional_int(request.form.get("unit_type_id")),
+            campaign_lance_id=_optional_int(request.form.get("campaign_lance_id")),
+        )
+        flash(f"Purchased {unit.display_name} for the Player Force", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid purchase values", "danger")
+    return redirect(url_for("campaigns.detail", id=id))
+
+
+@bp.route("/units/<int:unit_id>/retire", methods=["POST"])
+def retire_unit(unit_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        unit = after_action_service.retire_campaign_unit(unit_id)
+        flash(f"{unit.chassis} retired from service", "info")
+        target = unit.campaign_id
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        target = int(campaign_id) if campaign_id else None
+    if target:
+        return redirect(url_for("campaigns.detail", id=int(target)))
+    return redirect(url_for("campaigns.list_campaigns"))

@@ -28,6 +28,8 @@ class Campaign(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    ruleset: Mapped[str] = mapped_column(String(16), nullable=False, default="chaos")
+    difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="planning")
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     current_campaign_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -125,6 +127,8 @@ class Campaign(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "ruleset": self.ruleset,
+            "difficulty": self.difficulty,
             "status": self.status,
             "is_active": self.is_active,
             "current_campaign_month": self.current_campaign_month,

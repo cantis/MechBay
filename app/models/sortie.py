@@ -21,7 +21,9 @@ class Sortie(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     campaign_id: Mapped[int] = mapped_column(Integer, ForeignKey("campaigns.id"), nullable=False)
-    contract_id: Mapped[int] = mapped_column(Integer, ForeignKey("contracts.id"), nullable=False)
+    contract_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("contracts.id"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     campaign_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     scale: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -42,7 +44,7 @@ class Sortie(Base):
     )
 
     campaign: Mapped[Campaign] = relationship("Campaign", back_populates="sorties")
-    contract: Mapped[Contract] = relationship("Contract", back_populates="sorties")
+    contract: Mapped[Contract | None] = relationship("Contract", back_populates="sorties")
     units: Mapped[list[SortieUnit]] = relationship(
         "SortieUnit",
         back_populates="sortie",

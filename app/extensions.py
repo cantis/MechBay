@@ -164,6 +164,13 @@ def _apply_schema_migrations(db_engine) -> None:
                 "transport_mode": "VARCHAR(32) DEFAULT 'manual'",
                 "actual_expense": "INTEGER DEFAULT 0",
             },
+            "campaigns": {
+                "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
+                "difficulty": "VARCHAR(32)",
+            },
+            "repair_orders": {
+                "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
+            },
         }
         for table, cols in extra_columns.items():
             if table not in campaign_tables:
@@ -176,6 +183,33 @@ def _apply_schema_migrations(db_engine) -> None:
                     conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {col_type}'))
                     conn.commit()
                     logger.info("schema_migration_applied", table=table, column=column)
+
+        if "sorties" in campaign_tables:
+            _make_sorties_contract_id_nullable(conn)
+
+
+def _make_sorties_contract_id_nullable(conn) -> None:
+    """Rebuild the sorties table so contract_id allows NULL (Aces Sorties have no Contract).
+
+    SQLite cannot ALTER COLUMN ... DROP NOT NULL in place, so this copies the table
+    through a rebuild using the current (already-nullable) SQLAlchemy model definition.
+    """
+    info = conn.execute(text("PRAGMA table_info(sorties)")).fetchall()
+    contract_id_row = next((row for row in info if row[1] == "contract_id"), None)
+    if contract_id_row is None or contract_id_row[3] == 0:
+        return  # column missing or already nullable
+
+    columns = [row[1] for row in info]
+    col_list = ", ".join(f'"{c}"' for c in columns)
+
+    conn.execute(text('ALTER TABLE "sorties" RENAME TO "sorties_old"'))
+    Base.metadata.tables["sorties"].create(bind=conn)
+    conn.execute(
+        text(f'INSERT INTO "sorties" ({col_list}) SELECT {col_list} FROM "sorties_old"')
+    )
+    conn.execute(text('DROP TABLE "sorties_old"'))
+    conn.commit()
+    logger.info("schema_migration_applied", table="sorties", column="contract_id_nullable")
 
 
 @contextmanager
