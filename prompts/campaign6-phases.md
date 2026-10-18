@@ -42,3 +42,11 @@
 - Aces campaigns are Sortie-based: no starting year/month, current month, location, travel or Contracts are stored or shown. Chaos is unchanged.
 - `campaign_month` (events, ledger, Sorties) and `campaigns.current_campaign_month` are nullable; startup rebuilds the affected SQLite tables and clears any stored calendar/location values on existing Aces campaigns. Chaos rows are untouched.
 - Aces chronology: Sortie number, then replay attempt, then `date_played`. Pilot Service History orders creation, then each Sortie in sequence (participation, injuries, advancement).
+
+## Notes from the repairs and sales addenda
+
+- Aces repairs are mandatory: the repair order and its cost are created at Apply (part of the Sortie's expenses), and the unit returns to service when the Sortie is **finalized**. Aces repair orders cannot be edited, cancelled or completed by hand; the Repair Orders card is Chaos-only.
+- The Warchest does not move until the Sortie is **finalized**: Apply stores the ledger lines on the report (`pending_ledger`) and Finalize posts them. The report's Warchest before/after are therefore always the true figures.
+- Between Sorties is derived (no new status): no Aces Sortie is Fought or awaiting finalization. Until then purchases, sales, hires, pilot/unit retirement, manual Warchest entries and creating or readying the next Sortie are blocked. A failed Sortie leaves the campaign free to trade before its replay.
+- Purchases and sales no longer touch any Sortie Report (`purchases_total`, `sales_total`, `warchest_after` were removed). The Campaign Timeline shows Sortie results and Between-Sorties transactions as separate entries.
+- Aces unit condition is set only by Sortie results; Truly Destroyed is recorded only in the After-Sortie result.

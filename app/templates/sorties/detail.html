@@ -265,6 +265,9 @@
         {% if is_aces and lineage.replay_of %}
         <p class="mb-0 small">Replay of <a href="{{ url_for('contracts.sortie_detail', id=lineage.replay_of.id) }}">{{ lineage.replay_of.attempt_label }}</a> (failed).</p>
         {% endif %}
+        {% if is_aces and sortie.status == 'after_action' %}
+        <p class="mb-0 text-muted">After-Sortie applied. The Warchest and unit repairs post when you finalize below.</p>
+        {% endif %}
         {% if sortie.status == 'fought' %}
         <p class="mb-0 text-muted">Fought. Record After Action below.{% if not is_aces %} Closing the Sortie does not advance the campaign month.{% endif %}</p>
         {% endif %}
@@ -286,7 +289,8 @@
     <div class="card-body">
         <p class="small text-muted">Record what happened on the table. MechBay applies the campaign consequences:
             casualties, income, expenses, repairs, rearming, personnel costs, Earnings and pilot improvement.
-            Use <strong>Preview</strong> to check the numbers before applying; applying cannot be undone.</p>
+            Use <strong>Preview</strong> to check the numbers before applying; applying cannot be undone.
+            Damaged units that survive are <strong>repaired automatically</strong>: the repair is a required Sortie expense, and the unit returns to service when the Sortie is finalized.</p>
         <form method="post" action="{{ url_for('contracts.apply_aces_after_action', id=sortie.id) }}" id="acesAfterForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <h6>Casualties</h6>
@@ -425,6 +429,18 @@
                     line('Added to Warchest', p.warchest.remainder + ' SP'),
                     line('Warchest', p.warchest.before + ' → ' + p.warchest.after + ' SP'),
                 );
+                const repairs = p.units.filter((u) => u.repair_cost > 0);
+                if (repairs.length) {
+                    const head = document.createElement('div');
+                    head.className = 'fw-bold mt-2';
+                    head.textContent = 'Required Repairs';
+                    box.appendChild(head);
+                    repairs.forEach((u) => {
+                        box.appendChild(line(
+                            u.unit + ' (' + u.damage.replace('-', ' ') + ', Size ' + (u.size ?? '?') + ')',
+                            u.repair_cost + ' SP → repaired'));
+                    });
+                }
                 p.pilot.shares.forEach((s) => {
                     box.appendChild(line(s.callsign + ' (' + s.state.replace('_', ' ') + ')',
                         s.awarded + (s.mvp_bonus ? ' + ' + s.mvp_bonus + ' MVP' : '') + ' SP'));
@@ -542,7 +558,7 @@
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Finalize Sortie</h5></div>
     <div class="card-body">
-        <p class="small text-muted">Purchases and sales can be made from the campaign page before finalizing. Finalizing freezes the Sortie Report.</p>
+        <p class="small text-muted">Finalizing posts this Sortie's income and expenses to the Warchest, returns repaired units to service and freezes the Sortie Report. Purchases, sales and hires happen afterwards, Between Sorties.</p>
         <form method="post" action="{{ url_for('contracts.finalize_aces_sortie', id=sortie.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="form-label">Next Steps / Next Sortie</label>

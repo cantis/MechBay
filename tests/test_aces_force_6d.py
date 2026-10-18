@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 
 from app.extensions import session_scope
-from app.models.aces_sortie_report import AcesSortieReport
 from app.models.alpha_strike_assignment import AlphaStrikeAssignment
 from app.models.campaign import Campaign
 from app.models.campaign_unit import CampaignUnit
@@ -24,7 +23,7 @@ from app.services import (
     contract_service,
     force_service,
 )
-from tests.conftest import apply_aces
+from tests.conftest import apply_aces, finalize_aces
 
 # --- pure rules ----------------------------------------------------------------------------
 
@@ -496,7 +495,7 @@ def test_chaos_cannot_sell(client, minimal_force):
         campaign_service.sell_campaign_unit(chaos.id, chaos.units[0].id)
 
 
-def test_purchase_and_sale_roll_into_the_open_sortie_report(client, minimal_force):
+def test_trades_wait_for_finalize_and_never_touch_the_sortie_report(client, minimal_force):
     campaign, pilots = _aces(minimal_force, warchest=2000)
     with session_scope() as session:
         session.get(Campaign, campaign.id).mul_faction_id = 29
@@ -515,6 +514,21 @@ def test_purchase_and_sale_roll_into_the_open_sortie_report(client, minimal_forc
         "BFPointValue": 30,
         "Type": {"Id": 18, "Name": "BattleMech"},
     }
+    # Fought-and-applied but not finalized: no Between-Sorties work yet.
+    with patch("app.services.campaign_service.mul_service.find_unit_in_search_results") as find:
+        find.return_value = bought
+        with pytest.raises(ValueError, match="Finalize Sortie 1 before you buy units"):
+            campaign_service.purchase_campaign_unit(campaign.id, 7563, search_name="Warhammer")
+    with pytest.raises(ValueError, match="before you sell units"):
+        campaign_service.sell_campaign_unit(campaign.id, campaign.units[1].id)
+    assert campaign_service.get_campaign_by_id(campaign.id).warchest_balance == 2000
+
+    finalize_aces(sortie.id)
+    final = svc.get_sortie_report(sortie.id)["report"]
+    after_sortie = final.warchest_after_accounting
+    assert after_sortie == campaign_service.get_campaign_by_id(campaign.id).warchest_balance
+    snapshot = (final.total_income, final.total_expenses, final.earnings, final.warchest_before)
+
     with patch("app.services.campaign_service.mul_service.find_unit_in_search_results") as find:
         find.return_value = bought
         purchased = campaign_service.purchase_campaign_unit(
@@ -523,32 +537,15 @@ def test_purchase_and_sale_roll_into_the_open_sortie_report(client, minimal_forc
     assert purchased.miniature_id is None  # no physical Miniature is created
     sold = campaign_service.sell_campaign_unit(campaign.id, campaign.units[1].id)
 
-    with session_scope() as session:
-        report = session.query(AcesSortieReport).filter_by(sortie_id=sortie.id).one()
-        assert (report.purchases_total, report.sales_total) == (1200, 800)
-        session.expunge(report)
-
-    for item in svc.pending_shares(sortie.id):
-        svc.allocate_pilot_share(
-            sortie.id,
-            item["share"].campaign_pilot_id,
-            skill_sp=item["total"],
-            edge_sp=0,
-            ability_sp=0,
-        )
-    svc.finalize_aces_sortie(sortie.id, "next")
-    final = svc.get_sortie_report(sortie.id)["report"]
     balance = campaign_service.get_campaign_by_id(campaign.id).warchest_balance
-    assert final.warchest_after == balance
-    assert (final.purchases_total, final.sales_total) == (1200, 800)
-    assert sold.id and purchased.id != sold.id
-
-    # Once finalized, later trades no longer touch the frozen report.
-    with patch("app.services.campaign_service.mul_service.find_unit_in_search_results") as find:
-        find.return_value = bought
-        campaign_service.purchase_campaign_unit(campaign.id, 7563, search_name="Warhammer")
+    assert balance == after_sortie - 30 * 40 + 40 * 20
     again = svc.get_sortie_report(sortie.id)["report"]
-    assert again.purchases_total == 1200
+    assert again.warchest_after_accounting == after_sortie  # the report never moves
+    assert (again.total_income, again.total_expenses, again.earnings, again.warchest_before) == (
+        snapshot
+    )
+    assert not hasattr(again, "purchases_total") and not hasattr(again, "sales_total")
+    assert purchased.id != sold.id
 
 
 def test_sell_route_and_report_page_shows_trades(client, minimal_force):

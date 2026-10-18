@@ -358,6 +358,9 @@ def mark_unit_truly_destroyed(campaign_unit_id: int) -> CampaignUnit:
         unit = session.get(CampaignUnit, campaign_unit_id)
         if not unit:
             raise ValueError("Campaign unit not found")
+        owner = session.get(Campaign, unit.campaign_id)
+        if owner and owner.ruleset == "aces":
+            raise ValueError("Aces units are marked Truly Destroyed in the After-Sortie result")
         if unit.condition != "destroyed" and unit.damage_category != "destroyed":
             raise ValueError("Only a destroyed unit can be marked truly destroyed")
         unit.condition = "truly-destroyed"
@@ -390,6 +393,9 @@ def retire_campaign_unit(campaign_unit_id: int) -> CampaignUnit:
             raise ValueError("Campaign unit not found")
         if unit.condition in {"truly-destroyed", "retired"}:
             raise ValueError(f"Unit is already {unit.condition}")
+        owner = session.get(Campaign, unit.campaign_id)
+        if owner:
+            campaign_service.require_between_sorties(session, owner, "retire units")
         unit.condition = "retired"
         unit.available = False
         for order in _open_repairs(session, unit.id):
@@ -442,7 +448,7 @@ def update_repair_order(
             raise ValueError("Repair Order is closed")
         if gross_cost is not None:
             if order.ruleset == "aces":
-                raise ValueError("Aces repair costs are paid when the Sortie is finalized")
+                raise ValueError("Aces repair costs are calculated from the Sortie result")
             if gross_cost < 0:
                 raise ValueError("Repair cost must be zero or positive")
             order.gross_cost = gross_cost
@@ -463,6 +469,8 @@ def complete_repair_order(order_id: int) -> RepairOrder:
             raise ValueError("Repair Order not found")
         if order.status not in OPEN_REPAIR_STATUSES:
             raise ValueError("Repair Order is closed")
+        if order.ruleset == "aces":
+            raise ValueError("Aces repairs are mandatory and complete when the Sortie is finalized")
         unit = session.get(CampaignUnit, order.campaign_unit_id)
         if unit and unit.condition == "truly-destroyed":
             raise ValueError("A truly destroyed unit cannot be repaired")
@@ -483,10 +491,6 @@ def complete_repair_order(order_id: int) -> RepairOrder:
                 unit.damage_category = "none"
                 unit.available = True
         session.flush()
-        if order.ruleset == "aces":
-            # Aces repairs were paid at After-Sortie; completing only restores the unit.
-            session.expunge(order)
-            return order
         _post_wp(
             session,
             campaign,
@@ -510,6 +514,8 @@ def cancel_repair_order(order_id: int) -> RepairOrder:
             raise ValueError("Repair Order not found")
         if order.status not in OPEN_REPAIR_STATUSES:
             raise ValueError("Repair Order is closed")
+        if order.ruleset == "aces":
+            raise ValueError("Aces repairs are mandatory and cannot be cancelled or deferred")
         order.status = "cancelled"
         session.flush()
         session.expunge(order)

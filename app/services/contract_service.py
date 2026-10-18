@@ -1172,6 +1172,9 @@ def mark_sortie_ready(sortie_id: int) -> Sortie:
                 raise ValueError(f"{pilot.name} is not available")
         campaign = session.get(Campaign, sortie.campaign_id)
         if campaign and campaign.ruleset == "aces":
+            campaign_service.require_between_sorties(
+                session, campaign, "prepare the next Sortie", exclude_id=sortie.id
+            )
             _validate_aces_ready(session, sortie)
         sortie.status = "ready"
         sortie.updated_at = datetime.now(UTC)

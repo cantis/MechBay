@@ -10,7 +10,13 @@ from sqlalchemy import select
 from app.extensions import session_scope
 from app.models.campaign_unit import CampaignUnit
 from app.services import after_action_service, campaign_service, contract_service
-from tests.conftest import apply_aces, prepare_aces_ready, validate_expunged_object
+from tests.conftest import (
+    apply_aces,
+    finalize_aces,
+    finish_aces,
+    prepare_aces_ready,
+    validate_expunged_object,
+)
 
 OMNI_PRIME = {
     "Id": 12,
@@ -541,7 +547,7 @@ def test_aces_rearm_matches_chaos_rule(client, minimal_force):
         campaign, unit_ids=[campaign.units[0].id, campaign.units[1].id]
     )
 
-    apply_aces(sortie.id, "none")
+    finish_aces(sortie.id, "none")
     loaded = campaign_service.get_campaign_by_id(campaign.id)
     rearm_txs = [tx for tx in loaded.transactions if tx.transaction_type == "rearm"]
 
@@ -555,18 +561,20 @@ def test_aces_truly_destroyed_unit_cannot_be_repaired(client, minimal_force):
     """A Truly Destroyed Aces unit is excluded from force accounting and repair."""
     campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
     sortie = _fought_aces_sortie(campaign)
-    apply_aces(sortie.id, "destroyed")
+    apply_aces(sortie.id, "truly-destroyed")
+    finalize_aces(sortie.id)
 
-    unit = after_action_service.mark_unit_truly_destroyed(campaign.units[0].id)
-    orders = after_action_service.get_repair_orders(campaign.id)
-
+    unit = campaign_service.get_campaign_by_id(campaign.id).units[0]
     assert unit.condition == "truly-destroyed"
     assert unit.available is False
-    assert all(order.status == "cancelled" for order in orders)
+    assert after_action_service.get_repair_orders(campaign.id) == []
     with pytest.raises(ValueError, match="not currently available"):
         contract_service.add_unit_to_sortie(
             campaign_service.create_aces_sortie(campaign.id, "Later").id, unit.id
         )
+    # Truly Destroyed is only ever recorded in the After-Sortie result for Aces.
+    with pytest.raises(ValueError, match="After-Sortie result"):
+        after_action_service.mark_unit_truly_destroyed(unit.id)
 
 
 def test_retire_campaign_unit(client, minimal_force):

@@ -176,6 +176,61 @@
 {% endif %}
 
 {% if campaign.ruleset == 'aces' %}
+<div class="card mb-3 {{ 'border-success' if campaign_state.state == 'between' else 'border-warning' }}" id="betweenSorties">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            {% if campaign_state.state == 'between' %}Between Sorties
+            {% elif campaign_state.state == 'replay_required' %}Replay Required
+            {% else %}Sortie in Progress{% endif %}
+        </h5>
+        <span class="small text-muted">Warchest <strong>{{ campaign.warchest_balance }} SP</strong></span>
+    </div>
+    <div class="card-body">
+        {% if campaign_state.state == 'in_progress' %}
+        <p class="mb-2">
+            <strong>{{ campaign_state.sortie.attempt_label }}</strong> has not been finalized.
+            The Warchest changes when it is finalized, and purchases, sales, hires and the next Sortie wait until then.
+        </p>
+        <a href="{{ url_for('contracts.sortie_detail', id=campaign_state.sortie.id) }}" class="btn btn-primary">Continue {{ campaign_state.sortie.attempt_label }}</a>
+        {% else %}
+        {% if campaign_state.state == 'replay_required' %}
+        <div class="alert alert-danger py-2">
+            <strong>{{ campaign_state.sortie.attempt_label }}</strong> failed and must be replayed before a new Sortie begins.
+            You may still buy, sell and hire first.
+            <a href="{{ url_for('contracts.sortie_detail', id=campaign_state.sortie.id) }}" class="alert-link">Open it</a>
+        </div>
+        {% endif %}
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="small text-muted">Active Player Force</div>
+                <div class="fs-5">{{ aces_summary.total_active_pv }} PV <span class="small text-muted">({{ aces_summary.active_unit_count }} units)</span></div>
+                <div class="small text-muted mt-2">Named Pilots</div>
+                <div>{{ aces_summary.named_pilot_count }} living</div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted">Story Keywords</div>
+                <div>{% for kw in current_keywords %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}<span class="text-muted">none</span>{% endfor %}</div>
+                <div class="small text-muted mt-2">Next Steps</div>
+                <div>{{ next_steps or '—' }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted">Purchases, sales and hires since the last Sortie</div>
+                {% for trade in campaign_state.trades %}
+                <div class="small d-flex justify-content-between"><span>{{ trade.text }}</span><strong>{{ '%+d' % trade.amount }} SP</strong></div>
+                {% else %}
+                <div class="text-muted small">none</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% if campaign_state.can_prepare_sortie %}
+        <p class="small text-muted mt-3 mb-0">Buy or sell units and add pilots below if you want to, or prepare the next Sortie directly.</p>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if campaign.ruleset == 'aces' %}
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Player Force</h5></div>
     <div class="card-body">
@@ -222,6 +277,7 @@
         </div>
         {% endif %}
 
+        {% if campaign_state.can_prepare_sortie %}
         <h6>Create Sortie</h6>
         <form method="post" action="{{ url_for('campaigns.create_aces_sortie', id=campaign.id) }}" class="row g-2 mb-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -239,6 +295,7 @@
             </div>
         </form>
 
+        {% endif %}
         <h6>Sorties <a href="{{ url_for('campaigns.sortie_history', id=campaign.id) }}" class="small ms-2">Full Sortie History</a></h6>
         {% if next_steps %}
         <div class="alert alert-info py-2"><strong>Next Steps:</strong> {{ next_steps }}</div>
@@ -264,6 +321,7 @@
             </table>
         </div>
 
+        {% if campaign_state.can_change_roster %}
         <h6>Purchase Replacement / Additional Unit</h6>
         <p class="small text-muted">Cost = unit PV × 40 SP. Spends from the Warchest; never creates a physical Miniature.</p>
         <form method="post" action="{{ url_for('campaigns.purchase_unit', id=campaign.id) }}" class="row g-2">
@@ -290,6 +348,9 @@
                 <button type="submit" class="btn btn-outline-secondary w-100">Purchase</button>
             </div>
         </form>
+        {% else %}
+        <p class="small text-muted mb-0">Purchases and sales wait until the current Sortie is finalized.</p>
+        {% endif %}
     </div>
 </div>
 <script>
@@ -375,6 +436,9 @@
                         </td>
                         <td>{{ unit.variant or '—' }}</td>
                         <td>
+                            {% if campaign.ruleset == 'aces' %}
+                            {{ unit.condition }}
+                            {% else %}
                             <form method="post" action="{{ url_for('campaigns.update_unit', unit_id=unit.id) }}" class="d-flex gap-1">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
@@ -385,6 +449,7 @@
                                 </select>
                                 <button type="submit" class="btn btn-sm btn-outline-secondary">Save</button>
                             </form>
+                            {% endif %}
                         </td>
                         <td>{% if unit.available %}Yes{% else %}No{% endif %}</td>
                         <td>
@@ -394,7 +459,7 @@
                                 <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
                             </form>
-                            {% if unit.condition == 'destroyed' %}
+                            {% if unit.condition == 'destroyed' and campaign.ruleset != 'aces' %}
                             <form method="post" action="{{ url_for('campaigns.mark_truly_destroyed', unit_id=unit.id) }}"
                                 class="mt-1" onsubmit="return confirm('Mark this hull truly destroyed? It cannot be fielded or repaired.');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -402,7 +467,7 @@
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Truly destroy</button>
                             </form>
                             {% endif %}
-                            {% if campaign.ruleset == 'aces' and unit.condition == 'active' and unit.available and unit.point_value %}
+                            {% if campaign.ruleset == 'aces' and unit.condition == 'active' and unit.available and unit.point_value and campaign_state.can_change_roster %}
                             <form method="post" action="{{ url_for('campaigns.sell_unit', id=campaign.id, unit_id=unit.id) }}"
                                 class="mt-1" onsubmit="return confirm('Sell this unit for {{ unit.point_value * 20 }} SP? It leaves the active Player Force.');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -548,7 +613,9 @@
             </table>
         </div>
 
-        {% if aces_summary.named_pilot_count < pilot_limits.max %}
+        {% if not campaign_state.can_change_roster %}
+        <div class="text-muted small">Adding or retiring pilots waits until the current Sortie is finalized.</div>
+        {% elif aces_summary.named_pilot_count < pilot_limits.max %}
         <h6>New Named Pilot</h6>
         <form method="post" action="{{ url_for('campaigns.add_aces_pilot', id=campaign.id) }}" id="acesPilotForm" class="row g-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -745,14 +812,11 @@
 
 {% endif %}
 
+{% if campaign.ruleset != 'aces' %}
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Repair Orders</h5></div>
     <div class="card-body">
-        {% if is_aces %}
-        <p class="small text-muted">Repair cost is Alpha Strike Size × the damage tier and is paid when the Sortie is finalized. Completing a repair returns the unit to service.</p>
-        {% else %}
         <p class="small text-muted">Gross repair cost is calculated from tonnage and damage (editable). Support coverage uses the originating Sortie's Contract Support %, not the currently active Contract.</p>
-        {% endif %}
         <div class="table-responsive">
             <table class="table table-hover table-sm align-middle">
                 <thead>
@@ -804,6 +868,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Warchest</h5></div>
@@ -943,28 +1008,23 @@
 
 {% if campaign.ruleset == 'aces' %}
 <div class="card mb-3">
-    <div class="card-header"><h5 class="mb-0">Campaign Log</h5></div>
+    <div class="card-header"><h5 class="mb-0">Campaign Timeline</h5></div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-hover table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Summary</th>
-                        <th>SP</th>
-                    </tr>
-                </thead>
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Date</th><th>Event</th><th class="text-end">SP</th></tr></thead>
                 <tbody>
-                    {% for entry in campaign_log %}
-                    <tr>
-                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
-                        <td><span class="badge rounded-pill bg-secondary">{{ entry.type }}</span></td>
-                        <td>{{ entry.summary }}</td>
-                        <td>{{ entry.amount if entry.amount is not none else '—' }}</td>
+                    {% for entry in timeline %}
+                    <tr class="{% if entry.kind == 'between' %}table-light{% endif %}">
+                        <td class="text-nowrap">{{ entry.at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            {% if entry.kind == 'between' %}<span class="badge rounded-pill bg-secondary me-1">Between Sorties</span>{% endif %}
+                            {% if entry.sortie_id %}<a href="{{ url_for('contracts.sortie_report', id=entry.sortie_id) }}">{{ entry.text }}</a>{% else %}{{ entry.text }}{% endif %}
+                        </td>
+                        <td class="text-end">{% if entry.amount is not none %}{{ '%+d' % entry.amount }}{% endif %}</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4" class="text-muted">No campaign history yet.</td></tr>
+                    <tr><td colspan="3" class="text-muted">No campaign history yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

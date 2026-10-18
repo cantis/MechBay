@@ -22,6 +22,7 @@ from ..models.sortie import Sortie
 from ..models.sortie_unit import SortieUnit
 from ..models.warchest_transaction import WarchestTransaction
 from . import aces_pilot_rules as rules
+from . import campaign_service
 
 
 def pilot_ability_list(pilot: CampaignPilot) -> list[str]:
@@ -151,6 +152,7 @@ def create_aces_pilot(
             raise ValueError("Campaign not found")
         if campaign.ruleset != "aces":
             raise ValueError("Named Pilot creation here is only available for Aces campaigns")
+        campaign_service.require_between_sorties(session, campaign, "add a Named Pilot")
         if count_living_pilots(session, campaign_id) >= rules.MAX_NAMED_PILOTS:
             raise ValueError(
                 f"An Aces campaign allows at most {rules.MAX_NAMED_PILOTS} Named Pilots"
@@ -219,6 +221,8 @@ def retire_aces_pilot(pilot_id: int) -> CampaignPilot:
             raise ValueError("Aces pilot not found")
         if pilot.status != "alive":
             raise ValueError("Only living pilots can be retired")
+        campaign = session.get(Campaign, pilot.campaign_id)
+        campaign_service.require_between_sorties(session, campaign, "retire a Named Pilot")
         pilot.status = "retired"
         session.flush()
         session.expunge(pilot)

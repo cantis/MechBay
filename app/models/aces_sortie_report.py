@@ -52,9 +52,8 @@ class AcesSortieReport(Base):
     warchest_before: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     warchest_remainder: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     warchest_after_accounting: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    purchases_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    sales_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    warchest_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # JSON ledger lines decided at Apply and posted to the Warchest at Finalize.
+    pending_ledger: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     story_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_steps: Mapped[str | None] = mapped_column(Text, nullable=True)

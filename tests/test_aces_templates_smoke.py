@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.services import campaign_service
-from tests.conftest import prepare_aces_ready
+from tests.conftest import finalize_aces, prepare_aces_ready
 
 
 def _create(force_id, **kwargs):
@@ -25,7 +25,8 @@ def test_aces_campaign_detail_renders(client, minimal_force):
     resp = client.get(f"/campaigns/{campaign.id}")
     assert resp.status_code == 200
     assert b"Player Force" in resp.data
-    assert b"Campaign Log" in resp.data
+    assert b"Campaign Timeline" in resp.data
+    assert b"Repair Orders" not in resp.data
     assert b"Contracts" not in resp.data
 
 
@@ -107,7 +108,19 @@ def test_aces_full_sortie_and_purchase_flow_via_routes(client, minimal_force):
 
     detail = client.get(f"/campaigns/{campaign.id}")
     assert detail.status_code == 200
-    assert b"Repair" in detail.data or b"repair" in detail.data
+    assert b"Repair Orders" not in detail.data  # repairs are mandatory, not a work queue
+    assert b"Sortie in Progress" in detail.data
+    report = client.get(f"/sorties/{sortie.id}/report")
+    assert b"Required Repairs" in report.data
+
+    # Purchases wait until the Sortie is finalized.
+    blocked = client.post(
+        f"/campaigns/{campaign.id}/purchase-unit",
+        data={"mul_unit_id": "7563", "search_name": "Warhammer"},
+        follow_redirects=True,
+    )
+    assert b"Finalize Sortie 1 before you buy units" in blocked.data
+    finalize_aces(sortie.id)
 
     with patch(
         "app.services.campaign_service.mul_service.find_unit_in_search_results"

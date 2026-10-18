@@ -623,6 +623,11 @@ def update_campaign_unit(
         unit = session.get(CampaignUnit, unit_id)
         if not unit:
             return None
+        owner = session.get(Campaign, unit.campaign_id)
+        if owner and owner.ruleset == "aces" and (condition is not None or available is not None):
+            raise ValueError(
+                "Unit condition is set by Sortie results and cannot be edited in an Aces campaign"
+            )
         if condition is not None:
             if condition not in UNIT_CONDITIONS:
                 raise ValueError("Invalid unit condition")
@@ -859,8 +864,11 @@ def add_warchest_transaction(
         campaign = session.get(Campaign, campaign_id)
         if not campaign:
             raise ValueError("Campaign not found")
+        require_between_sorties(session, campaign, "record Warchest entries")
         month = campaign_month if campaign_month is not None else campaign.current_campaign_month
-        if month < 1:
+        if campaign.ruleset == "aces":
+            month = None  # Aces is Sortie-based
+        elif month is None or month < 1:
             raise ValueError("Campaign month must be 1 or greater")
         gross = actual_amount if gross_amount is None else gross_amount
         new_balance = campaign.warchest_balance + actual_amount
@@ -1107,6 +1115,7 @@ def create_aces_sortie(
         if not campaign:
             raise ValueError("Campaign not found")
         campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "prepare the next Sortie")
         failed = unreplayed_failed_sortie(session, campaign_id)
         if failed:
             raise ValueError(
@@ -1276,19 +1285,32 @@ def compute_aces_pv_allowance(session, campaign: Campaign) -> dict[str, Any]:
     }
 
 
-def _add_to_open_sortie_report(session, campaign_id: int, *, purchases: int = 0, sales: int = 0):
-    """Roll a purchase/sale into the Aces Sortie Report that is still open, if any."""
-    from ..models.aces_sortie_report import AcesSortieReport
+UNRESOLVED_SORTIE_STATUSES = ("fought", "after_action")
 
-    report = session.execute(
-        select(AcesSortieReport).where(
-            AcesSortieReport.campaign_id == campaign_id,
-            AcesSortieReport.finalized == False,  # noqa: E712
-        )
-    ).scalars().first()
-    if report:
-        report.purchases_total += purchases
-        report.sales_total += sales
+
+def unresolved_aces_sortie(
+    session, campaign_id: int, *, exclude_id: int | None = None
+) -> Sortie | None:
+    """An Aces Sortie that has been fought but whose After-Sortie is not yet finalized."""
+    stmt = select(Sortie).where(
+        Sortie.campaign_id == campaign_id,
+        Sortie.contract_id.is_(None),
+        Sortie.status.in_(UNRESOLVED_SORTIE_STATUSES),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Sortie.id != exclude_id)
+    return session.execute(stmt.order_by(Sortie.id)).scalars().first()
+
+
+def require_between_sorties(
+    session, campaign: Campaign, action: str, *, exclude_id: int | None = None
+) -> None:
+    """Aces roster and Warchest changes wait until the last Sortie is finalized."""
+    if campaign.ruleset != "aces":
+        return
+    pending = unresolved_aces_sortie(session, campaign.id, exclude_id=exclude_id)
+    if pending:
+        raise ValueError(f"Finalize {pending.attempt_label} before you {action}")
 
 
 def sell_campaign_unit(campaign_id: int, campaign_unit_id: int) -> CampaignUnit:
@@ -1300,6 +1322,7 @@ def sell_campaign_unit(campaign_id: int, campaign_unit_id: int) -> CampaignUnit:
         if not campaign:
             raise ValueError("Campaign not found")
         campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "sell units")
         unit = session.get(CampaignUnit, campaign_unit_id)
         if not unit or unit.campaign_id != campaign_id:
             raise ValueError("Unit is not part of this campaign")
@@ -1353,7 +1376,6 @@ def sell_campaign_unit(campaign_id: int, campaign_unit_id: int) -> CampaignUnit:
         unit.condition = "retired"
         unit.available = False
         unit.notes = f"Sold for {proceeds} SP"
-        _add_to_open_sortie_report(session, campaign.id, sales=proceeds)
         session.flush()
         _ = unit.miniature
         session.expunge(unit)
@@ -1376,6 +1398,7 @@ def purchase_campaign_unit(
         if not campaign:
             raise ValueError("Campaign not found")
         campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "buy units")
         if campaign.mul_faction_id is None or campaign.mul_era_id is None:
             raise ValueError("Campaign has no MUL faction/era configured for unit purchases")
 
@@ -1448,7 +1471,6 @@ def purchase_campaign_unit(
         )
         campaign.warchest_balance = new_balance
         campaign.updated_at = datetime.now(UTC)
-        _add_to_open_sortie_report(session, campaign.id, purchases=cost)
         session.flush()
         session.expunge(unit)
         return unit

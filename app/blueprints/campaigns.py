@@ -56,7 +56,8 @@ def _campaign_view_context(campaign) -> dict:
     }
     if campaign.ruleset == "aces":
         context["aces_summary"] = campaign_service.get_aces_force_summary(campaign.id)
-        context["campaign_log"] = campaign_service.get_campaign_log(campaign.id)
+        context["timeline"] = aces_sortie_service.get_campaign_timeline(campaign.id)
+        context["campaign_state"] = aces_sortie_service.get_campaign_state(campaign.id)
         context["units_missing_pv"] = campaign_service.get_units_missing_pv(campaign.id)
         context["pilot_types"] = aces_pilot_rules.PILOT_TYPES
         context["current_keywords"] = aces_sortie_service.get_current_keywords(campaign.id)

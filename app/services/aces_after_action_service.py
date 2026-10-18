@@ -371,55 +371,42 @@ def apply_aces_after_action(sortie_id: int, inputs: dict[str, Any]) -> Sortie:
                 )
         session.flush()
 
-        # 4-7. Ledger: income, then expenses, then the pilot-improvement SP set aside.
-        def post(kind: str, description: str, amount: int, entity: tuple[str, int] | None = None):
-            _post_wp(
-                session,
-                campaign,
-                campaign_month=month,
-                transaction_type=kind,
-                description=description,
-                gross_amount=amount,
-                covered_amount=0,
-                actual_amount=amount,
-                related_entity_type=entity[0] if entity else "sortie",
-                related_entity_id=entity[1] if entity else sortie.id,
+        # 4-7. The Sortie's ledger lines are decided now but POSTED when the Sortie is
+        # finalized, so the Warchest only moves once the Sortie is resolved.
+        ledger: list[dict[str, Any]] = []
+
+        def queue(kind: str, description: str, amount: int, entity: tuple[str, int] | None = None):
+            if amount == 0:
+                return
+            ledger.append(
+                {
+                    "type": kind,
+                    "description": description,
+                    "amount": amount,
+                    "entity_type": entity[0] if entity else "sortie",
+                    "entity_id": entity[1] if entity else sortie.id,
+                }
             )
 
-        post(
-            "objective_income",
-            f"Primary objective - {sortie.attempt_label}",
-            income["primary_adjusted"],
-        )
-        post(
-            "objective_income",
-            f"Secondary objectives - {sortie.attempt_label}",
-            income["secondary_adjusted"],
-        )
-        post("other_income", f"Other income - {sortie.attempt_label}", income["other"])
-        post(
-            "reconnaissance",
-            f"Reconnaissance - {sortie.attempt_label}",
-            -expenses["reconnaissance"],
-        )
-        post("waypoint", f"Waypoint adjustments - {sortie.attempt_label}", -expenses["waypoint"])
-        for rearm, row in rearm_orders:
-            post("rearm", f"Rearm {row.chassis}", -rearm.gross_cost, ("rearm_order", rearm.id))
-        for order, row in repair_orders:
-            post(
+        label = sortie.attempt_label
+        queue("objective_income", f"Primary objective - {label}", income["primary_adjusted"])
+        queue("objective_income", f"Secondary objectives - {label}", income["secondary_adjusted"])
+        queue("other_income", f"Other income - {label}", income["other"])
+        for order, row in repair_orders:  # mandatory repairs come first among expenses
+            queue(
                 "repair",
                 f"Repair {row.chassis} ({order.damage_category})",
                 -order.gross_cost,
                 ("repair_order", order.id),
             )
+        for rearm, row in rearm_orders:
+            queue("rearm", f"Rearm {row.chassis}", -rearm.gross_cost, ("rearm_order", rearm.id))
         for description, amount in expenses["personnel_lines"]:
-            post("personnel", description, -amount)
-        post("other_expense", f"Other expenses - {sortie.attempt_label}", -expenses["other"])
-        post(
-            "pilot_improvement",
-            f"Named Pilot improvement SP - {sortie.attempt_label}",
-            -pilot_plan["pool"],
-        )
+            queue("personnel", description, -amount)
+        queue("reconnaissance", f"Reconnaissance - {label}", -expenses["reconnaissance"])
+        queue("waypoint", f"Waypoint adjustments - {label}", -expenses["waypoint"])
+        queue("other_expense", f"Other expenses - {label}", -expenses["other"])
+        queue("pilot_improvement", f"Named Pilot improvement SP - {label}", -pilot_plan["pool"])
 
         # 8-10. Pilot entitlements, MVP.
         for share in pilot_plan["shares"]:
@@ -473,7 +460,8 @@ def apply_aces_after_action(sortie_id: int, inputs: dict[str, Any]) -> Sortie:
                 pilot_sp_pool=pilot_plan["pool"],
                 warchest_before=plan["warchest"]["before"],
                 warchest_remainder=plan["warchest"]["remainder"],
-                warchest_after_accounting=campaign.warchest_balance,
+                warchest_after_accounting=plan["warchest"]["after"],
+                pending_ledger=json.dumps(ledger),
                 story_notes=(inputs.get("story_notes") or "").strip() or None,
             )
         )
@@ -578,9 +566,44 @@ def finalize_aces_sortie(sortie_id: int, next_steps: str | None = None) -> Sorti
         if unallocated:
             raise ValueError(f"{unallocated.callsign}'s improvement SP must be allocated first")
         report.next_steps = (next_steps or "").strip() or None
-        report.warchest_after = campaign.warchest_balance
+
+        # The Warchest moves now, from the ledger decided when the After-Sortie was applied.
+        # (Reports applied before this rule have no pending ledger and post nothing.)
+        report.warchest_before = campaign.warchest_balance
+        for line in json.loads(report.pending_ledger or "[]"):
+            _post_wp(
+                session,
+                campaign,
+                campaign_month=sortie.campaign_month,
+                transaction_type=line["type"],
+                description=line["description"],
+                gross_amount=line["amount"],
+                covered_amount=0,
+                actual_amount=line["amount"],
+                related_entity_type=line["entity_type"],
+                related_entity_id=line["entity_id"],
+            )
+        report.warchest_remainder = campaign.warchest_balance - report.warchest_before
+        report.warchest_after_accounting = campaign.warchest_balance
+        report.pending_ledger = None
+
+        # Mandatory repairs: the cost was part of this Sortie's expenses; the units now
+        # return to service. The RepairOrder and DamageEvent stay as history.
+        now = datetime.now(UTC)
+        for order in session.execute(
+            select(RepairOrder).where(
+                RepairOrder.sortie_id == sortie_id, RepairOrder.status.in_(["pending"])
+            )
+        ).scalars():
+            order.status = "completed"
+            order.completed_at = now
+            unit = session.get(CampaignUnit, order.campaign_unit_id)
+            if unit and unit.condition not in ("truly-destroyed", "retired"):
+                unit.condition = "active"
+                unit.damage_category = "none"
+                unit.available = True
         report.finalized = True
-        report.finalized_at = datetime.now(UTC)
+        report.finalized_at = now
         sortie.status = "closed"
         sortie.updated_at = datetime.now(UTC)
         session.flush()
@@ -639,6 +662,19 @@ def get_sortie_report(sortie_id: int) -> dict[str, Any] | None:
             "units": units,
             "shares": shares,
             "injuries": injuries,
+            "repairs": [
+                {
+                    "unit": f"{u.chassis} {u.variant or ''}".strip(),
+                    "damage": u.damage_outcome,
+                    "size": campaign_rules.aces_unit_size(
+                        u.mul_snapshot_json, u.tonnage, u.unit_type_name
+                    ),
+                    "cost": u.repair_cost,
+                    "returned": sortie.status == "closed",
+                }
+                for u in units
+                if u.repair_cost
+            ],
             "mvp_callsign": mvp_share.callsign if mvp_share else None,
             "mvp_pilot_id": mvp_share.campaign_pilot_id if mvp_share else None,
             "force_pv": report.force_pv if report else sum(int(u.point_value or 0) for u in units),

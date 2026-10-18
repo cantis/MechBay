@@ -142,6 +142,9 @@ def _apply_schema_migrations(db_engine) -> None:
                 logger.info("schema_migration_applied", table="travel_events", column="contract_id")
 
         extra_columns = {
+            "aces_sortie_reports": {
+                "pending_ledger": "TEXT",
+            },
             "sorties": {
                 "date_played": "DATE",
                 "force_commander_pilot_id": "INTEGER",
@@ -208,8 +211,10 @@ def _apply_schema_migrations(db_engine) -> None:
         for table_name, columns in _NULLABLE_COLUMNS.items():
             if table_name in campaign_tables:
                 _make_columns_nullable(conn, table_name, columns)
+        _drop_obsolete_report_columns(conn, campaign_tables)
         if "campaigns" in campaign_tables:
             _clear_aces_time_and_location(conn, campaign_tables)
+            _finish_legacy_aces_repairs(conn, campaign_tables)
         if "sorties" in campaign_tables:
             _backfill_aces_sortie_numbers(conn)
 
@@ -279,6 +284,49 @@ def _make_columns_nullable(conn, table_name: str, columns: set[str]) -> None:
     conn.execute(text(f'ALTER TABLE "{temp_name}" RENAME TO "{table_name}"'))
     conn.commit()
     logger.info("schema_migration_applied", table=table_name, column="nullable_rebuild")
+
+
+def _drop_obsolete_report_columns(conn, tables: set[str]) -> None:
+    """Sortie Reports no longer carry purchases/sales or a finalize-time Warchest balance."""
+    if "aces_sortie_reports" not in tables:
+        return
+    existing = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(aces_sortie_reports)")).fetchall()
+    }
+    for column in ("purchases_total", "sales_total", "warchest_after"):
+        if column in existing:
+            conn.execute(text(f'ALTER TABLE "aces_sortie_reports" DROP COLUMN "{column}"'))
+            conn.commit()
+            logger.info("schema_migration_applied", table="aces_sortie_reports", column=column)
+
+
+def _finish_legacy_aces_repairs(conn, tables: set[str]) -> None:
+    """Old-flow Aces repair orders were prepaid but needed a manual click: finish them.
+
+    Only orders whose Sortie is already resolved (closed/failed) or that have no Sortie are
+    touched; an After-Sortie still open is completed by its own Finalize.
+    """
+    if not {"repair_orders", "campaign_units", "sorties"} <= tables:
+        return
+    open_aces = (
+        "SELECT id FROM repair_orders WHERE ruleset = 'aces' AND status IN "
+        "('pending', 'approved', 'in_progress') AND (sortie_id IS NULL OR sortie_id IN "
+        "(SELECT id FROM sorties WHERE status IN ('closed', 'failed')))"
+    )
+    conn.execute(
+        text(
+            "UPDATE campaign_units SET condition = 'active', damage_category = 'none', "
+            "available = 1 WHERE condition IN ('damaged', 'destroyed') AND id IN "
+            f"(SELECT campaign_unit_id FROM repair_orders WHERE id IN ({open_aces}))"
+        )
+    )
+    conn.execute(
+        text(
+            "UPDATE repair_orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP "
+            f"WHERE id IN ({open_aces})"
+        )
+    )
+    conn.commit()
 
 
 def _clear_aces_time_and_location(conn, tables: set[str]) -> None:

@@ -561,9 +561,14 @@ def apply_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, 
 
 def finish_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
     """Apply, put every pilot's SP into Skill, and finalize."""
+    apply_aces(sortie_id, damage, flags, **overrides)
+    return finalize_aces(sortie_id)
+
+
+def finalize_aces(sortie_id: int):
+    """Put every pending pilot share into Skill, then finalize the Sortie."""
     from app.services import aces_after_action_service as svc
 
-    apply_aces(sortie_id, damage, flags, **overrides)
     for item in svc.pending_shares(sortie_id):
         svc.allocate_pilot_share(
             sortie_id,

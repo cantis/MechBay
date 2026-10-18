@@ -72,6 +72,28 @@
     </div>
 </div>
 
+{% if repairs %}
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Required Repairs</h5></div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Unit</th><th>Damage</th><th>Size</th><th class="text-end">Repair cost (SP)</th><th>Resulting state</th></tr></thead>
+            <tbody>
+                {% for r in repairs %}
+                <tr>
+                    <td>{{ r.unit }}</td>
+                    <td>{{ (r.damage or '') | replace('-', ' ') }}</td>
+                    <td>{{ r.size if r.size is not none else '—' }}</td>
+                    <td class="text-end">{{ r.cost }}</td>
+                    <td>{% if r.returned %}Repaired, returned to service{% else %}Returns to service when the Sortie is finalized{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 {% if report %}
 <div class="row g-3 mb-3">
     <div class="col-lg-6">
@@ -158,12 +180,10 @@
     <div class="card-body">
         <table class="table table-sm mb-0">
             <tbody>
-                <tr><td>Warchest before</td><td class="text-end">{{ report.warchest_before }}</td></tr>
-                <tr><td>Earnings remaining after pilot improvement</td><td class="text-end">{{ report.warchest_remainder }}</td></tr>
-                <tr><td>Purchases</td><td class="text-end">{{ -report.purchases_total }}</td></tr>
-                <tr><td>Sales</td><td class="text-end">{{ report.sales_total }}</td></tr>
-                <tr class="fw-bold"><td>Warchest after</td>
-                    <td class="text-end">{% if report.finalized %}{{ report.warchest_after }}{% else %}{{ report.warchest_after_accounting }} <span class="small text-muted">(so far)</span>{% endif %}</td></tr>
+                <tr><td>Warchest before Sortie</td><td class="text-end">{{ report.warchest_before }}</td></tr>
+                <tr><td>Warchest change from Sortie (Earnings less pilot improvement)</td><td class="text-end">{{ '%+d' % report.warchest_remainder }}</td></tr>
+                <tr class="fw-bold"><td>Warchest after Sortie</td>
+                    <td class="text-end">{{ report.warchest_after_accounting }}{% if not report.finalized %} <span class="small text-muted">(posts when finalized)</span>{% endif %}</td></tr>
             </tbody>
         </table>
     </div>

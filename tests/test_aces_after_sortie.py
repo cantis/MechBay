@@ -23,7 +23,7 @@ from app.services import (
     campaign_service,
     contract_service,
 )
-from tests.conftest import aces_after_inputs, apply_aces, finish_aces
+from tests.conftest import aces_after_inputs, apply_aces, finalize_aces, finish_aces
 
 
 def _campaign(force_id, *, warchest=1000, difficulty=None, name="Aces After"):
@@ -103,10 +103,15 @@ def test_income_expenses_earnings_and_ledger(client, minimal_force):
     # Pilot cap 50 (Hawk participant) + 25 (Ghost sat out) = 75; the rest returns to Warchest.
     assert report.pilot_sp_pool == 75
     assert report.warchest_remainder == 75
-    assert _balance(campaign.id) == 1000 + 75
     assert report.warchest_before == 1000
     assert report.warchest_after_accounting == 1075
 
+    # The Warchest and ledger do not move until the Sortie is finalized.
+    assert _balance(campaign.id) == 1000
+    assert [t.transaction_type for t in _txs(campaign.id)] == ["opening_balance"]
+
+    finalize_aces(sortie.id)
+    assert _balance(campaign.id) == 1000 + 75
     # Ledger is complete and not double-posted.
     assert sum(t.actual_amount for t in _txs(campaign.id, "repair")) == -120
     assert sum(t.actual_amount for t in _txs(campaign.id, "rearm")) == -20
@@ -135,7 +140,10 @@ def test_negative_earnings_reduce_warchest_and_skip_pilot_sp(client, minimal_for
     # destroyed = 300 repair + 20 rearm against 50 income.
     assert report.earnings == 50 - 320
     assert report.pilot_sp_pool == 0
+    finalize_aces(sortie.id)
     assert _balance(campaign.id) == 100 - 270  # may go negative; campaign is not blocked
+    # The expensive repair is still made: the unit is back in service.
+    assert campaign_service.get_campaign_by_id(campaign.id).units[0].condition == "active"
     shares = {s["share"].callsign: s["share"] for s in svc.get_sortie_report(sortie.id)["shares"]}
     assert shares["Hawk"].awarded_sp == 0
     assert shares["Ghost"].awarded_sp == 0
@@ -196,7 +204,7 @@ def test_mvp_bonus_costs_nothing_and_counts(client, minimal_force):
     report = _report(sortie.id)
     # Earnings are the rearm cost only (negative), the MVP bonus does not change them.
     assert report.earnings == -20
-    assert _balance(campaign.id) == 1000 - 20
+    assert _balance(campaign.id) == 1000  # nothing posts until finalized
     pending = svc.pending_shares(sortie.id)
     assert [(p["share"].callsign, p["total"]) for p in pending] == [("Hawk", 20)]
     with session_scope() as session:
@@ -252,21 +260,33 @@ def test_truly_destroyed_unit_not_repaired_or_rearmed(client, minimal_force):
     assert unit.id == campaign.units[0].id
 
 
-def test_aces_repair_orders_are_prepaid(client, minimal_force):
+def test_aces_repairs_are_mandatory_and_complete_at_finalize(client, minimal_force):
     campaign, (hawk, _) = _campaign(minimal_force)
     sortie, _ = _fought(campaign, {0: hawk})
     apply_aces(sortie.id, "crippled", primary_objective_sp=1000)
-    order = after_action_service.get_repair_orders(campaign.id)[0]
+    [order] = after_action_service.get_repair_orders(campaign.id)
     assert (order.ruleset, order.gross_cost, order.actual_cost) == ("aces", 180, -180)
-    balance = _balance(campaign.id)
+    assert order.status == "pending"
+    # Required repair is part of this Sortie's expenses.
+    assert _report(sortie.id).expense_repairs == 180
+    # Until finalize the unit stays sidelined.
+    unit = campaign_service.get_campaign_by_id(campaign.id).units[0]
+    assert (unit.condition, unit.available) == ("damaged", False)
 
-    with pytest.raises(ValueError, match="paid when the Sortie is finalized"):
-        after_action_service.update_repair_order(order.id, gross_cost=10)
-    done = after_action_service.complete_repair_order(order.id)
-    assert done.status == "completed"
-    assert _balance(campaign.id) == balance  # completing does not charge again
-    assert len(_txs(campaign.id, "repair")) == 1
-    assert campaign_service.get_campaign_by_id(campaign.id).units[0].condition == "active"
+    for action in (
+        lambda: after_action_service.update_repair_order(order.id, gross_cost=10),
+        lambda: after_action_service.complete_repair_order(order.id),
+        lambda: after_action_service.cancel_repair_order(order.id),
+    ):
+        with pytest.raises(ValueError, match="Aces repair"):
+            action()
+
+    finalize_aces(sortie.id)
+    [done] = after_action_service.get_repair_orders(campaign.id)
+    assert done.status == "completed" and done.completed_at is not None
+    assert len(_txs(campaign.id, "repair")) == 1  # paid once, at finalize
+    unit = campaign_service.get_campaign_by_id(campaign.id).units[0]
+    assert (unit.condition, unit.damage_category, unit.available) == ("active", "none", True)
 
 
 def test_generic_crew_and_wound_personnel_expenses(client, minimal_force):
@@ -279,6 +299,7 @@ def test_generic_crew_and_wound_personnel_expenses(client, minimal_force):
     apply_aces(sortie.id, "none", flags, primary_objective_sp=1000)
     report = _report(sortie.id)
     assert report.expense_personnel == 100 + 100
+    finalize_aces(sortie.id)
     assert sum(t.actual_amount for t in _txs(campaign.id, "personnel")) == -200
 
 
@@ -401,6 +422,7 @@ def test_cannot_apply_twice_or_to_failed_sortie(client, minimal_force):
     apply_aces(sortie.id)
     with pytest.raises(ValueError, match="Fought Sortie"):
         apply_aces(sortie.id)
+    finalize_aces(sortie.id)
     failed, _ = _fought(campaign, {0: hawk}, name="Other")
     aces_sortie_service.fail_sortie(failed.id)
     with pytest.raises(ValueError, match="Fought Sortie"):
@@ -458,7 +480,7 @@ def test_finalize_freezes_the_report_and_snapshots_history(client, minimal_force
 
     report = _report(sortie.id)
     assert report.finalized and report.next_steps == "Proceed to Sortie 2"
-    assert report.warchest_after == _balance(campaign.id)
+    assert report.warchest_after_accounting == _balance(campaign.id)
     assert contract_service.get_sortie_by_id(sortie.id).status == "closed"
     with pytest.raises(ValueError, match="immutable"):
         with session_scope() as session:

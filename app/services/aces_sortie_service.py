@@ -20,7 +20,7 @@ from ..models.campaign_unit import CampaignUnit
 from ..models.sortie import Sortie
 from ..models.sortie_unit import SortieUnit
 from ..models.story_keyword_event import STORY_KEYWORD_ACTIONS, StoryKeywordEvent
-from . import campaign_rules, contract_service, mul_service
+from . import campaign_rules, campaign_service, contract_service, mul_service
 from .campaign_service import pilot_is_available
 
 FAILED_OUTCOME = "failed"
@@ -365,10 +365,7 @@ def list_aces_sorties(campaign_id: int) -> list[dict[str, Any]]:
             report = reports.get(sortie.id)
             net = None
             if report:
-                end = (
-                    report.warchest_after if report.finalized else report.warchest_after_accounting
-                )
-                net = end - report.warchest_before
+                net = report.warchest_after_accounting - report.warchest_before
             result.append(
                 {
                     "report_available": sortie.status in {"after_action", "closed", "failed"},
@@ -412,6 +409,9 @@ def reconfigure_aces_omni(sortie_unit_id: int, mul_unit_id: int) -> SortieUnit:
         sortie, campaign = _require_aces_sortie(session, row.sortie_id)
         if sortie.status not in contract_service.EDITABLE_SORTIE_STATUSES:
             raise ValueError("Omni configuration can only change while the Sortie is in Planning")
+        campaign_service.require_between_sorties(
+            session, campaign, "change Omni configurations", exclude_id=sortie.id
+        )
         if row.campaign_unit_id is None:
             raise ValueError("This Sortie unit is not linked to a Campaign Unit")
         unit = session.get(CampaignUnit, row.campaign_unit_id)
@@ -468,3 +468,134 @@ def campaign_service_balance(campaign_id: int) -> int:
     with session_scope() as session:
         campaign = session.get(Campaign, campaign_id)
         return campaign.warchest_balance if campaign else 0
+
+
+# --- Between Sorties state and campaign timeline -------------------------------------------
+
+# Ledger entries created by a Sortie's own accounting; everything else is Between-Sorties.
+_SORTIE_LEDGER_ENTITIES = {"sortie", "rearm_order", "repair_order"}
+
+
+def _naive(moment):
+    return moment.replace(tzinfo=None) if moment is not None else None
+
+
+def get_campaign_timeline(campaign_id: int) -> list[dict[str, Any]]:
+    """Sortie results and Between-Sorties transactions as separate, chronological entries."""
+    from ..models.warchest_transaction import WarchestTransaction
+
+    with session_scope() as session:
+        sorties = list(
+            session.execute(
+                select(Sortie)
+                .where(Sortie.campaign_id == campaign_id, Sortie.contract_id.is_(None))
+                .order_by(Sortie.sortie_number, Sortie.attempt_number, Sortie.id)
+            ).scalars()
+        )
+        reports = {
+            r.sortie_id: r
+            for r in session.execute(
+                select(AcesSortieReport).where(AcesSortieReport.campaign_id == campaign_id)
+            ).scalars()
+        }
+        entries: list[dict[str, Any]] = []
+
+        def add(at, kind, text, amount=None, sortie_id=None):
+            entries.append(
+                {
+                    "at": _naive(at),
+                    "seq": len(entries),
+                    "kind": kind,
+                    "text": text,
+                    "amount": amount,
+                    "sortie_id": sortie_id,
+                }
+            )
+
+        for tx in session.execute(
+            select(WarchestTransaction)
+            .where(WarchestTransaction.campaign_id == campaign_id)
+            .order_by(WarchestTransaction.id)
+        ).scalars():
+            if tx.transaction_type == "opening_balance":
+                add(tx.created_at, "opening", tx.description, tx.actual_amount)
+            elif tx.related_entity_type not in _SORTIE_LEDGER_ENTITIES:
+                add(tx.created_at, "between", tx.description, tx.actual_amount)
+
+        for sortie in sorties:
+            report = reports.get(sortie.id)
+            label = sortie.attempt_label
+            if report:
+                add(
+                    report.created_at,
+                    "warchest_before",
+                    f"Warchest before {label}: {report.warchest_before:,} SP",
+                    sortie_id=sortie.id,
+                )
+                if report.finalized:
+                    add(report.finalized_at, "sortie", f"{label} completed", sortie_id=sortie.id)
+                    add(
+                        report.finalized_at,
+                        "sortie",
+                        f"{label} Earnings",
+                        report.earnings,
+                        sortie_id=sortie.id,
+                    )
+                    add(
+                        report.finalized_at,
+                        "warchest_after",
+                        f"Warchest after {label}: {report.warchest_after_accounting:,} SP",
+                        sortie_id=sortie.id,
+                    )
+                else:
+                    add(
+                        report.created_at,
+                        "sortie",
+                        f"{label} in progress (Warchest unchanged until finalized)",
+                        sortie_id=sortie.id,
+                    )
+            elif sortie.status == "failed":
+                add(
+                    sortie.updated_at,
+                    "sortie",
+                    f"{label} failed: no consequences applied, replay required",
+                    sortie_id=sortie.id,
+                )
+        entries.sort(key=lambda e: (e["at"], e["seq"]))
+        return entries
+
+
+def get_campaign_state(campaign_id: int) -> dict[str, Any]:
+    """Derive Between Sorties / Sortie in progress / Replay required from the Sorties."""
+    with session_scope() as session:
+        pending = campaign_service.unresolved_aces_sortie(session, campaign_id)
+        failed = unreplayed_failed_sortie(session, campaign_id)
+        state = "in_progress" if pending else "replay_required" if failed else "between"
+        for item in (pending, failed):
+            if item:
+                session.expunge(item)
+        last_final = (
+            session.execute(
+                select(AcesSortieReport)
+                .where(
+                    AcesSortieReport.campaign_id == campaign_id,
+                    AcesSortieReport.finalized.is_(True),
+                )
+                .order_by(AcesSortieReport.finalized_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+        since = _naive(last_final.finalized_at) if last_final else None
+    trades = [
+        e
+        for e in get_campaign_timeline(campaign_id)
+        if e["kind"] == "between" and (since is None or e["at"] > since)
+    ]
+    return {
+        "state": state,
+        "sortie": pending or failed,
+        "trades": trades,
+        "can_change_roster": state != "in_progress",
+        "can_prepare_sortie": state == "between",
+    }
