@@ -10,6 +10,7 @@ from ..extensions import Base
 if TYPE_CHECKING:
     from .campaign import Campaign
     from .campaign_unit import CampaignUnit
+    from .pilot_advancement_event import PilotAdvancementEvent
 
 
 class CampaignPilot(Base):
@@ -29,6 +30,13 @@ class CampaignPilot(Base):
     wounded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="alive")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Aces Named Pilot fields (Chaos pilots leave these at their defaults).
+    pilot_type: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    skill_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    edge_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ability_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_sp_earned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mvp_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     preferred_unit_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("campaign_units.id", ondelete="SET NULL"), nullable=True
     )
@@ -39,6 +47,16 @@ class CampaignPilot(Base):
         back_populates="preferred_by_pilots",
         foreign_keys=[preferred_unit_id],
     )
+
+    advancements: Mapped[list[PilotAdvancementEvent]] = relationship(
+        "PilotAdvancementEvent",
+        back_populates="pilot",
+        order_by="PilotAdvancementEvent.sequence",
+    )
+
+    @property
+    def display_name(self) -> str:
+        return self.callsign or self.name
 
     def to_dict(self) -> dict:
         return {
@@ -57,4 +75,10 @@ class CampaignPilot(Base):
             "status": self.status,
             "notes": self.notes,
             "preferred_unit_id": self.preferred_unit_id,
+            "pilot_type": self.pilot_type,
+            "skill_sp": self.skill_sp,
+            "edge_sp": self.edge_sp,
+            "ability_sp": self.ability_sp,
+            "total_sp_earned": self.total_sp_earned,
+            "mvp_count": self.mvp_count,
         }

@@ -4,6 +4,9 @@ import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from ..services import (
+    aces_pilot_rules,
+    aces_pilot_service,
+    aces_sortie_service,
     after_action_service,
     campaign_service,
     contract_service,
@@ -54,6 +57,21 @@ def _campaign_view_context(campaign) -> dict:
         context["aces_summary"] = campaign_service.get_aces_force_summary(campaign.id)
         context["campaign_log"] = campaign_service.get_campaign_log(campaign.id)
         context["units_missing_pv"] = campaign_service.get_units_missing_pv(campaign.id)
+        context["pilot_types"] = aces_pilot_rules.PILOT_TYPES
+        context["current_keywords"] = aces_sortie_service.get_current_keywords(campaign.id)
+        context["aces_sorties"] = aces_sortie_service.list_aces_sorties(campaign.id)
+        context["replay_required"] = aces_sortie_service.get_replay_required(campaign.id)
+        context["next_steps"] = next(
+            (s["next_steps"] for s in reversed(context["aces_sorties"]) if s["next_steps"]),
+            None,
+        )
+        context["pilot_limits"] = {
+            "min": aces_pilot_rules.MIN_NAMED_PILOTS,
+            "max": aces_pilot_rules.MAX_NAMED_PILOTS,
+            "recommended": aces_pilot_rules.RECOMMENDED_NAMED_PILOTS,
+            "starting_sp": aces_pilot_rules.STARTING_PILOT_SP,
+        }
+        context["pilot_thresholds"] = aces_pilot_rules.thresholds_payload()
     else:
         context["contracts"] = contract_service.get_contracts_for_campaign(campaign.id)
         context["active_contract"] = contract_service.get_active_contract(campaign.id)
@@ -105,6 +123,30 @@ def create():
 
     ruleset = (request.form.get("ruleset") or "chaos").strip()
     difficulty = request.form.get("difficulty")
+
+    if ruleset == "aces":
+        try:
+            campaign = campaign_service.create_aces_campaign(
+                force_id,
+                name,
+                difficulty=difficulty,
+                existing_pilot_sp=int(request.form.get("existing_pilot_sp") or 0),
+                opening_warchest=opening_warchest,
+                status=request.form.get("status", "planning").strip() or "planning",
+                starting_bt_year=starting_bt_year,
+                starting_bt_month=starting_bt_month,
+                current_location=request.form.get("current_location"),
+                notes=request.form.get("notes"),
+            )
+        except (TypeError, ValueError) as exc:
+            flash(str(exc) if isinstance(exc, ValueError) else "Invalid campaign values", "danger")
+            return redirect(url_for("campaigns.list_campaigns"))
+        flash(
+            f"Aces campaign '{campaign.name}' created with a {campaign.warchest_balance} SP "
+            "opening Warchest",
+            "success",
+        )
+        return redirect(url_for("campaigns.detail", id=campaign.id))
 
     try:
         campaign = campaign_service.create_campaign_from_force(
@@ -326,6 +368,63 @@ def add_pilot(id: int):  # noqa: A002
     return redirect(url_for("campaigns.detail", id=id))
 
 
+@bp.route("/<int:id>/sortie-history")
+def sortie_history(id: int):  # noqa: A002
+    campaign = campaign_service.get_campaign_by_id(id)
+    if not campaign or campaign.ruleset != "aces":
+        flash("Sortie History is only available for Aces campaigns", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    return render_template(
+        "campaigns/sortie_history.html",
+        campaign=campaign,
+        sorties=aces_sortie_service.list_aces_sorties(id),
+    )
+
+
+@bp.route("/<int:id>/aces-pilots", methods=["POST"])
+def add_aces_pilot(id: int):  # noqa: A002
+    try:
+        pilot = aces_pilot_service.create_aces_pilot(
+            id,
+            request.form.get("callsign", ""),
+            request.form.get("pilot_type", ""),
+            skill_sp=int(request.form.get("skill_sp") or 0),
+            edge_sp=int(request.form.get("edge_sp") or 0),
+            ability_sp=int(request.form.get("ability_sp") or 0),
+            abilities=[a for a in request.form.getlist("abilities") if a],
+            notes=request.form.get("notes"),
+            hired=request.form.get("hired") == "on",
+        )
+        flash(f"Named Pilot {pilot.display_name} created", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid pilot values", "danger")
+    return redirect(url_for("campaigns.detail", id=id))
+
+
+@bp.route("/pilots/<int:pilot_id>/history")
+def pilot_history(pilot_id: int):
+    history = aces_pilot_service.get_pilot_service_history(pilot_id)
+    if not history:
+        flash("Aces pilot not found", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    campaign = campaign_service.get_campaign_by_id(history["pilot"].campaign_id)
+    return render_template("campaigns/pilot_history.html", campaign=campaign, **history)
+
+
+@bp.route("/pilots/<int:pilot_id>/retire", methods=["POST"])
+def retire_aces_pilot(pilot_id: int):
+    try:
+        pilot = aces_pilot_service.retire_aces_pilot(pilot_id)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        campaign_id = request.form.get("campaign_id")
+        if campaign_id:
+            return redirect(url_for("campaigns.detail", id=int(campaign_id)))
+        return redirect(url_for("campaigns.list_campaigns"))
+    flash(f"{pilot.display_name} retired", "info")
+    return redirect(url_for("campaigns.detail", id=pilot.campaign_id))
+
+
 @bp.route("/pilots/<int:pilot_id>/recover-wound", methods=["POST"])
 def recover_pilot_wound(pilot_id: int):
     campaign_id = request.form.get("campaign_id")
@@ -373,7 +472,13 @@ def update_pilot(pilot_id: int):
 @bp.route("/pilots/<int:pilot_id>/delete", methods=["POST"])
 def delete_pilot(pilot_id: int):
     campaign_id = request.form.get("campaign_id")
-    deleted = campaign_service.delete_campaign_pilot(pilot_id)
+    try:
+        deleted = campaign_service.delete_campaign_pilot(pilot_id)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        if campaign_id:
+            return redirect(url_for("campaigns.detail", id=int(campaign_id)))
+        return redirect(url_for("campaigns.list_campaigns"))
     flash("Pilot removed" if deleted else "Pilot not found", "info" if deleted else "warning")
     if campaign_id:
         return redirect(url_for("campaigns.detail", id=int(campaign_id)))
@@ -458,9 +563,23 @@ def mark_truly_destroyed(unit_id: int):
     return redirect(url_for("campaigns.list_campaigns"))
 
 
+@bp.route("/<int:id>/units/<int:unit_id>/sell", methods=["POST"])
+def sell_unit(id: int, unit_id: int):  # noqa: A002
+    try:
+        unit = campaign_service.sell_campaign_unit(id, unit_id)
+        flash(f"Sold {unit.chassis}. {unit.notes}", "success")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("campaigns.detail", id=id))
+
+
 @bp.route("/units/<int:unit_id>/omni", methods=["POST"])
 def reconfigure_omni(unit_id: int):
     campaign_id = request.form.get("campaign_id")
+    owner = campaign_service.get_campaign_by_id(int(campaign_id)) if campaign_id else None
+    if owner and owner.ruleset == "aces":
+        flash("Aces Omni configuration changes are made while preparing a Sortie", "danger")
+        return redirect(url_for("campaigns.detail", id=owner.id))
     try:
         cost = int(request.form.get("cost") or 0)
         mul_unit_id = int(request.form.get("mul_unit_id"))
@@ -535,6 +654,9 @@ def advance_month_form(id: int):  # noqa: A002
     if not campaign:
         flash("Campaign not found", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
+    if campaign.ruleset == "aces":
+        flash("Aces campaigns have no monthly pay or maintenance cycle", "info")
+        return redirect(url_for("campaigns.detail", id=id))
     try:
         preview = after_action_service.preview_month_advance(id)
     except ValueError as exc:
@@ -551,6 +673,10 @@ def advance_month_form(id: int):  # noqa: A002
 
 @bp.route("/<int:id>/advance-month", methods=["POST"])
 def advance_month(id: int):  # noqa: A002
+    owner = campaign_service.get_campaign_by_id(id)
+    if owner and owner.ruleset == "aces":
+        flash("Aces campaigns have no monthly pay or maintenance cycle", "info")
+        return redirect(url_for("campaigns.detail", id=id))
     try:
         campaign = after_action_service.advance_campaign_month(
             id,

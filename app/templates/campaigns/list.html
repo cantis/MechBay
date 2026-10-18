@@ -118,19 +118,33 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Ruleset</label>
-                            <select name="ruleset" id="campaignRulesetSelect" class="form-select"
-                                onchange="document.getElementById('acesDifficultyRow').classList.toggle('d-none', this.value !== 'aces')">
+                            <select name="ruleset" id="campaignRulesetSelect" class="form-select">
                                 <option value="chaos" selected>Chaos Campaign (Hot Spots)</option>
                                 <option value="aces">BattleTech Aces</option>
                             </select>
                         </div>
-                        <div class="col-md-6 mb-3 d-none" id="acesDifficultyRow">
+                        <div class="col-md-6 mb-3 d-none" data-ruleset-only="aces">
                             <label class="form-label">Aces Difficulty</label>
-                            <input type="text" name="difficulty" class="form-control"
-                                placeholder="e.g. Veteran">
+                            <select name="difficulty" class="form-select">
+                                <option value="Rookie">Rookie (+20% PV, 120% objective SP)</option>
+                                <option value="Standard" selected>Standard (100% / 100%)</option>
+                                <option value="Veteran">Veteran (−10% PV, 90% objective SP)</option>
+                                <option value="Elite">Elite (−20% PV, 80% objective SP)</option>
+                                <option value="Legendary">Legendary (−30% PV, 70% objective SP)</option>
+                            </select>
                         </div>
                     </div>
-                    <div class="row">
+                    <div class="mb-3 d-none" data-ruleset-only="aces">
+                        <label class="form-label">Existing Named Pilot SP (experienced force)</label>
+                        <input type="number" name="existing_pilot_sp" min="0" value="0" class="form-control">
+                        <div class="form-text">
+                            Leave 0 for a new force: at most 400 PV and at least 8 units, and unused PV × 40 SP
+                            becomes the opening Warchest. For a reused force, enter the total SP earned by its
+                            Named Pilots: it carries a fixed PV penalty (3001+ SP: −10%, up to −40%) that
+                            stacks with difficulty.
+                        </div>
+                    </div>
+                    <div class="row" data-ruleset-only="chaos">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Scale (1–5)</label>
                             <input type="number" name="scale" min="1" max="5" value="1" class="form-control">
@@ -158,8 +172,9 @@
                     <div class="mb-3">
                         <label class="form-label">Opening Warchest override (SP)</label>
                         <input type="number" name="opening_warchest" class="form-control"
-                            placeholder="Leave blank for {{ default_opening_warchest }} SP">
-                        <div class="form-text">Default opening Warchest is {{ default_opening_warchest }} SP.</div>
+                            placeholder="Leave blank for the default">
+                        <div class="form-text" data-ruleset-only="chaos">Default opening Warchest is {{ default_opening_warchest }} SP.</div>
+                        <div class="form-text d-none" data-ruleset-only="aces">Aces: a new force always starts with unused PV × 40 SP. This applies only to an experienced force (default 0).</div>
                     </div>
                     <div class="mb-0">
                         <label class="form-label">Notes</label>
@@ -174,5 +189,22 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        const select = document.getElementById('campaignRulesetSelect');
+        if (!select) return;
+        function applyRuleset() {
+            document.querySelectorAll('#createCampaignModal [data-ruleset-only]').forEach((el) => {
+                const show = el.dataset.rulesetOnly === select.value;
+                el.classList.toggle('d-none', !show);
+                el.querySelectorAll('input, select, textarea').forEach((i) => { i.disabled = !show; });
+            });
+        }
+        select.addEventListener('change', applyRuleset);
+        document.getElementById('createCampaignModal')?.addEventListener('show.bs.modal', applyRuleset);
+        applyRuleset();
+    })();
+</script>
 
 {% endblock %}

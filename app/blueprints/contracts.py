@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from datetime import date
+
 import structlog
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from ..services import after_action_service, campaign_service, contract_service
+from ..services import (
+    aces_after_action_service,
+    aces_pilot_rules,
+    aces_sortie_service,
+    after_action_service,
+    campaign_service,
+    contract_service,
+)
 from ..services.after_action_service import DAMAGE_OUTCOMES
 from ..services.contract_service import CONTRACT_STATUSES, SORTIE_OUTCOMES, SORTIE_STATUSES
 
@@ -235,8 +244,42 @@ def sortie_detail(id: int):  # noqa: A002
     lances = campaign.lances if campaign else []
     pv_limit = contract_service.sortie_pv_limit(sortie.scale)
     unit_limit = contract_service.sortie_unit_limit(sortie.scale)
+    is_aces = bool(campaign and campaign.ruleset == "aces")
+    if is_aces:
+        allowance = campaign_service.aces_sortie_pv_allowance(sortie.campaign_id)
+        pv_limit = allowance["allowed_pv"]
+    eligible_pilots = contract_service.eligible_named_pilots(sortie.campaign_id)
+    aces_context: dict = {"is_aces": is_aces}
+    if is_aces:
+        typed = [pilot for pilot in eligible_pilots if pilot.pilot_type]
+        eligible_pilots = typed
+        aces_context.update(
+            pv_allowance=allowance,
+            pilots_by_unit={
+                unit.id: [
+                    pilot
+                    for pilot in typed
+                    if aces_pilot_rules.unit_accepts_pilot(unit.unit_type_name, pilot.pilot_type)
+                ]
+                for unit in sortie.units
+            },
+            lineage=aces_sortie_service.get_lineage(sortie.id),
+            sortie_keywords=aces_sortie_service.get_sortie_keywords(sortie.id),
+            current_keywords=aces_sortie_service.get_current_keywords(sortie.campaign_id),
+            keyword_allowed=sortie.status in aces_sortie_service.KEYWORD_ALLOWED_STATUSES
+            and sortie.outcome != aces_sortie_service.FAILED_OUTCOME,
+            pilot_types=aces_pilot_rules.PILOT_TYPES,
+            aces_damage_outcomes=aces_after_action_service.ACES_DAMAGE_OUTCOMES,
+            pilot_thresholds=aces_pilot_rules.thresholds_payload(),
+            pending_shares=(
+                aces_after_action_service.pending_shares(sortie.id)
+                if sortie.status == "after_action"
+                else []
+            ),
+        )
     return render_template(
         "sorties/detail.html",
+        **aces_context,
         sortie=sortie,
         campaign=campaign,
         contract=contract,
@@ -245,7 +288,7 @@ def sortie_detail(id: int):  # noqa: A002
         unit_limit=unit_limit,
         available_units=available_units,
         lances=lances,
-        pilots=contract_service.eligible_named_pilots(sortie.campaign_id),
+        pilots=eligible_pilots,
         outcomes=SORTIE_OUTCOMES,
         statuses=SORTIE_STATUSES,
         editable=sortie.status == "planning",
@@ -259,6 +302,10 @@ def sortie_detail(id: int):  # noqa: A002
 @bp.route("/sorties/<int:id>/update", methods=["POST"])
 def update_sortie(id: int):  # noqa: A002
     try:
+        extra: dict = {}
+        if "date_played" in request.form:
+            raw_date = request.form.get("date_played", "").strip()
+            extra["date_played"] = date.fromisoformat(raw_date) if raw_date else None
         contract_service.update_sortie(
             id,
             name=request.form.get("name"),
@@ -267,6 +314,7 @@ def update_sortie(id: int):  # noqa: A002
             scenario_type=request.form.get("scenario_type"),
             location=request.form.get("location"),
             notes=request.form.get("notes"),
+            **extra,
         )
         flash("Sortie updated", "success")
     except (TypeError, ValueError) as exc:
@@ -359,6 +407,51 @@ def omni_variants(campaign_id: int, unit_id: int):
         return jsonify({"success": False, "error": str(exc)}), 400
 
 
+@bp.route("/sorties/<int:id>/force-commander", methods=["POST"])
+def set_force_commander(id: int):  # noqa: A002
+    try:
+        aces_sortie_service.set_force_commander(id, int(request.form.get("pilot_id") or 0))
+        flash("Force Commander saved", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid pilot", "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/fail", methods=["POST"])
+def fail_sortie(id: int):  # noqa: A002
+    try:
+        aces_sortie_service.fail_sortie(id, request.form.get("notes"))
+        flash("Sortie recorded as failed. It must be replayed.", "warning")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/replay", methods=["POST"])
+def replay_sortie(id: int):  # noqa: A002
+    try:
+        replay = aces_sortie_service.create_replay(id)
+        flash(f"{replay.attempt_label} created from the failed attempt", "success")
+        return redirect(url_for("contracts.sortie_detail", id=replay.id))
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/keywords", methods=["POST"])
+def story_keyword(id: int):  # noqa: A002
+    try:
+        aces_sortie_service.record_story_keyword(
+            id,
+            request.form.get("keyword", ""),
+            request.form.get("action") or "acquired",
+        )
+        flash("Story Keyword recorded", "success")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
 @bp.route("/sorties/<int:id>/ready", methods=["POST"])
 def mark_ready(id: int):  # noqa: A002
     try:
@@ -424,6 +517,101 @@ def apply_after_action(id: int):  # noqa: A002
     except (TypeError, ValueError) as exc:
         flash(str(exc) if isinstance(exc, ValueError) else "Invalid After Action values", "danger")
     return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+def _keyword_lines(value: str | None) -> list[str]:
+    return [part.strip() for part in (value or "").replace(",", "\n").splitlines() if part.strip()]
+
+
+def _checked(name: str) -> bool:
+    return str(request.form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+
+
+def _aces_inputs(sortie_id: int) -> dict:
+    sortie = contract_service.get_sortie_by_id(sortie_id)
+    if not sortie:
+        raise ValueError("Sortie not found")
+    return {
+        "unit_results": [
+            {
+                "sortie_unit_id": unit.id,
+                "damage_outcome": request.form.get(f"damage_outcome_{unit.id}") or "none",
+                "pilot_wounded": _checked(f"pilot_wounded_{unit.id}"),
+                "pilot_killed": _checked(f"pilot_killed_{unit.id}"),
+                "generic_crew_lost": _checked(f"generic_crew_lost_{unit.id}"),
+            }
+            for unit in sortie.units
+        ],
+        "primary_objective_sp": request.form.get("primary_objective_sp"),
+        "secondary_objective_sp": request.form.get("secondary_objective_sp"),
+        "other_income": request.form.get("other_income"),
+        "reconnaissance": request.form.get("reconnaissance"),
+        "waypoint": request.form.get("waypoint"),
+        "other_expense": request.form.get("other_expense"),
+        "max_pilot_sp": request.form.get("max_pilot_sp"),
+        "mvp_pilot_id": _optional_int(request.form.get("mvp_pilot_id")),
+        "keywords_gained": _keyword_lines(request.form.get("keywords_gained")),
+        "keywords_removed": _keyword_lines(request.form.get("keywords_removed")),
+        "story_notes": request.form.get("story_notes"),
+        "after_action_notes": request.form.get("after_action_notes"),
+    }
+
+
+@bp.route("/sorties/<int:id>/aces-after-action", methods=["POST"])
+def apply_aces_after_action(id: int):  # noqa: A002
+    try:
+        aces_after_action_service.apply_aces_after_action(id, _aces_inputs(id))
+        flash("After-Sortie applied. Allocate each pilot's improvement SP next.", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid After-Sortie values", "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/aces-preview", methods=["POST"])
+def preview_aces_after_action(id: int):  # noqa: A002
+    try:
+        data = aces_after_action_service.preview_aces_after_action(id, _aces_inputs(id))
+        return jsonify({"success": True, "error": None, "data": data}), 200
+    except (TypeError, ValueError) as exc:
+        message = str(exc) if isinstance(exc, ValueError) else "Invalid After-Sortie values"
+        return jsonify({"success": False, "error": message, "data": None}), 400
+
+
+@bp.route("/sorties/<int:id>/pilot-share/<int:pilot_id>", methods=["POST"])
+def allocate_pilot_share(id: int, pilot_id: int):  # noqa: A002
+    try:
+        aces_after_action_service.allocate_pilot_share(
+            id,
+            pilot_id,
+            skill_sp=int(request.form.get("skill_sp") or 0),
+            edge_sp=int(request.form.get("edge_sp") or 0),
+            ability_sp=int(request.form.get("ability_sp") or 0),
+            abilities=[a for a in request.form.getlist("abilities") if a],
+        )
+        flash("Pilot improvement recorded", "success")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) if isinstance(exc, ValueError) else "Invalid allocation", "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/finalize", methods=["POST"])
+def finalize_aces_sortie(id: int):  # noqa: A002
+    try:
+        aces_after_action_service.finalize_aces_sortie(id, request.form.get("next_steps"))
+        flash("Sortie Report finalized", "success")
+        return redirect(url_for("contracts.sortie_report", id=id))
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("contracts.sortie_detail", id=id))
+
+
+@bp.route("/sorties/<int:id>/report")
+def sortie_report(id: int):  # noqa: A002
+    data = aces_after_action_service.get_sortie_report(id)
+    if not data:
+        flash("Sortie Report not found", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    return render_template("sorties/report.html", **data)
 
 
 @bp.route("/sorties/<int:id>/close", methods=["POST"])

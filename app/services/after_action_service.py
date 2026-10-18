@@ -201,6 +201,8 @@ def apply_after_action(
         campaign = session.get(Campaign, sortie.campaign_id)
         if not campaign:
             raise ValueError("Campaign not found")
+        if campaign.ruleset == "aces":
+            raise ValueError("Aces Sorties use the Aces After-Sortie workflow")
         support_percent = _originating_support_percent(session, sortie)
         support = support_percent if support_percent is not None else 0
 
@@ -405,6 +407,9 @@ def close_sortie(sortie_id: int) -> Sortie:
             raise ValueError("Sortie not found")
         if sortie.status != "after_action":
             raise ValueError("Close After Action before closing the Sortie")
+        campaign = session.get(Campaign, sortie.campaign_id)
+        if campaign and campaign.ruleset == "aces":
+            raise ValueError("Finalize Aces Sorties from the pilot improvement step")
         sortie.status = "closed"
         sortie.updated_at = datetime.now(UTC)
         session.flush()
@@ -436,6 +441,8 @@ def update_repair_order(
         if order.status not in OPEN_REPAIR_STATUSES:
             raise ValueError("Repair Order is closed")
         if gross_cost is not None:
+            if order.ruleset == "aces":
+                raise ValueError("Aces repair costs are paid when the Sortie is finalized")
             if gross_cost < 0:
                 raise ValueError("Repair cost must be zero or positive")
             order.gross_cost = gross_cost
@@ -476,6 +483,10 @@ def complete_repair_order(order_id: int) -> RepairOrder:
                 unit.damage_category = "none"
                 unit.available = True
         session.flush()
+        if order.ruleset == "aces":
+            # Aces repairs were paid at After-Sortie; completing only restores the unit.
+            session.expunge(order)
+            return order
         _post_wp(
             session,
             campaign,

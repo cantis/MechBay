@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.extensions import session_scope
 from app.models.campaign_unit import CampaignUnit
 from app.services import after_action_service, campaign_service, contract_service
-from tests.conftest import validate_expunged_object
+from tests.conftest import apply_aces, prepare_aces_ready, validate_expunged_object
 
 OMNI_PRIME = {
     "Id": 12,
@@ -497,20 +497,21 @@ def _fought_aces_sortie(campaign, *, name: str = "Waypoint", unit_ids: list[int]
     ids = unit_ids or [campaign.units[0].id]
     for unit_id in ids:
         contract_service.add_unit_to_sortie(sortie.id, unit_id)
+    prepare_aces_ready(campaign.id, sortie.id)
     contract_service.mark_sortie_ready(sortie.id)
     return contract_service.mark_sortie_fought(sortie.id)
 
 
 @pytest.mark.parametrize(
     ("damage", "expected"),
-    [("armour", 20), ("structure", 40), ("crippled", 50), ("destroyed", 100)],
+    [("armour", 60), ("structure", 120), ("crippled", 180), ("destroyed", 300)],
 )
 def test_aces_repair_cost_tiers(client, minimal_force, damage, expected):
-    """Aces repair costs are flat SP tiers, not tonnage-based like Chaos."""
+    """Aces repair is Alpha Strike Size x tier (a 70t BattleMech is Size 3)."""
     campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
     sortie = _fought_aces_sortie(campaign, name=f"Sortie-{damage}")
 
-    after_action_service.apply_after_action(sortie.id, _results(sortie, damage))
+    apply_aces(sortie.id, damage)
 
     order = after_action_service.get_repair_orders(campaign.id)[0]
     assert order.damage_category == damage
@@ -523,11 +524,11 @@ def test_aces_sortie_has_no_contract_support_coverage(client, minimal_force):
     campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
     sortie = _fought_aces_sortie(campaign)
 
-    after_action_service.apply_after_action(sortie.id, _results(sortie, "armour"))
+    apply_aces(sortie.id, "armour")
 
     order = after_action_service.get_repair_orders(campaign.id)[0]
     assert order.covered_amount == 0
-    assert order.actual_cost == -20
+    assert order.actual_cost == -60
 
 
 def test_aces_rearm_matches_chaos_rule(client, minimal_force):
@@ -540,7 +541,7 @@ def test_aces_rearm_matches_chaos_rule(client, minimal_force):
         campaign, unit_ids=[campaign.units[0].id, campaign.units[1].id]
     )
 
-    after_action_service.apply_after_action(sortie.id, _results(sortie, "none"))
+    apply_aces(sortie.id, "none")
     loaded = campaign_service.get_campaign_by_id(campaign.id)
     rearm_txs = [tx for tx in loaded.transactions if tx.transaction_type == "rearm"]
 
@@ -554,7 +555,7 @@ def test_aces_truly_destroyed_unit_cannot_be_repaired(client, minimal_force):
     """A Truly Destroyed Aces unit is excluded from force accounting and repair."""
     campaign = _ensure_units_as_ready(_aces_campaign(minimal_force))
     sortie = _fought_aces_sortie(campaign)
-    after_action_service.apply_after_action(sortie.id, _results(sortie, "destroyed"))
+    apply_aces(sortie.id, "destroyed")
 
     unit = after_action_service.mark_unit_truly_destroyed(campaign.units[0].id)
     orders = after_action_service.get_repair_orders(campaign.id)

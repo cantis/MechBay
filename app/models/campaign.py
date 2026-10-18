@@ -30,6 +30,8 @@ class Campaign(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     ruleset: Mapped[str] = mapped_column(String(16), nullable=False, default="chaos")
     difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Aces: total SP earned by the Named Pilots of a reused force, fixed at creation.
+    experienced_force_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="planning")
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     current_campaign_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -129,6 +131,7 @@ class Campaign(Base):
             "name": self.name,
             "ruleset": self.ruleset,
             "difficulty": self.difficulty,
+            "experienced_force_sp": self.experienced_force_sp,
             "status": self.status,
             "is_active": self.is_active,
             "current_campaign_month": self.current_campaign_month,

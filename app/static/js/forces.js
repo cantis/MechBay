@@ -282,6 +282,26 @@
         }
     }
 
+    function updateLanceTotals() {
+        let totalMinis = 0;
+        let totalPv = 0;
+        document.querySelectorAll('.sortable-lance').forEach((ul) => {
+            const items = ul.querySelectorAll('li.list-group-item:not(.empty-placeholder)');
+            let pv = 0;
+            items.forEach((li) => { pv += Number(li.dataset.pv || 0); });
+            totalMinis += items.length;
+            totalPv += pv;
+            const card = ul.closest('.card');
+            const countEl = card?.querySelector('.lance-count');
+            if (countEl) countEl.textContent = `${items.length} miniatures`;
+            const pvEl = card?.querySelector('.lance-pv');
+            if (pvEl) pvEl.textContent = String(pv);
+        });
+        const miniEl = document.getElementById('forceMiniCount');
+        if (miniEl) miniEl.textContent = String(totalMinis);
+        document.querySelectorAll('.force-pv-total').forEach((el) => { el.textContent = String(totalPv); });
+    }
+
     function removeMiniatureFromLanceDom(listItem) {
         const lanceList = listItem.closest('.sortable-lance');
         if (!lanceList) return;
@@ -295,11 +315,7 @@
             lanceList.appendChild(placeholder);
         }
 
-        const countEl = lanceList.closest('.card-body')?.querySelector('small.text-muted');
-        if (countEl) {
-            const count = lanceList.querySelectorAll('li.list-group-item:not(.empty-placeholder)').length;
-            countEl.textContent = `${count} miniatures`;
-        }
+        updateLanceTotals();
     }
 
     function appendMiniatureToLance(lanceId, details) {
@@ -313,6 +329,7 @@
         li.dataset.miniatureId = String(details.miniatureId);
         li.dataset.fmId = String(details.fmId);
         li.dataset.chassis = details.chassis;
+        li.dataset.pv = "0";
 
         const row = document.createElement('div');
         row.className = 'd-flex justify-content-between align-items-start';
@@ -366,11 +383,7 @@
         li.appendChild(row);
         lanceList.appendChild(li);
 
-        const countEl = lanceList.closest('.card-body')?.querySelector('small.text-muted');
-        if (countEl) {
-            const count = lanceList.querySelectorAll('li.list-group-item').length;
-            countEl.textContent = `${count} miniatures`;
-        }
+        updateLanceTotals();
     }
 
     document.getElementById('force-building')?.addEventListener('submit', async (event) => {
@@ -443,6 +456,13 @@
                 const position = evt.newIndex;
 
                 evt.to.querySelectorAll('.empty-placeholder').forEach(p => p.remove());
+                if (evt.from.querySelectorAll('li.list-group-item').length === 0) {
+                    const placeholder = document.createElement('li');
+                    placeholder.className = 'list-group-item text-muted text-center empty-placeholder';
+                    placeholder.textContent = 'Empty lance';
+                    evt.from.appendChild(placeholder);
+                }
+                updateLanceTotals();
 
                 fetch(`/forces/${forceId}/move-miniature`, {
                     method: 'POST',

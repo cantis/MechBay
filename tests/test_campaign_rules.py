@@ -7,12 +7,14 @@ import pytest
 from app.services import campaign_rules
 
 
-def test_repair_cost_aces_tiers():
-    assert campaign_rules.repair_cost("aces", "armour", 70) == 20
-    assert campaign_rules.repair_cost("aces", "structure", 70) == 40
-    assert campaign_rules.repair_cost("aces", "crippled", 70) == 50
-    assert campaign_rules.repair_cost("aces", "destroyed", 70) == 100
-    assert campaign_rules.repair_cost("aces", "none", 70) == 0
+def test_repair_cost_aces_is_size_based():
+    assert campaign_rules.repair_cost("aces", "armour", 70, size=3) == 60
+    assert campaign_rules.repair_cost("aces", "structure", 70, size=3) == 120
+    assert campaign_rules.repair_cost("aces", "crippled", 70, size=3) == 180
+    assert campaign_rules.repair_cost("aces", "destroyed", 70, size=3) == 300
+    assert campaign_rules.repair_cost("aces", "none", 70, size=3) == 0
+    with pytest.raises(ValueError, match="Size"):
+        campaign_rules.repair_cost("aces", "armour", 70)
 
 
 def test_repair_cost_chaos_dispatches_to_tonnage_formula():

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.extensions import session_scope
 from app.models.campaign_unit import CampaignUnit
 from app.services import campaign_service, contract_service
-from tests.conftest import validate_expunged_object
+from tests.conftest import prepare_aces_ready, validate_expunged_object
 
 OMNI_ALT = {
     "Id": 13,
@@ -541,6 +541,7 @@ def test_mark_sortie_ready_without_contract(client, minimal_force):
     )
     sortie = campaign_service.create_aces_sortie(aces.id, "Direct Sortie")
     contract_service.add_unit_to_sortie(sortie.id, aces.units[0].id)
+    prepare_aces_ready(aces.id, sortie.id)
 
     ready = contract_service.mark_sortie_ready(sortie.id)
 

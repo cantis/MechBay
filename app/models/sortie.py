@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..extensions import Base
@@ -37,6 +37,15 @@ class Sortie(Base):
     salvage_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     salvage_wp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     mvp_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Aces-only: real-world date, Force Commander, attempt tracking.
+    date_played: Mapped[date | None] = mapped_column(Date, nullable=True)
+    force_commander_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    force_commander_callsign: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sortie_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    replay_of_sortie_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sorties.id", ondelete="SET NULL"), nullable=True
+    )
     after_action_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -51,6 +60,16 @@ class Sortie(Base):
         cascade="all, delete-orphan",
         order_by="SortieUnit.order",
     )
+
+    @property
+    def attempt_label(self) -> str:
+        """Aces numbering: 'Sortie 4', 'Sortie 4R', 'Sortie 4R2'."""
+        if self.sortie_number is None:
+            return f"Sortie #{self.id}"
+        suffix = "" if self.attempt_number <= 1 else (
+            "R" if self.attempt_number == 2 else f"R{self.attempt_number - 1}"
+        )
+        return f"Sortie {self.sortie_number}{suffix}"
 
     def to_dict(self) -> dict:
         return {

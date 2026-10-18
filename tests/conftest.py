@@ -485,3 +485,91 @@ def assert_force_structure(force, expected_lance_count, expected_miniature_count
     assert total_miniatures == expected_miniature_count, (
         f"Expected {expected_miniature_count} miniatures, found {total_miniatures}"
     )
+
+
+def prepare_aces_ready(campaign_id: int, sortie_id: int, *, pilots: int = 2) -> None:
+    """Give an Aces Sortie what Ready now requires: 2 Named Pilots and a Force Commander."""
+    from app.extensions import session_scope
+    from app.models.campaign_pilot import CampaignPilot
+    from app.models.campaign_unit import CampaignUnit
+    from app.models.sortie_unit import SortieUnit
+    from app.services import aces_pilot_service, aces_sortie_service, contract_service
+
+    with session_scope() as session:
+        for unit in session.query(CampaignUnit).filter_by(campaign_id=campaign_id):
+            if not unit.unit_type_name:
+                unit.unit_type_name = "BattleMech"
+        for row in session.query(SortieUnit).filter_by(sortie_id=sortie_id):
+            if not row.unit_type_name:
+                row.unit_type_name = "BattleMech"
+        living = (
+            session.query(CampaignPilot)
+            .filter(
+                CampaignPilot.campaign_id == campaign_id,
+                CampaignPilot.status == "alive",
+                CampaignPilot.pilot_type.is_not(None),
+            )
+            .count()
+        )
+    for index in range(max(0, pilots - living)):
+        aces_pilot_service.create_aces_pilot(
+            campaign_id, f"Pilot{living + index + 1}", "BM",
+            skill_sp=150, edge_sp=0, ability_sp=0,
+        )
+    with session_scope() as session:
+        pilot_id = (
+            session.query(CampaignPilot.id)
+            .filter(CampaignPilot.campaign_id == campaign_id, CampaignPilot.pilot_type == "BM")
+            .order_by(CampaignPilot.id)
+            .first()[0]
+        )
+        row_id = (
+            session.query(SortieUnit.id).filter_by(sortie_id=sortie_id).order_by(SortieUnit.id)
+            .first()[0]
+        )
+    contract_service.assign_sortie_pilot(row_id, pilot_id)
+    aces_sortie_service.set_force_commander(sortie_id, pilot_id)
+
+
+def aces_after_inputs(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    """After-Sortie inputs for an Aces Sortie: one damage result for all units, first pilot MVP."""
+    from app.services import contract_service
+
+    sortie = contract_service.get_sortie_by_id(sortie_id)
+    flags = flags or {}
+    inputs = {
+        "unit_results": [
+            {"sortie_unit_id": row.id, "damage_outcome": damage, **flags.get(row.id, {})}
+            for row in sortie.units
+        ],
+        "mvp_pilot_id": next(
+            (r.campaign_pilot_id for r in sortie.units if r.campaign_pilot_id), None
+        ),
+        "max_pilot_sp": 0,
+    }
+    inputs.update(overrides)
+    return inputs
+
+
+def apply_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    from app.services import aces_after_action_service
+
+    return aces_after_action_service.apply_aces_after_action(
+        sortie_id, aces_after_inputs(sortie_id, damage, flags, **overrides)
+    )
+
+
+def finish_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    """Apply, put every pilot's SP into Skill, and finalize."""
+    from app.services import aces_after_action_service as svc
+
+    apply_aces(sortie_id, damage, flags, **overrides)
+    for item in svc.pending_shares(sortie_id):
+        svc.allocate_pilot_share(
+            sortie_id,
+            item["share"].campaign_pilot_id,
+            skill_sp=item["total"],
+            edge_sp=0,
+            ability_sp=0,
+        )
+    return svc.finalize_aces_sortie(sortie_id)

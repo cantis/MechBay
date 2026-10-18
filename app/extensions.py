@@ -141,6 +141,12 @@ def _apply_schema_migrations(db_engine) -> None:
 
         extra_columns = {
             "sorties": {
+                "date_played": "DATE",
+                "force_commander_pilot_id": "INTEGER",
+                "force_commander_callsign": "VARCHAR(64)",
+                "sortie_number": "INTEGER",
+                "attempt_number": "INTEGER DEFAULT 1",
+                "replay_of_sortie_id": "INTEGER",
                 "objectives_summary": "TEXT",
                 "combat_pay": "INTEGER DEFAULT 0",
                 "salvage_notes": "TEXT",
@@ -149,6 +155,12 @@ def _apply_schema_migrations(db_engine) -> None:
                 "after_action_notes": "TEXT",
             },
             "sortie_units": {
+                "repair_cost": "INTEGER DEFAULT 0",
+                "rearm_cost": "INTEGER DEFAULT 0",
+                "generic_crew_lost": "BOOLEAN DEFAULT 0",
+                "pilot_type": "VARCHAR(2)",
+                "pilot_edge_tokens": "INTEGER",
+                "pilot_abilities": "TEXT",
                 "damage_outcome": "VARCHAR(32)",
                 "needs_rearm": "BOOLEAN DEFAULT 0",
                 "pilot_wounded": "BOOLEAN DEFAULT 0",
@@ -159,6 +171,12 @@ def _apply_schema_migrations(db_engine) -> None:
             },
             "campaign_pilots": {
                 "wounded": "BOOLEAN DEFAULT 0",
+                "pilot_type": "VARCHAR(2)",
+                "skill_sp": "INTEGER DEFAULT 0",
+                "edge_sp": "INTEGER DEFAULT 0",
+                "ability_sp": "INTEGER DEFAULT 0",
+                "total_sp_earned": "INTEGER DEFAULT 0",
+                "mvp_count": "INTEGER DEFAULT 0",
             },
             "travel_events": {
                 "transport_mode": "VARCHAR(32) DEFAULT 'manual'",
@@ -167,6 +185,7 @@ def _apply_schema_migrations(db_engine) -> None:
             "campaigns": {
                 "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
                 "difficulty": "VARCHAR(32)",
+                "experienced_force_sp": "INTEGER DEFAULT 0",
             },
             "repair_orders": {
                 "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
@@ -186,6 +205,20 @@ def _apply_schema_migrations(db_engine) -> None:
 
         if "sorties" in campaign_tables:
             _make_sorties_contract_id_nullable(conn)
+            _backfill_aces_sortie_numbers(conn)
+
+
+def _backfill_aces_sortie_numbers(conn) -> None:
+    """Number pre-existing contract-free (Aces) Sorties in creation order, once."""
+    conn.execute(
+        text(
+            "UPDATE sorties SET sortie_number = ("
+            "SELECT COUNT(*) FROM sorties s2 WHERE s2.campaign_id = sorties.campaign_id "
+            "AND s2.contract_id IS NULL AND s2.id <= sorties.id) "
+            "WHERE contract_id IS NULL AND sortie_number IS NULL"
+        )
+    )
+    conn.commit()
 
 
 def _make_sorties_contract_id_nullable(conn) -> None:

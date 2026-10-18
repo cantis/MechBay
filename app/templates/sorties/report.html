@@ -1,0 +1,189 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2 class="m-0">{{ sortie.attempt_label }} — {{ sortie.name }}</h2>
+        <small class="text-muted">
+            Sortie Report · <a href="{{ url_for('campaigns.detail', id=campaign.id) }}">{{ campaign.name }}</a>
+            {% if report and not report.finalized %}<span class="badge bg-warning text-dark ms-1">In progress — not yet finalized</span>{% endif %}
+        </small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('contracts.sortie_detail', id=sortie.id) }}" class="btn btn-outline-secondary">Sortie</a>
+        <a href="{{ url_for('campaigns.sortie_history', id=campaign.id) }}" class="btn btn-outline-secondary">Sortie History</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Summary</h5></div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3"><div class="small text-muted">Date played</div>{{ sortie.date_played.isoformat() if sortie.date_played else '—' }}</div>
+            <div class="col-md-3"><div class="small text-muted">Result</div>
+                <span class="badge {% if sortie.status == 'failed' %}bg-danger{% else %}bg-success{% endif %}">{{ sortie.outcome or sortie.status }}</span></div>
+            <div class="col-md-3"><div class="small text-muted">Force Commander</div>
+                {% if sortie.force_commander_pilot_id %}<a href="{{ url_for('campaigns.pilot_history', pilot_id=sortie.force_commander_pilot_id) }}">{{ sortie.force_commander_callsign }}</a>{% else %}—{% endif %}</div>
+            <div class="col-md-3"><div class="small text-muted">MVP</div>
+                {% if mvp_pilot_id %}<a href="{{ url_for('campaigns.pilot_history', pilot_id=mvp_pilot_id) }}">{{ mvp_callsign }}</a>{% else %}—{% endif %}</div>
+            <div class="col-md-6"><div class="small text-muted">Story Keywords gained</div>
+                {% for kw in keywords.gained %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}—{% endfor %}</div>
+            <div class="col-md-6"><div class="small text-muted">Story Keywords removed</div>
+                {% for kw in keywords.removed %}<span class="badge bg-secondary me-1">{{ kw }}</span>{% else %}—{% endfor %}</div>
+            {% if lineage.replay_of %}
+            <div class="col-12 small">Replay of <a href="{{ url_for('contracts.sortie_report', id=lineage.replay_of.id) }}">{{ lineage.replay_of.attempt_label }}</a> (failed).</div>
+            {% endif %}
+            {% if lineage.replayed_by %}
+            <div class="col-12 small">Replayed as <a href="{{ url_for('contracts.sortie_report', id=lineage.replayed_by.id) }}">{{ lineage.replayed_by.attempt_label }}</a>.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between"><h5 class="mb-0">Player Force</h5>
+        <span class="small text-muted">{{ force_pv }} PV fielded</span></div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Unit</th><th>PV</th><th>Pilot</th><th>Skill</th><th>Result</th><th>Casualties</th></tr></thead>
+            <tbody>
+                {% for u in units %}
+                <tr>
+                    <td>{{ u.prefix or '' }} {{ u.chassis }} {{ u.variant or '' }}</td>
+                    <td>{{ u.point_value if u.point_value is not none else '—' }}</td>
+                    <td>
+                        {% if u.campaign_pilot_id and not u.is_generic_crew %}
+                        <a href="{{ url_for('campaigns.pilot_history', pilot_id=u.campaign_pilot_id) }}">{{ u.pilot_name }}</a>
+                        {% if u.pilot_type %}<span class="small text-muted">({{ u.pilot_type }})</span>{% endif %}
+                        {% else %}{{ u.pilot_name }} <span class="text-muted">(generic)</span>{% endif %}
+                    </td>
+                    <td>{{ u.alpha_strike_skill }}</td>
+                    <td>{{ (u.damage_outcome or '—') | replace('-', ' ') }}{% if u.repair_cost %} <span class="small text-muted">repair {{ u.repair_cost }} SP</span>{% endif %}</td>
+                    <td class="small">
+                        {% if u.pilot_killed %}<span class="badge bg-danger">pilot killed</span>{% endif %}
+                        {% if u.pilot_wounded %}<span class="badge bg-warning text-dark">pilot wounded</span>{% endif %}
+                        {% if u.generic_crew_lost %}<span class="badge bg-warning text-dark">crew lost</span>{% endif %}
+                        {% if not (u.pilot_killed or u.pilot_wounded or u.generic_crew_lost) %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if report %}
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><h5 class="mb-0">Income</h5></div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><td>Primary Objective SP</td><td class="text-end">{{ report.primary_objective_base }}</td></tr>
+                        <tr><td>Secondary / other Objective SP</td><td class="text-end">{{ report.secondary_objective_base }}</td></tr>
+                        <tr><td>Difficulty modifier ({{ report.difficulty or 'Standard' }}, {{ report.objective_percent }}%)</td>
+                            <td class="text-end">{{ report.primary_objective_adjusted + report.secondary_objective_adjusted - report.primary_objective_base - report.secondary_objective_base }}</td></tr>
+                        <tr><td>Other income</td><td class="text-end">{{ report.other_income }}</td></tr>
+                        <tr class="fw-bold"><td>Total Income</td><td class="text-end">{{ report.total_income }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><h5 class="mb-0">Expenses</h5></div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><td>Reconnaissance</td><td class="text-end">{{ report.expense_reconnaissance }}</td></tr>
+                        <tr><td>Waypoint adjustments</td><td class="text-end">{{ report.expense_waypoint }}</td></tr>
+                        <tr><td>Rearming</td><td class="text-end">{{ report.expense_rearming }}</td></tr>
+                        <tr><td>Personnel</td><td class="text-end">{{ report.expense_personnel }}</td></tr>
+                        <tr><td>Repairs</td><td class="text-end">{{ report.expense_repairs }}</td></tr>
+                        <tr><td>Other</td><td class="text-end">{{ report.expense_other }}</td></tr>
+                        <tr class="fw-bold"><td>Total Expenses</td><td class="text-end">{{ report.total_expenses }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-light border">
+    <strong>Earnings</strong> = {{ report.total_income }} − {{ report.total_expenses }} =
+    <strong>{{ report.earnings }} SP</strong>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Named Pilot Improvement</h5></div>
+    <div class="card-body">
+        <p class="small text-muted">
+            Maximum per participating pilot: <strong>{{ report.max_pilot_sp }} SP</strong>
+            (living non-participants: half). Paid only from this Sortie's Earnings:
+            <strong>{{ report.pilot_sp_pool }} SP</strong> distributed.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Pilot</th><th>Status</th><th>Max</th><th>Share</th><th>MVP</th><th>Skill / Edge / Abilities SP</th><th>After</th><th>New Edge Abilities</th></tr></thead>
+                <tbody>
+                    {% for item in shares %}
+                    {% set s = item.share %}
+                    <tr>
+                        <td><a href="{{ url_for('campaigns.pilot_history', pilot_id=s.campaign_pilot_id) }}">{{ s.callsign }}</a> <span class="small text-muted">({{ s.pilot_type }})</span></td>
+                        <td>{{ s.state | replace('_', ' ') }}</td>
+                        <td>{{ s.max_sp }}</td>
+                        <td>{{ s.awarded_sp }}</td>
+                        <td>{% if s.mvp_bonus %}+{{ s.mvp_bonus }}{% else %}—{% endif %}</td>
+                        {% if item.event %}
+                        <td>{{ item.event.skill_sp_allocated }} / {{ item.event.edge_sp_allocated }} / {{ item.event.ability_sp_allocated }}</td>
+                        <td class="small">Skill {{ item.event.skill_after }}, Edge {{ item.event.edge_tokens_after }}, Abilities {{ item.event.ability_count_after }}</td>
+                        <td>{% for name in item.new_abilities %}<span class="badge bg-info text-dark me-1">{{ name }}</span>{% else %}—{% endfor %}</td>
+                        {% else %}
+                        <td colspan="3" class="text-muted small">{% if s.allocated %}nothing to allocate{% else %}awaiting allocation{% endif %}</td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-muted">No Named Pilots.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Warchest</h5></div>
+    <div class="card-body">
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr><td>Warchest before</td><td class="text-end">{{ report.warchest_before }}</td></tr>
+                <tr><td>Earnings remaining after pilot improvement</td><td class="text-end">{{ report.warchest_remainder }}</td></tr>
+                <tr><td>Purchases</td><td class="text-end">{{ -report.purchases_total }}</td></tr>
+                <tr><td>Sales</td><td class="text-end">{{ report.sales_total }}</td></tr>
+                <tr class="fw-bold"><td>Warchest after</td>
+                    <td class="text-end">{% if report.finalized %}{{ report.warchest_after }}{% else %}{{ report.warchest_after_accounting }} <span class="small text-muted">(so far)</span>{% endif %}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-danger">
+    This attempt failed. No Story Keywords, casualties, repairs, rearming, pay, pilot advancement or MVP were applied.
+</div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Narrative</h5></div>
+    <div class="card-body">
+        <h6>After Action notes</h6>
+        <p>{{ sortie.after_action_notes or '—' }}</p>
+        <h6>Story outcome</h6>
+        <p>{% if report and report.story_notes %}{{ report.story_notes }}{% else %}—{% endif %}</p>
+        <h6>Next Steps / Next Sortie</h6>
+        <p class="mb-0">{% if report and report.next_steps %}{{ report.next_steps }}{% else %}—{% endif %}</p>
+    </div>
+</div>
+
+{% endblock %}

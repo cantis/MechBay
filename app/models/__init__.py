@@ -1,3 +1,4 @@
+from .aces_sortie_report import AcesSortieReport, SortiePilotShare  # noqa: F401
 from .alpha_strike_assignment import AlphaStrikeAssignment  # noqa: F401
 from .alpha_strike_force import AlphaStrikeForce  # noqa: F401
 from .campaign import Campaign  # noqa: F401
@@ -14,11 +15,13 @@ from .lance_template import LanceTemplate  # noqa: F401
 from .lance_template_miniature import LanceTemplateMiniature  # noqa: F401
 from .miniature import Miniature  # noqa: F401
 from .mul_cache import MulCache  # noqa: F401
+from .pilot_advancement_event import PilotAdvancementEvent  # noqa: F401
 from .pilot_injury_event import PilotInjuryEvent  # noqa: F401
 from .rearm_order import RearmOrder  # noqa: F401
 from .repair_order import RepairOrder  # noqa: F401
 from .sortie import Sortie  # noqa: F401
 from .sortie_unit import SortieUnit  # noqa: F401
+from .story_keyword_event import StoryKeywordEvent  # noqa: F401
 from .travel_event import TravelEvent  # noqa: F401
 from .unit_configuration_event import UnitConfigurationEvent  # noqa: F401
 from .warchest_transaction import WarchestTransaction  # noqa: F401

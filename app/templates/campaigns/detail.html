@@ -13,8 +13,10 @@
             <span class="mx-1">·</span>{{ month_label }}
             <span class="mx-1">·</span>{{ location_label }}
             <span class="mx-1">·</span>{{ campaign.warchest_balance }} SP
+            {% if campaign.ruleset != 'aces' %}
             <span class="mx-1">·</span>Scale {{ campaign.scale }}
             <span class="mx-1">·</span>Rep {{ campaign.reputation }}
+            {% endif %}
             {% if campaign.source_force_name %}
             <span class="mx-1">·</span>Created from {{ campaign.source_force_name }}
             {% endif %}
@@ -28,7 +30,9 @@
             <button type="submit" class="btn btn-success">Load campaign</button>
         </form>
         {% endif %}
+        {% if campaign.ruleset != 'aces' %}
         <a href="{{ url_for('campaigns.advance_month_form', id=campaign.id) }}" class="btn btn-primary">Advance Month</a>
+        {% endif %}
         <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
     </div>
 </div>
@@ -61,8 +65,9 @@
                 <label class="form-label">Campaign month</label>
                 <input type="number" name="current_campaign_month" min="1" class="form-control"
                     value="{{ campaign.current_campaign_month }}">
-                <div class="form-text">Use Advance Month for pay, maintenance, and arrivals.</div>
+                {% if campaign.ruleset != 'aces' %}<div class="form-text">Use Advance Month for pay, maintenance, and arrivals.</div>{% endif %}
             </div>
+            {% if campaign.ruleset != 'aces' %}
             <div class="col-md-2">
                 <label class="form-label">Scale</label>
                 <input type="number" name="scale" min="1" max="5" class="form-control" value="{{ campaign.scale }}">
@@ -71,6 +76,7 @@
                 <label class="form-label">Reputation</label>
                 <input type="number" name="reputation" class="form-control" value="{{ campaign.reputation }}">
             </div>
+            {% endif %}
             <div class="col-md-3">
                 <label class="form-label">Starting year</label>
                 <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
@@ -186,6 +192,24 @@
                 <div class="small text-muted">Sorties completed</div>
             </div>
         </div>
+        <p class="mb-3 small">
+            <strong>Difficulty:</strong> {{ campaign.difficulty or 'Standard' }}
+            ({{ '%+d' % aces_summary.pv_allowance.difficulty_percent }}% PV, {{ aces_summary.pv_allowance.objective_percent }}% objective SP)
+            {% if aces_summary.experienced_force_sp %}
+            <span class="mx-1">·</span>Experienced force ({{ aces_summary.experienced_force_sp }} SP): {{ '%+d' % aces_summary.pv_allowance.experienced_percent }}% PV
+            {% endif %}
+            <span class="mx-1">·</span><strong>Max Sortie PV:</strong> {{ aces_summary.pv_allowance.allowed_pv }}
+        </p>
+        {% if replay_required %}
+        <div class="alert alert-danger mb-3">
+            <strong>{{ replay_required.attempt_label }}</strong> failed and must be replayed before a new Sortie can begin.
+            <a href="{{ url_for('contracts.sortie_detail', id=replay_required.id) }}" class="alert-link">Open it</a>
+        </div>
+        {% endif %}
+        <p class="mb-3">
+            <strong>Story Keywords:</strong>
+            {% for kw in current_keywords %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}<span class="text-muted">none</span>{% endfor %}
+        </p>
         {% if units_missing_pv %}
         <div class="alert alert-warning mb-3">
             {{ units_missing_pv | length }} unit(s) have no authoritative MUL Point Value and cannot
@@ -212,6 +236,31 @@
                 <button type="submit" class="btn btn-outline-secondary w-100">Create Sortie</button>
             </div>
         </form>
+
+        <h6>Sorties <a href="{{ url_for('campaigns.sortie_history', id=campaign.id) }}" class="small ms-2">Full Sortie History</a></h6>
+        {% if next_steps %}
+        <div class="alert alert-info py-2"><strong>Next Steps:</strong> {{ next_steps }}</div>
+        {% endif %}
+        <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr><th>Sortie</th><th>Date played</th><th>Status</th><th>Commander</th><th>Keywords</th></tr>
+                </thead>
+                <tbody>
+                    {% for s in aces_sorties[-5:] %}
+                    <tr>
+                        <td><a href="{{ url_for('contracts.sortie_report' if s.report_available else 'contracts.sortie_detail', id=s.id) }}">{{ s.label }}</a> — {{ s.name }}</td>
+                        <td>{{ s.date_played.isoformat() if s.date_played else '—' }}</td>
+                        <td><span class="badge rounded-pill {% if s.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ s.status }}</span></td>
+                        <td>{{ s.force_commander or '—' }}</td>
+                        <td>{% for kw in s.keywords %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}—{% endfor %}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-muted">No Sorties yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
         <h6>Purchase Replacement / Additional Unit</h6>
         <p class="small text-muted">Cost = unit PV × 40 SP. Spends from the Warchest; never creates a physical Miniature.</p>
@@ -351,6 +400,13 @@
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Truly destroy</button>
                             </form>
                             {% endif %}
+                            {% if campaign.ruleset == 'aces' and unit.condition == 'active' and unit.available and unit.point_value %}
+                            <form method="post" action="{{ url_for('campaigns.sell_unit', id=campaign.id, unit_id=unit.id) }}"
+                                class="mt-1" onsubmit="return confirm('Sell this unit for {{ unit.point_value * 20 }} SP? It leaves the active Player Force.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success">Sell ({{ unit.point_value * 20 }} SP)</button>
+                            </form>
+                            {% endif %}
                             {% if campaign.ruleset == 'aces' and unit.condition == 'active' %}
                             <form method="post" action="{{ url_for('campaigns.retire_unit', unit_id=unit.id) }}"
                                 class="mt-1" onsubmit="return confirm('Retire this unit from active service?');">
@@ -361,7 +417,7 @@
                             {% endif %}
                         </td>
                     </tr>
-                    {% if unit.is_omni %}
+                    {% if unit.is_omni and campaign.ruleset != 'aces' %}
                     <tr>
                         <td></td>
                         <td colspan="4">
@@ -437,6 +493,173 @@
     </div>
 </div>
 
+{% if campaign.ruleset == 'aces' %}
+<div class="card mb-3" id="acesPilots">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Named Pilots</h5>
+        <small class="text-muted">
+            {{ aces_summary.named_pilot_count }} living · {{ pilot_limits.min }}–{{ pilot_limits.max }} allowed ({{ pilot_limits.recommended }} recommended)
+        </small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive mb-3">
+            <table class="table table-hover table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Callsign</th>
+                        <th>Type</th>
+                        <th>Skill</th>
+                        <th>Edge</th>
+                        <th>Abilities</th>
+                        <th>Total SP</th>
+                        <th>MVP</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pilot in campaign.pilots if pilot.pilot_type %}
+                    <tr>
+                        <td><a href="{{ url_for('campaigns.pilot_history', pilot_id=pilot.id) }}"><strong>{{ pilot.display_name }}</strong></a></td>
+                        <td>{{ pilot.pilot_type }}</td>
+                        <td>{{ pilot.alpha_strike_skill }}</td>
+                        <td>{{ pilot.edge_tokens }}</td>
+                        <td class="small">{{ pilot.edge_abilities or '—' }}</td>
+                        <td>{{ pilot.total_sp_earned }}</td>
+                        <td>{{ pilot.mvp_count }}</td>
+                        <td>{{ pilot.status }}{% if pilot.wounds > 0 %} <span class="badge rounded-pill bg-warning text-dark">wounded</span>{% endif %}</td>
+                        <td>
+                            {% if pilot.status == 'alive' %}
+                            <form method="post" action="{{ url_for('campaigns.retire_aces_pilot', pilot_id=pilot.id) }}"
+                                onsubmit="return confirm('Retire this pilot? Their history is kept.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Retire</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="text-muted">No Named Pilots yet. Unassigned units use a generic AS {{ generic_as_skill }} crew.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if aces_summary.named_pilot_count < pilot_limits.max %}
+        <h6>New Named Pilot</h6>
+        <form method="post" action="{{ url_for('campaigns.add_aces_pilot', id=campaign.id) }}" id="acesPilotForm" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label class="form-label small mb-0">Callsign *</label>
+                <input type="text" name="callsign" class="form-control" placeholder="e.g. Hawk" required maxlength="64">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Type *</label>
+                <select name="pilot_type" class="form-select" required>
+                    <option value="">Select…</option>
+                    {% for code, label in pilot_types.items() %}
+                    <option value="{{ code }}">{{ code }} — {{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12">
+                <div class="form-text mb-1">Allocate all {{ pilot_limits.starting_sp }} starting SP across the three tracks.</div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Skill SP</label>
+                <input type="number" min="0" name="skill_sp" value="0" class="form-control" data-track="skill">
+                <div class="form-text">Skill <span data-derived="skill">4</span></div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Edge Token SP</label>
+                <input type="number" min="0" name="edge_sp" value="0" class="form-control" data-track="edge">
+                <div class="form-text">Edge Tokens <span data-derived="edge">1</span></div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Edge Ability SP</label>
+                <input type="number" min="0" name="ability_sp" value="0" class="form-control" data-track="ability">
+                <div class="form-text">Edge Abilities <span data-derived="ability">0</span></div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="form-text mb-2">Allocated: <strong data-allocated>0</strong> / {{ pilot_limits.starting_sp }}</div>
+            </div>
+            <div class="col-12" id="acesAbilityPicks"></div>
+            <div class="col-md-5">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="hired" id="acesPilotHired">
+                    <label class="form-check-label" for="acesPilotHired">New / replacement hire (costs 150 SP from the Warchest)</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-outline-primary w-100" id="acesPilotSubmit" disabled>Create pilot</button>
+            </div>
+        </form>
+        <script>
+            (function () {
+                const T = {{ pilot_thresholds | tojson }};
+                const TOTAL = {{ pilot_limits.starting_sp }};
+                const form = document.getElementById('acesPilotForm');
+                if (!form) return;
+                const lookup = (table, sp) => table.reduce((v, [t, r]) => (sp >= t ? r : v), table[0][1]);
+                const inputs = {};
+                form.querySelectorAll('[data-track]').forEach((el) => { inputs[el.dataset.track] = el; });
+                const picks = document.getElementById('acesAbilityPicks');
+                const submit = document.getElementById('acesPilotSubmit');
+                let lastCount = 0;
+
+                function rebuildPicks(count) {
+                    picks.replaceChildren();
+                    if (count === 0) return;
+                    const row = document.createElement('div');
+                    row.className = 'row g-2';
+                    for (let i = 0; i < count; i += 1) {
+                        const col = document.createElement('div');
+                        col.className = 'col-md-3';
+                        const sel = document.createElement('select');
+                        sel.name = 'abilities';
+                        sel.className = 'form-select';
+                        sel.required = true;
+                        const blank = document.createElement('option');
+                        blank.value = '';
+                        blank.textContent = `Edge Ability ${i + 1}…`;
+                        sel.appendChild(blank);
+                        T.abilities.forEach((name) => {
+                            const opt = document.createElement('option');
+                            opt.value = name;
+                            opt.textContent = name;
+                            sel.appendChild(opt);
+                        });
+                        col.appendChild(sel);
+                        row.appendChild(col);
+                    }
+                    picks.appendChild(row);
+                }
+
+                function refresh() {
+                    const v = (k) => Math.max(0, parseInt(inputs[k].value, 10) || 0);
+                    form.querySelector('[data-derived="skill"]').textContent = lookup(T.skill, v('skill'));
+                    form.querySelector('[data-derived="edge"]').textContent = lookup(T.edge, v('edge'));
+                    const abilities = lookup(T.ability, v('ability'));
+                    form.querySelector('[data-derived="ability"]').textContent = abilities;
+                    const allocated = v('skill') + v('edge') + v('ability');
+                    form.querySelector('[data-allocated]').textContent = allocated;
+                    submit.disabled = allocated !== TOTAL;
+                    if (abilities !== lastCount) {
+                        lastCount = abilities;
+                        rebuildPicks(abilities);
+                    }
+                }
+                Object.values(inputs).forEach((el) => el.addEventListener('input', refresh));
+                refresh();
+            })();
+        </script>
+        {% else %}
+        <div class="text-muted small">Maximum of {{ pilot_limits.max }} living Named Pilots reached. Retire a pilot to add another.</div>
+        {% endif %}
+    </div>
+</div>
+{% else %}
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Named Pilots</h5></div>
     <div class="card-body">
@@ -517,6 +740,8 @@
         </form>
     </div>
 </div>
+
+{% endif %}
 
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Repair Orders</h5></div>

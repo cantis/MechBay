@@ -7,7 +7,7 @@ committed to the Contract roster before they can be selected for a Sortie.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -24,17 +24,17 @@ from ..models.contract_unit import ContractUnit
 from ..models.sortie import Sortie
 from ..models.sortie_unit import SortieUnit
 from ..models.warchest_transaction import WarchestTransaction
-from . import campaign_service, mul_service
+from . import aces_pilot_rules, campaign_service, mul_service
 from .campaign_service import GENERIC_AS_SKILL, pilot_is_available
 
 logger = structlog.get_logger()
 
 CONTRACT_STATUSES = ("draft", "active", "completed", "cancelled")
-SORTIE_STATUSES = ("planning", "ready", "fought", "after_action", "closed")
+SORTIE_STATUSES = ("planning", "ready", "fought", "after_action", "closed", "failed")
 SORTIE_OUTCOMES = ("victory", "loss", "draw", "inconclusive")
 EDITABLE_SORTIE_STATUSES = {"planning"}
 EDITABLE_CONTRACT_ROSTER_STATUSES = {"draft", "active"}
-HISTORICAL_SORTIE_STATUSES = {"ready", "fought", "after_action", "closed"}
+HISTORICAL_SORTIE_STATUSES = {"ready", "fought", "after_action", "closed", "failed"}
 TRANSPORT_MODES = ("standard", "jump", "manual")
 
 
@@ -757,11 +757,16 @@ def update_sortie(
     scenario_type: str | None | object = ...,
     location: str | None | object = ...,
     notes: str | None | object = ...,
+    date_played: date | None | object = ...,
 ) -> Sortie | None:
     with session_scope() as session:
         sortie = session.get(Sortie, sortie_id)
         if not sortie:
             return None
+        if date_played is not ...:
+            if sortie.status not in EDITABLE_SORTIE_STATUSES:
+                raise ValueError("Date played is locked once the Sortie is Ready")
+            sortie.date_played = date_played if isinstance(date_played, date) else None
         if sortie.status not in EDITABLE_SORTIE_STATUSES and scale is not None:
             raise ValueError("Sortie force is locked")
         if name is not None:
@@ -874,14 +879,21 @@ def _snapshot_pilot_fields(row: SortieUnit, pilot: CampaignPilot | None) -> None
         row.piloting = GENERIC_AS_SKILL
         row.alpha_strike_skill = GENERIC_AS_SKILL
         row.is_generic_crew = True
+        row.pilot_type = None
+        row.pilot_edge_tokens = None
+        row.pilot_abilities = None
         return
     row.campaign_pilot_id = pilot.id
-    row.pilot_name = pilot.name
+    row.pilot_name = pilot.display_name if pilot.pilot_type else pilot.name
     row.pilot_callsign = pilot.callsign
     row.gunnery = pilot.gunnery
     row.piloting = pilot.piloting
     row.alpha_strike_skill = pilot.alpha_strike_skill
     row.is_generic_crew = False
+    # Aces Named Pilots: freeze Type/Edge/abilities so history survives later advancement.
+    row.pilot_type = pilot.pilot_type
+    row.pilot_edge_tokens = pilot.edge_tokens if pilot.pilot_type else None
+    row.pilot_abilities = pilot.edge_abilities if pilot.pilot_type else None
 
 
 def _copy_unit_config(row: SortieUnit, unit: CampaignUnit) -> None:
@@ -946,7 +958,10 @@ def add_unit_to_sortie(sortie_id: int, campaign_unit_id: int) -> SortieUnit:
             order=int(order) + 1,
         )
         _copy_unit_config(row, unit)
-        preferred = _preferred_pilot_for_unit(session, unit, taken_pilots)
+        campaign = session.get(Campaign, sortie.campaign_id)
+        is_aces = bool(campaign and campaign.ruleset == "aces")
+        # Aces pilots are chosen per Sortie; Chaos preferred-unit defaults do not apply.
+        preferred = None if is_aces else _preferred_pilot_for_unit(session, unit, taken_pilots)
         _snapshot_pilot_fields(row, preferred)
         session.add(row)
         session.flush()
@@ -995,7 +1010,25 @@ def remove_sortie_unit(sortie_unit_id: int) -> bool:
         if sortie and sortie.status not in EDITABLE_SORTIE_STATUSES:
             raise ValueError("Sortie force is locked")
         session.delete(row)
+        session.flush()
+        if sortie:
+            sync_force_commander(session, sortie)
         return True
+
+
+def sync_force_commander(session, sortie: Sortie) -> None:
+    """Drop the Force Commander if that pilot no longer crews a unit in this Sortie."""
+    if sortie.force_commander_pilot_id is None:
+        return
+    still_in = session.execute(
+        select(SortieUnit.id).where(
+            SortieUnit.sortie_id == sortie.id,
+            SortieUnit.campaign_pilot_id == sortie.force_commander_pilot_id,
+        )
+    ).first()
+    if not still_in:
+        sortie.force_commander_pilot_id = None
+        sortie.force_commander_callsign = None
 
 
 def assign_sortie_pilot(sortie_unit_id: int, campaign_pilot_id: int | None) -> SortieUnit:
@@ -1014,6 +1047,15 @@ def assign_sortie_pilot(sortie_unit_id: int, campaign_pilot_id: int | None) -> S
                 raise ValueError("Pilot is not part of this campaign")
             if not pilot_is_available(pilot):
                 raise ValueError("Pilot is not available")
+            campaign = session.get(Campaign, sortie.campaign_id)
+            if campaign and campaign.ruleset == "aces":
+                if pilot.pilot_type is None:
+                    raise ValueError("Only Aces Named Pilots can crew Aces Sortie units")
+                if not aces_pilot_rules.unit_accepts_pilot(row.unit_type_name, pilot.pilot_type):
+                    raise ValueError(
+                        f"{pilot.display_name} is a {pilot.pilot_type} pilot and cannot "
+                        f"crew {row.chassis} ({row.unit_type_name or 'unknown type'})"
+                    )
             clash = session.execute(
                 select(SortieUnit).where(
                     SortieUnit.sortie_id == sortie.id,
@@ -1025,6 +1067,7 @@ def assign_sortie_pilot(sortie_unit_id: int, campaign_pilot_id: int | None) -> S
                 raise ValueError("Named pilots can only crew one unit in a Sortie")
             _snapshot_pilot_fields(row, pilot)
         session.flush()
+        sync_force_commander(session, sortie)
         session.expunge(row)
         return row
 
@@ -1041,6 +1084,46 @@ def apply_sortie_unit_configuration(
 
 def sortie_point_total(sortie: Sortie) -> int:
     return sum(unit.point_value or 0 for unit in sortie.units)
+
+
+def _validate_aces_ready(session, sortie: Sortie) -> None:
+    """Aces Sortie prerequisites: date played, enough Named Pilots, a Force Commander."""
+    if sortie.date_played is None:
+        raise ValueError("Date played is required for an Aces Sortie")
+    living = session.execute(
+        select(func.count(CampaignPilot.id)).where(
+            CampaignPilot.campaign_id == sortie.campaign_id,
+            CampaignPilot.status == "alive",
+            CampaignPilot.pilot_type.is_not(None),
+        )
+    ).scalar_one()
+    if living < aces_pilot_rules.MIN_NAMED_PILOTS:
+        raise ValueError(
+            f"An Aces campaign needs at least {aces_pilot_rules.MIN_NAMED_PILOTS} "
+            "living Named Pilots before a Sortie can begin"
+        )
+    campaign = session.get(Campaign, sortie.campaign_id)
+    allowance = campaign_service.compute_aces_pv_allowance(session, campaign)
+    fielded_pv = sum(int(row.point_value or 0) for row in sortie.units)
+    if fielded_pv > allowance["allowed_pv"]:
+        raise ValueError(
+            f"Sortie force would be {fielded_pv} PV; this campaign allows "
+            f"{allowance['allowed_pv']} PV ({allowance['force_pv']} PV Player Force, "
+            f"difficulty {allowance['difficulty_percent']:+d}%, "
+            f"experienced force {allowance['experienced_percent']:+d}%)"
+        )
+    if sortie.force_commander_pilot_id is None:
+        raise ValueError("Select a Force Commander from the participating Named Pilots")
+    commander = session.get(CampaignPilot, sortie.force_commander_pilot_id)
+    participating = {row.campaign_pilot_id for row in sortie.units if row.campaign_pilot_id}
+    if (
+        not commander
+        or commander.id not in participating
+        or commander.status != "alive"
+        or not pilot_is_available(commander)
+    ):
+        raise ValueError("Force Commander must be an available Named Pilot in this Sortie")
+    sortie.force_commander_callsign = commander.display_name
 
 
 def mark_sortie_ready(sortie_id: int) -> Sortie:
@@ -1087,6 +1170,9 @@ def mark_sortie_ready(sortie_id: int) -> Sortie:
             pilot = session.get(CampaignPilot, row.campaign_pilot_id)
             if pilot and not pilot_is_available(pilot):
                 raise ValueError(f"{pilot.name} is not available")
+        campaign = session.get(Campaign, sortie.campaign_id)
+        if campaign and campaign.ruleset == "aces":
+            _validate_aces_ready(session, sortie)
         sortie.status = "ready"
         sortie.updated_at = datetime.now(UTC)
         session.flush()
@@ -1147,4 +1233,14 @@ def apply_omni_from_search(
     *,
     cost: int = 0,  # noqa: ARG001
 ) -> SortieUnit:
-    raise ValueError("Omni reconfiguration is a between-sortie activity")
+    from . import aces_sortie_service
+
+    with session_scope() as session:
+        row = session.get(SortieUnit, sortie_unit_id)
+        sortie = session.get(Sortie, row.sortie_id) if row else None
+        campaign = session.get(Campaign, sortie.campaign_id) if sortie else None
+        is_aces = bool(campaign and campaign.ruleset == "aces")
+    if not is_aces:
+        raise ValueError("Omni reconfiguration is a between-sortie activity")
+    # Aces computes its own cost from the rules; any supplied cost is ignored.
+    return aces_sortie_service.reconfigure_aces_omni(sortie_unit_id, mul_unit_id)

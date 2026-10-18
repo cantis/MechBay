@@ -34,7 +34,7 @@
             <span class="mx-1">·</span>
             {% if force.is_active %}<span class="badge bg-success">Active</span><span class="mx-1">·</span>{% endif %}
             {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
-            {{ force.lances | length }} Lance(s), {{ total_minis }} Miniature(s)
+            {{ force.lances | length }} Lance(s), <span id="forceMiniCount">{{ total_minis }}</span> Miniature(s)
         </small>
     </div>
     <div>
@@ -79,7 +79,7 @@
         <h5 class="mb-0"><i class="fa-solid fa-crosshairs"></i> Alpha Strike</h5>
         {% if as_config and as_summary %}
         <span id="asBudgetBadge" class="badge {% if as_summary.status == 'over_hard' %}bg-danger{% elif as_summary.status == 'over_fudge' %}bg-warning text-dark{% elif as_summary.status == 'within' %}bg-success{% else %}bg-secondary{% endif %}">
-            {{ as_summary.total_pv }} PV
+            <span class="force-pv-total">{{ as_summary.total_pv }}</span> PV
             {% if as_config.point_budget %}/ {{ as_config.point_budget }}{% endif %}
         </span>
         {% endif %}
@@ -377,7 +377,7 @@
 {% if as_config and as_summary %}
 <div class="alert alert-light border mb-3 py-2">
     <div class="d-flex flex-wrap align-items-center gap-3">
-        <span><strong>Force points:</strong> {{ as_summary.total_pv }} PV committed</span>
+        <span><strong>Force points:</strong> <span class="force-pv-total">{{ as_summary.total_pv }}</span> PV committed</span>
         {% if as_config.point_budget %}
         <span class="text-muted">·</span>
         <span>
@@ -409,7 +409,7 @@
                         <i class="fa-solid fa-pen-to-square fa-xs text-muted ms-1"></i>
                     </h6>
                     {% if as_config %}
-                    <span class="badge bg-secondary">{{ lance_pv_totals.get(lance.id, 0) }} PV</span>
+                    <span class="badge bg-secondary lance-pv-badge"><span class="lance-pv">{{ lance_pv_totals.get(lance.id, 0) }}</span> PV</span>
                     <a href="{{ url_for('forces.export_lance_jeff', id=force.id, lance_id=lance.id) }}"
                         class="btn btn-sm btn-link text-success p-0" title="Export lance to Jeff's BT Tools">
                         <i class="fa-solid fa-file-export"></i>
@@ -432,6 +432,7 @@
                     <li class="list-group-item"
                         data-miniature-id="{{ m.id }}"
                         data-fm-id="{{ fm.id }}"
+                        data-pv="{{ as_assign.point_value if as_assign else 0 }}"
                         data-chassis="{{ m.chassis }}">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
@@ -467,7 +468,7 @@
                     {% endfor %}
                 </ul>
                 <div class="mt-2">
-                    <small class="text-muted">{{ lance.miniatures | length }} miniatures</small>
+                    <small class="text-muted lance-count">{{ lance.miniatures | length }} miniatures</small>
                 </div>
             </div>
         </div>

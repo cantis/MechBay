@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services import campaign_service
+from tests.conftest import prepare_aces_ready
 
 
 def _create(force_id, **kwargs):
@@ -48,6 +49,7 @@ def test_aces_sortie_detail_renders(client, minimal_force):
     sortie = campaign_service.create_aces_sortie(campaign.id, "Waypoint 1")
     from app.services import contract_service
     contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
+    prepare_aces_ready(campaign.id, sortie.id)
 
     resp = client.get(f"/sorties/{sortie.id}")
     assert resp.status_code == 200
@@ -86,16 +88,22 @@ def test_aces_full_sortie_and_purchase_flow_via_routes(client, minimal_force):
 
     sortie = campaign_service.create_aces_sortie(campaign.id, "Waypoint 1")
     contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
+    prepare_aces_ready(campaign.id, sortie.id)
     contract_service.mark_sortie_ready(sortie.id)
     contract_service.mark_sortie_fought(sortie.id)
 
-    sortie_unit_id = contract_service.get_sortie_by_id(sortie.id).units[0].id
+    sortie_unit = contract_service.get_sortie_by_id(sortie.id).units[0]
     aa = client.post(
-        f"/sorties/{sortie.id}/after-action",
-        data={f"damage_outcome_{sortie_unit_id}": "structure", "outcome": "victory"},
+        f"/sorties/{sortie.id}/aces-after-action",
+        data={
+            f"damage_outcome_{sortie_unit.id}": "structure",
+            "mvp_pilot_id": str(sortie_unit.campaign_pilot_id),
+            "max_pilot_sp": "0",
+        },
         follow_redirects=True,
     )
     assert aa.status_code == 200
+    assert b"After-Sortie applied" in aa.data
 
     detail = client.get(f"/campaigns/{campaign.id}")
     assert detail.status_code == 200
