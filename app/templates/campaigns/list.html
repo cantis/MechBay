@@ -21,8 +21,8 @@
             <tr>
                 <th>Name</th>
                 <th>Status</th>
-                <th>Month</th>
-                <th>Location</th>
+                <th>Month / Sorties</th>
+                <th>Location / Last played</th>
                 <th>Warchest</th>
                 <th style="width: 150px">Actions</th>
             </tr>
@@ -47,8 +47,14 @@
                     <span class="badge rounded-pill bg-info text-dark">Aces</span>
                     {% endif %}
                 </td>
+                {% if campaign.ruleset == 'aces' %}
+                {% set stats = sortie_stats.get(campaign.id) %}
+                <td>{{ stats.completed if stats else 0 }} Sortie{{ '' if stats and stats.completed == 1 else 's' }}</td>
+                <td>{{ stats.last_played.isoformat() if stats and stats.last_played else '—' }}</td>
+                {% else %}
                 <td>{{ campaign.current_campaign_month }}</td>
                 <td>{{ campaign.current_location or '—' }}</td>
+                {% endif %}
                 <td>{{ campaign.warchest_balance }} SP</td>
                 <td>
                     <div class="d-flex gap-3 align-items-center">
@@ -154,7 +160,7 @@
                             <input type="number" name="reputation" value="1" class="form-control">
                         </div>
                     </div>
-                    <div class="row">
+                    <div class="row" data-ruleset-only="chaos">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Starting year *</label>
                             <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
@@ -165,7 +171,7 @@
                             <input type="number" name="starting_bt_month" min="1" max="12" class="form-control" required>
                         </div>
                     </div>
-                    <div class="mb-3">
+                    <div class="mb-3" data-ruleset-only="chaos">
                         <label class="form-label">Starting location</label>
                         <input type="text" name="current_location" class="form-control">
                     </div>
@@ -175,6 +181,10 @@
                             placeholder="Leave blank for the default">
                         <div class="form-text" data-ruleset-only="chaos">Default opening Warchest is {{ default_opening_warchest }} SP.</div>
                         <div class="form-text d-none" data-ruleset-only="aces">Aces: a new force always starts with unused PV × 40 SP. This applies only to an experienced force (default 0).</div>
+                    </div>
+                    <div class="alert alert-info py-2 d-none" data-ruleset-only="aces">
+                        Aces campaigns progress by Sortie. After creating the campaign, add its Named Pilots
+                        (2 to 6) from the campaign page: pilots belong to a campaign.
                     </div>
                     <div class="mb-0">
                         <label class="form-label">Notes</label>

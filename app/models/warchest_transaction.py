@@ -17,7 +17,7 @@ class WarchestTransaction(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     campaign_id: Mapped[int] = mapped_column(Integer, ForeignKey("campaigns.id"), nullable=False)
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     transaction_type: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str] = mapped_column(String(256), nullable=False)
     gross_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

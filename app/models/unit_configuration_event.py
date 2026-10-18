@@ -21,7 +21,7 @@ class UnitConfigurationEvent(Base):
     campaign_unit_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("campaign_units.id"), nullable=False
     )
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     previous_variant: Mapped[str | None] = mapped_column(String(64), nullable=True)
     new_variant: Mapped[str | None] = mapped_column(String(64), nullable=True)
     mul_unit_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

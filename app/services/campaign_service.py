@@ -79,6 +79,8 @@ def availability_for_condition(condition: str, available: bool | None = None) ->
 def campaign_month_label(campaign: Campaign, month: int | None = None) -> str:
     """Return 'Campaign Month N' and optional BattleTech calendar display."""
     number = month if month is not None else campaign.current_campaign_month
+    if number is None:
+        return ""
     label = f"Campaign Month {number}"
     if campaign.starting_bt_year is None or campaign.starting_bt_month is None:
         return label
@@ -269,8 +271,8 @@ def create_campaign_from_force(
     scale: int = 1,
     reputation: int = 1,
     status: str = "planning",
-    starting_bt_year: int,
-    starting_bt_month: int,
+    starting_bt_year: int | None = None,
+    starting_bt_month: int | None = None,
     current_location: str | None = None,
     notes: str | None = None,
     opening_warchest: int | None = None,
@@ -286,14 +288,19 @@ def create_campaign_from_force(
         raise ValueError("Invalid campaign status")
     if scale < 1 or scale > 5:
         raise ValueError("Scale must be between 1 and 5")
-    if starting_bt_year is None:
-        raise ValueError("Starting year is required")
-    if starting_bt_year < 1000 or starting_bt_year > 9999:
-        raise ValueError("Starting year must be a 4-digit year")
-    if starting_bt_month is None:
-        raise ValueError("Starting month is required")
-    if starting_bt_month < 1 or starting_bt_month > 12:
-        raise ValueError("Starting month must be between 1 and 12")
+    is_aces = ruleset == "aces"
+    if is_aces:
+        # Aces is Sortie-based: no strategic calendar or location is stored.
+        starting_bt_year = starting_bt_month = current_location = None
+    else:
+        if starting_bt_year is None:
+            raise ValueError("Starting year is required")
+        if starting_bt_year < 1000 or starting_bt_year > 9999:
+            raise ValueError("Starting year must be a 4-digit year")
+        if starting_bt_month is None:
+            raise ValueError("Starting month is required")
+        if starting_bt_month < 1 or starting_bt_month > 12:
+            raise ValueError("Starting month must be between 1 and 12")
 
     force = force_service.get_force_by_id(force_id)
     if force is None:
@@ -312,7 +319,7 @@ def create_campaign_from_force(
             experienced_force_sp=experienced_force_sp,
             status=status,
             is_active=True,
-            current_campaign_month=1,
+            current_campaign_month=None if is_aces else 1,
             starting_bt_year=starting_bt_year,
             starting_bt_month=starting_bt_month,
             current_location=current_location.strip() if current_location else None,
@@ -350,7 +357,7 @@ def create_campaign_from_force(
 
         tx = WarchestTransaction(
             campaign_id=campaign.id,
-            campaign_month=1,
+            campaign_month=None if is_aces else 1,
             transaction_type="opening_balance",
             description=opening_description,
             gross_amount=opening,
@@ -1084,7 +1091,6 @@ def create_aces_sortie(
     campaign_id: int,
     name: str,
     *,
-    campaign_month: int | None = None,
     scenario_type: str | None = None,
     location: str | None = None,
     notes: str | None = None,
@@ -1114,14 +1120,11 @@ def create_aces_sortie(
             ).scalar_one()
             + 1
         )
-        month = campaign_month if campaign_month is not None else campaign.current_campaign_month
-        if month < 1:
-            raise ValueError("Campaign month must be 1 or greater")
         sortie = Sortie(
             campaign_id=campaign.id,
             contract_id=None,
             name=cleaned,
-            campaign_month=month,
+            campaign_month=None,
             scale=1,
             scenario_type=scenario_type.strip() if scenario_type else None,
             location=location.strip() if location else None,
@@ -1192,9 +1195,6 @@ def create_aces_campaign(
     existing_pilot_sp: int = 0,
     opening_warchest: int | None = None,
     status: str = "planning",
-    starting_bt_year: int,
-    starting_bt_month: int,
-    current_location: str | None = None,
     notes: str | None = None,
 ) -> Campaign:
     """Aces campaign creation flow.
@@ -1232,9 +1232,6 @@ def create_aces_campaign(
         ruleset="aces",
         difficulty=difficulty,
         status=status,
-        starting_bt_year=starting_bt_year,
-        starting_bt_month=starting_bt_month,
-        current_location=current_location,
         notes=notes,
         opening_warchest=opening,
         experienced_force_sp=existing_pilot_sp,
@@ -1597,5 +1594,6 @@ def get_campaign_log(campaign_id: int) -> list[dict[str, Any]]:
                 }
             )
 
-        entries.sort(key=lambda e: (e["campaign_month"], e["created_at"]))
+        # Chaos orders by campaign month first; Aces has none, so it is purely chronological.
+        entries.sort(key=lambda e: (e["campaign_month"] or 0, e["created_at"]))
         return entries

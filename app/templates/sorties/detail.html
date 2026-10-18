@@ -35,10 +35,12 @@
                 <label class="form-label">Name</label>
                 <input type="text" name="name" class="form-control" value="{{ sortie.name }}" required>
             </div>
+            {% if not is_aces %}
             <div class="col-md-2">
                 <label class="form-label">Campaign month</label>
                 <input type="number" name="campaign_month" min="1" class="form-control" value="{{ sortie.campaign_month }}">
             </div>
+            {% endif %}
             {% if is_aces %}
             <div class="col-md-2">
                 <label class="form-label">Date played *</label>
@@ -264,7 +266,7 @@
         <p class="mb-0 small">Replay of <a href="{{ url_for('contracts.sortie_detail', id=lineage.replay_of.id) }}">{{ lineage.replay_of.attempt_label }}</a> (failed).</p>
         {% endif %}
         {% if sortie.status == 'fought' %}
-        <p class="mb-0 text-muted">Fought. Record After Action below. Closing the Sortie does not advance the campaign month.</p>
+        <p class="mb-0 text-muted">Fought. Record After Action below.{% if not is_aces %} Closing the Sortie does not advance the campaign month.{% endif %}</p>
         {% endif %}
         {% if sortie.status == 'after_action' and not is_aces %}
         <form method="post" action="{{ url_for('contracts.close_sortie', id=sortie.id) }}">
@@ -273,7 +275,7 @@
         </form>
         {% endif %}
         {% if sortie.status == 'closed' %}
-        <p class="mb-0 text-muted">Closed. Campaign month is advanced separately.</p>
+        <p class="mb-0 text-muted">Closed.{% if not is_aces %} Campaign month is advanced separately.{% endif %}</p>
         {% endif %}
     </div>
 </div>

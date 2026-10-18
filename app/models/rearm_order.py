@@ -25,7 +25,7 @@ class RearmOrder(Base):
     campaign_unit_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("campaign_units.id"), nullable=False
     )
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gross_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     covered_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     actual_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

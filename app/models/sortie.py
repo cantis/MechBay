@@ -25,7 +25,7 @@ class Sortie(Base):
         Integer, ForeignKey("contracts.id"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     scale: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     scenario_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     location: Mapped[str | None] = mapped_column(String(128), nullable=True)

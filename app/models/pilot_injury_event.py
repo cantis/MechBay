@@ -25,7 +25,7 @@ class PilotInjuryEvent(Base):
     sortie_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("sorties.id", ondelete="SET NULL"), nullable=True
     )
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

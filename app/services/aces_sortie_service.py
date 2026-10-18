@@ -305,6 +305,30 @@ def get_sortie_keywords(sortie_id: int) -> dict[str, list[str]]:
 # --- Campaign listing ---------------------------------------------------------------------
 
 
+def sortie_stats_by_campaign(campaign_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Completed-Sortie count and most recent date played, for the campaign list."""
+    if not campaign_ids:
+        return {}
+    with session_scope() as session:
+        stats: dict[int, dict[str, Any]] = {
+            cid: {"completed": 0, "last_played": None} for cid in campaign_ids
+        }
+        for sortie in session.execute(
+            select(Sortie).where(
+                Sortie.campaign_id.in_(campaign_ids),
+                Sortie.contract_id.is_(None),
+                Sortie.status.in_(["after_action", "closed"]),
+            )
+        ).scalars():
+            entry = stats[sortie.campaign_id]
+            entry["completed"] += 1
+            if sortie.date_played and (
+                entry["last_played"] is None or sortie.date_played > entry["last_played"]
+            ):
+                entry["last_played"] = sortie.date_played
+        return stats
+
+
 def list_aces_sorties(campaign_id: int) -> list[dict[str, Any]]:
     """Every attempt (including failed ones) with label, date, result and keywords."""
     with session_scope() as session:

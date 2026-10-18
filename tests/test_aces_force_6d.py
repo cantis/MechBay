@@ -127,8 +127,6 @@ def _assign_all(force_id, point_value, *, type_name="BattleMech", skip=0, count=
 
 
 def _create_aces(force_id, **kwargs):
-    kwargs.setdefault("starting_bt_year", 3151)
-    kwargs.setdefault("starting_bt_month", 1)
     return campaign_service.create_aces_campaign(force_id, "Aces New", **kwargs)
 
 
@@ -202,7 +200,7 @@ def test_experienced_force_is_not_capped_and_modifier_is_fixed(client, realistic
     assert allowance["allowed_pv"] == 480 * 60 // 100
     # Default Warchest for a reused force is 0, not the Chaos 3000 or unused-PV rule.
     other = campaign_service.create_aces_campaign(
-        realistic_force, "Second", existing_pilot_sp=100, starting_bt_year=3151, starting_bt_month=1
+        realistic_force, "Second", existing_pilot_sp=100
     )
     assert other.warchest_balance == 0
 

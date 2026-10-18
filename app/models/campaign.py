@@ -34,7 +34,8 @@ class Campaign(Base):
     experienced_force_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="planning")
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    current_campaign_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Chaos only: Aces campaigns are Sortie-based and leave this empty.
+    current_campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     starting_bt_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     starting_bt_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     current_location: Mapped[str | None] = mapped_column(String(128), nullable=True)

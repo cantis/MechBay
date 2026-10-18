@@ -33,6 +33,8 @@ def init_db(app: Flask) -> None:
     Base.metadata.create_all(bind=engine)
     _apply_schema_constraints(engine)
     _apply_schema_migrations(engine)
+    # Table rebuilds drop partial indexes; re-assert them (idempotent).
+    _apply_schema_constraints(engine)
 
     @app.teardown_appcontext
     def remove_session(exception: Exception | None) -> None:  # noqa: ARG001
@@ -203,8 +205,12 @@ def _apply_schema_migrations(db_engine) -> None:
                     conn.commit()
                     logger.info("schema_migration_applied", table=table, column=column)
 
+        for table_name, columns in _NULLABLE_COLUMNS.items():
+            if table_name in campaign_tables:
+                _make_columns_nullable(conn, table_name, columns)
+        if "campaigns" in campaign_tables:
+            _clear_aces_time_and_location(conn, campaign_tables)
         if "sorties" in campaign_tables:
-            _make_sorties_contract_id_nullable(conn)
             _backfill_aces_sortie_numbers(conn)
 
 
@@ -221,28 +227,82 @@ def _backfill_aces_sortie_numbers(conn) -> None:
     conn.commit()
 
 
-def _make_sorties_contract_id_nullable(conn) -> None:
-    """Rebuild the sorties table so contract_id allows NULL (Aces Sorties have no Contract).
+# Columns that must allow NULL: Aces is Sortie-based and has no campaign month, and Aces
+# Sorties have no Contract. Chaos code always fills the month in.
+_NULLABLE_COLUMNS: dict[str, set[str]] = {
+    "campaigns": {"current_campaign_month"},
+    "sorties": {"contract_id", "campaign_month"},
+    "warchest_transactions": {"campaign_month"},
+    "damage_events": {"campaign_month"},
+    "pilot_injury_events": {"campaign_month"},
+    "rearm_orders": {"campaign_month"},
+    "repair_orders": {"campaign_month"},
+    "unit_configuration_events": {"campaign_month"},
+}
 
-    SQLite cannot ALTER COLUMN ... DROP NOT NULL in place, so this copies the table
-    through a rebuild using the current (already-nullable) SQLAlchemy model definition.
+_ACES_EVENT_TABLES = (
+    "sorties",
+    "warchest_transactions",
+    "damage_events",
+    "pilot_injury_events",
+    "rearm_orders",
+    "repair_orders",
+    "unit_configuration_events",
+)
+
+
+def _make_columns_nullable(conn, table_name: str, columns: set[str]) -> None:
+    """Rebuild a table so the given NOT NULL columns allow NULL (SQLite cannot ALTER this).
+
+    A copy is built under a temporary name, filled, and swapped in, so other tables'
+    foreign keys keep pointing at the final table name.
     """
-    info = conn.execute(text("PRAGMA table_info(sorties)")).fetchall()
-    contract_id_row = next((row for row in info if row[1] == "contract_id"), None)
-    if contract_id_row is None or contract_id_row[3] == 0:
-        return  # column missing or already nullable
+    info = conn.execute(text(f'PRAGMA table_info("{table_name}")')).fetchall()
+    if not any(row[1] in columns and row[3] == 1 for row in info):
+        return  # already nullable (or column missing)
 
-    columns = [row[1] for row in info]
-    col_list = ", ".join(f'"{c}"' for c in columns)
+    table = Base.metadata.tables[table_name]
+    existing = {row[1] for row in info}
+    shared = [column.name for column in table.columns if column.name in existing]
+    col_list = ", ".join(f'"{name}"' for name in shared)
+    temp_name = f"{table_name}__rebuild"
 
-    conn.execute(text('ALTER TABLE "sorties" RENAME TO "sorties_old"'))
-    Base.metadata.tables["sorties"].create(bind=conn)
+    clone = table.to_metadata(Base.metadata, name=temp_name)
+    try:
+        clone.create(bind=conn)
+    finally:
+        Base.metadata.remove(clone)
     conn.execute(
-        text(f'INSERT INTO "sorties" ({col_list}) SELECT {col_list} FROM "sorties_old"')
+        text(f'INSERT INTO "{temp_name}" ({col_list}) SELECT {col_list} FROM "{table_name}"')
     )
-    conn.execute(text('DROP TABLE "sorties_old"'))
+    conn.execute(text(f'DROP TABLE "{table_name}"'))
+    conn.execute(text(f'ALTER TABLE "{temp_name}" RENAME TO "{table_name}"'))
     conn.commit()
-    logger.info("schema_migration_applied", table="sorties", column="contract_id_nullable")
+    logger.info("schema_migration_applied", table=table_name, column="nullable_rebuild")
+
+
+def _clear_aces_time_and_location(conn, tables: set[str]) -> None:
+    """Aces campaigns are Sortie-based: drop any stored Chaos calendar/location values."""
+    conn.execute(
+        text(
+            "UPDATE campaigns SET starting_bt_year = NULL, starting_bt_month = NULL, "
+            "current_location = NULL, current_campaign_month = NULL "
+            "WHERE ruleset = 'aces' AND (starting_bt_year IS NOT NULL "
+            "OR starting_bt_month IS NOT NULL OR current_location IS NOT NULL "
+            "OR current_campaign_month IS NOT NULL)"
+        )
+    )
+    for table_name in _ACES_EVENT_TABLES:
+        if table_name not in tables:
+            continue
+        conn.execute(
+            text(
+                f'UPDATE "{table_name}" SET campaign_month = NULL '
+                "WHERE campaign_month IS NOT NULL AND campaign_id IN "
+                "(SELECT id FROM campaigns WHERE ruleset = 'aces')"
+            )
+        )
+    conn.commit()
 
 
 @contextmanager

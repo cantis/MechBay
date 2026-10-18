@@ -42,6 +42,7 @@ def _campaign_view_context(campaign) -> dict:
         "campaign": campaign,
         "month_label": campaign_service.campaign_month_label(campaign),
         "location_label": campaign_service.location_display(campaign),
+        "is_aces": campaign.ruleset == "aces",
         "missing_units": campaign_service.missing_miniature_units(campaign),
         "statuses": CAMPAIGN_STATUSES,
         "conditions": UNIT_CONDITIONS,
@@ -91,6 +92,9 @@ def list_campaigns():
         forces=forces,
         statuses=CAMPAIGN_STATUSES,
         default_opening_warchest=DEFAULT_OPENING_WARCHEST,
+        sortie_stats=aces_sortie_service.sortie_stats_by_campaign(
+            [c.id for c in campaigns if c.ruleset == "aces"]
+        ),
     )
 
 
@@ -104,9 +108,13 @@ def create():
     if not force_id_raw:
         flash("A saved Force is required to create a Campaign", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
-    if not (request.form.get("starting_bt_year") or "").strip() or not (
-        request.form.get("starting_bt_month") or ""
-    ).strip():
+    ruleset = (request.form.get("ruleset") or "chaos").strip()
+    is_aces = ruleset == "aces"
+    # Chaos needs a strategic calendar; Aces is Sortie-based and has none.
+    if not is_aces and (
+        not (request.form.get("starting_bt_year") or "").strip()
+        or not (request.form.get("starting_bt_month") or "").strip()
+    ):
         flash("Starting year and month are required", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
 
@@ -114,14 +122,13 @@ def create():
         force_id = int(force_id_raw)
         scale = int(request.form.get("scale") or 1)
         reputation = int(request.form.get("reputation") or 1)
-        starting_bt_year = int(request.form.get("starting_bt_year") or "")
-        starting_bt_month = int(request.form.get("starting_bt_month") or "")
+        starting_bt_year = None if is_aces else int(request.form.get("starting_bt_year") or "")
+        starting_bt_month = None if is_aces else int(request.form.get("starting_bt_month") or "")
         opening_warchest = _optional_int(request.form.get("opening_warchest"))
     except (TypeError, ValueError):
         flash("Invalid campaign values", "danger")
         return redirect(url_for("campaigns.list_campaigns"))
 
-    ruleset = (request.form.get("ruleset") or "chaos").strip()
     difficulty = request.form.get("difficulty")
 
     if ruleset == "aces":
@@ -133,9 +140,6 @@ def create():
                 existing_pilot_sp=int(request.form.get("existing_pilot_sp") or 0),
                 opening_warchest=opening_warchest,
                 status=request.form.get("status", "planning").strip() or "planning",
-                starting_bt_year=starting_bt_year,
-                starting_bt_month=starting_bt_month,
-                current_location=request.form.get("current_location"),
                 notes=request.form.get("notes"),
             )
         except (TypeError, ValueError) as exc:
@@ -696,7 +700,6 @@ def create_aces_sortie(id: int):  # noqa: A002
         sortie = campaign_service.create_aces_sortie(
             id,
             request.form.get("name") or "",
-            campaign_month=_optional_int(request.form.get("campaign_month")),
             scenario_type=request.form.get("scenario_type"),
             location=request.form.get("location"),
             notes=request.form.get("notes"),

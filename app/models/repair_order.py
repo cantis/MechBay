@@ -30,7 +30,7 @@ class RepairOrder(Base):
     gross_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     covered_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     actual_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    campaign_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

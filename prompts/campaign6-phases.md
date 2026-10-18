@@ -36,3 +36,9 @@
 - Omni reconfiguration for Aces happens in Sortie Planning with an automatic cost; the Chaos manual-cost form is hidden for Aces.
 - Sales retire the CampaignUnit (condition `retired`, sale recorded in the ledger). Purchases and sales roll into the open Sortie Report until it is finalized.
 - Section 38 (duplicate chassis/variant restrictions) remains on hold.
+
+## Notes from the time/location addendum
+
+- Aces campaigns are Sortie-based: no starting year/month, current month, location, travel or Contracts are stored or shown. Chaos is unchanged.
+- `campaign_month` (events, ledger, Sorties) and `campaigns.current_campaign_month` are nullable; startup rebuilds the affected SQLite tables and clears any stored calendar/location values on existing Aces campaigns. Chaos rows are untouched.
+- Aces chronology: Sortie number, then replay attempt, then `date_played`. Pilot Service History orders creation, then each Sortie in sequence (participation, injuries, advancement).

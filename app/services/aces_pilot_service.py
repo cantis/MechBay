@@ -283,6 +283,33 @@ def get_pilot_service_history(pilot_id: int) -> dict[str, Any] | None:
                 }
             )
             session.expunge(unit_row)
+        # Aces chronology is Sortie-based: pilot creation first, then each Sortie in
+        # sequence/attempt order (with that Sortie's participation, injuries and
+        # advancement), never by campaign month. Events with no Sortie sort last.
+        sorties = {
+            s.id: s
+            for s in session.execute(
+                select(Sortie).where(Sortie.campaign_id == pilot.campaign_id)
+            ).scalars()
+        }
+        within_sortie = {"sortie": 0, "injury": 1, "advancement": 2}
+        for item in timeline:
+            event = item["event"]
+            if item["kind"] == "advancement" and event.source_type == "initial":
+                item["order"] = (0, 0, 0, 0, event.created_at, event.id)
+                continue
+            sortie = event if item["kind"] == "sortie" else sorties.get(event.sortie_id)
+            if sortie is None:
+                item["order"] = (2, 0, 0, 0, event.created_at, event.id)
+                continue
+            item["order"] = (
+                1,
+                sortie.sortie_number or 0,
+                sortie.attempt_number or 1,
+                within_sortie[item["kind"]],
+                event.created_at,
+                event.id,
+            )
         timeline.sort(key=lambda item: item["order"])
         for item in timeline:
             session.expunge(item["event"])

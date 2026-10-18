@@ -10,9 +10,10 @@
             {% if campaign.ruleset == 'aces' %}
             <span class="badge rounded-pill bg-info text-dark">Aces{% if campaign.difficulty %} · {{ campaign.difficulty }}{% endif %}</span>
             {% endif %}
+            {% if not is_aces %}
             <span class="mx-1">·</span>{{ month_label }}
             <span class="mx-1">·</span>{{ location_label }}
-            <span class="mx-1">·</span>{{ campaign.warchest_balance }} SP
+            <span class="mx-1">·</span>{% endif %}{{ campaign.warchest_balance }} SP
             {% if campaign.ruleset != 'aces' %}
             <span class="mx-1">·</span>Scale {{ campaign.scale }}
             <span class="mx-1">·</span>Rep {{ campaign.reputation }}
@@ -61,12 +62,14 @@
                     {% endfor %}
                 </select>
             </div>
+            {% if campaign.ruleset != 'aces' %}
             <div class="col-md-2">
                 <label class="form-label">Campaign month</label>
                 <input type="number" name="current_campaign_month" min="1" class="form-control"
                     value="{{ campaign.current_campaign_month }}">
-                {% if campaign.ruleset != 'aces' %}<div class="form-text">Use Advance Month for pay, maintenance, and arrivals.</div>{% endif %}
+                <div class="form-text">Use Advance Month for pay, maintenance, and arrivals.</div>
             </div>
+            {% endif %}
             {% if campaign.ruleset != 'aces' %}
             <div class="col-md-2">
                 <label class="form-label">Scale</label>
@@ -77,6 +80,7 @@
                 <input type="number" name="reputation" class="form-control" value="{{ campaign.reputation }}">
             </div>
             {% endif %}
+            {% if campaign.ruleset != 'aces' %}
             <div class="col-md-3">
                 <label class="form-label">Starting year</label>
                 <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
@@ -92,6 +96,7 @@
                 <input type="text" name="current_location" class="form-control"
                     value="{{ campaign.current_location or '' }}">
             </div>
+            {% endif %}
             <div class="col-12">
                 <label class="form-label">Notes</label>
                 <textarea name="notes" class="form-control" rows="2">{{ campaign.notes or '' }}</textarea>
@@ -228,9 +233,6 @@
             </div>
             <div class="col-md-2">
                 <input type="text" name="location" class="form-control" placeholder="Location">
-            </div>
-            <div class="col-md-2">
-                <input type="number" name="campaign_month" class="form-control" placeholder="Month">
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-outline-secondary w-100">Create Sortie</button>
@@ -746,14 +748,18 @@
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Repair Orders</h5></div>
     <div class="card-body">
+        {% if is_aces %}
+        <p class="small text-muted">Repair cost is Alpha Strike Size × the damage tier and is paid when the Sortie is finalized. Completing a repair returns the unit to service.</p>
+        {% else %}
         <p class="small text-muted">Gross repair cost is calculated from tonnage and damage (editable). Support coverage uses the originating Sortie's Contract Support %, not the currently active Contract.</p>
+        {% endif %}
         <div class="table-responsive">
             <table class="table table-hover table-sm align-middle">
                 <thead>
                     <tr>
                         <th>Unit</th>
                         <th>Damage</th>
-                        <th>Month</th>
+                        {% if not is_aces %}<th>Month</th>{% endif %}
                         <th>Status</th>
                         <th>Gross</th>
                         <th>Covered</th>
@@ -766,7 +772,7 @@
                     <tr>
                         <td>{{ order.unit.chassis if order.unit else '—' }}</td>
                         <td>{{ order.damage_category }}</td>
-                        <td>{{ order.campaign_month }}</td>
+                        {% if not is_aces %}<td>{{ order.campaign_month }}</td>{% endif %}
                         <td>{{ order.status }}</td>
                         {% if order.status in open_repair_statuses %}
                         <td colspan="4">
@@ -807,7 +813,7 @@
             <table class="table table-hover table-sm">
                 <thead>
                     <tr>
-                        <th>Month</th>
+                        <th>{% if is_aces %}Date{% else %}Month{% endif %}</th>
                         <th>Type</th>
                         <th>Description</th>
                         <th>Gross</th>
@@ -819,7 +825,7 @@
                 <tbody>
                     {% for tx in campaign.transactions %}
                     <tr>
-                        <td>{{ tx.campaign_month }}</td>
+                        <td>{% if is_aces %}{{ tx.created_at.strftime('%Y-%m-%d') }}{% else %}{{ tx.campaign_month }}{% endif %}</td>
                         <td>{{ tx.transaction_type }}</td>
                         <td>{{ tx.description }}</td>
                         <td>{{ tx.gross_amount }}</td>
@@ -943,7 +949,7 @@
             <table class="table table-hover table-sm align-middle">
                 <thead>
                     <tr>
-                        <th>Month</th>
+                        <th>Date</th>
                         <th>Type</th>
                         <th>Summary</th>
                         <th>SP</th>
@@ -952,7 +958,7 @@
                 <tbody>
                     {% for entry in campaign_log %}
                     <tr>
-                        <td>{{ entry.campaign_month }}</td>
+                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
                         <td><span class="badge rounded-pill bg-secondary">{{ entry.type }}</span></td>
                         <td>{{ entry.summary }}</td>
                         <td>{{ entry.amount if entry.amount is not none else '—' }}</td>
