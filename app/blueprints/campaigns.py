@@ -37,6 +37,15 @@ def _optional_int(value: str | None) -> int | None:
     return int(cleaned)
 
 
+def _back_to(campaign_id: int | None):
+    """Return to the Roster page when the action started there, else the campaign page."""
+    if campaign_id is None:
+        return redirect(url_for("campaigns.list_campaigns"))
+    from_roster = request.form.get("return_to") == "roster"
+    endpoint = "campaigns.roster" if from_roster else "campaigns.detail"
+    return redirect(url_for(endpoint, id=int(campaign_id)))
+
+
 def _campaign_view_context(campaign) -> dict:
     context = {
         "campaign": campaign,
@@ -242,6 +251,75 @@ def delete(id: int):  # noqa: A002
     return redirect(url_for("campaigns.list_campaigns"))
 
 
+@bp.route("/<int:id>/roster")
+def roster(id: int):  # noqa: A002
+    campaign = campaign_service.get_campaign_by_id(id)
+    if not campaign:
+        flash("Campaign not found", "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    in_service = [u for u in campaign.units if u.condition not in ("retired", "truly-destroyed")]
+    out_of_service = [u for u in campaign.units if u.condition in ("retired", "truly-destroyed")]
+    groups = []
+    for lance in campaign.lances:
+        members = sorted(
+            (u for u in in_service if u.campaign_lance_id == lance.id), key=lambda u: u.order
+        )
+        groups.append(
+            {
+                "lance": lance,
+                "name": lance.name,
+                "units": members,
+                "pv": sum(u.point_value or 0 for u in members),
+            }
+        )
+    lanceless = sorted(
+        (u for u in in_service if u.campaign_lance_id is None), key=lambda u: u.order
+    )
+    groups.append(
+        {
+            "lance": None,
+            "name": "No lance",
+            "units": lanceless,
+            "pv": sum(u.point_value or 0 for u in lanceless),
+        }
+    )
+    campaign_state = (
+        aces_sortie_service.get_campaign_state(id)
+        if campaign.ruleset == "aces"
+        else {"can_change_roster": True}
+    )
+    return render_template(
+        "campaigns/roster.html",
+        campaign=campaign,
+        groups=groups,
+        out_of_service=out_of_service,
+        total_units=len(in_service),
+        total_pv=sum(u.point_value or 0 for u in in_service),
+        inventory=get_all_miniatures(),
+        campaign_state=campaign_state,
+    )
+
+
+@bp.route("/<int:id>/roster/move", methods=["POST"])
+def move_unit(id: int):  # noqa: A002
+    """Drag-and-drop endpoint: move a unit between lances and/or reorder a lance."""
+    data = request.get_json(silent=True) or {}
+    if not campaign_service.get_campaign_by_id(id):
+        return jsonify({"success": False, "error": "Campaign not found", "data": None}), 404
+    try:
+        unit_id = int(data.get("unit_id"))
+        raw_lance = data.get("lance_id")
+        lance_id = int(raw_lance) if raw_lance not in (None, "") else None
+        ordered = [int(item) for item in data.get("ordered_ids") or []]
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid move request", "data": None}), 400
+    try:
+        unit = campaign_service.move_campaign_unit(id, unit_id, lance_id, ordered)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc), "data": None}), 400
+    return jsonify({"success": True, "error": None, "data": unit.to_dict()}), 200
+
+
 @bp.route("/<int:id>/lances", methods=["POST"])
 def add_lance(id: int):  # noqa: A002
     try:
@@ -253,7 +331,19 @@ def add_lance(id: int):  # noqa: A002
         flash("Lance added", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
-    return redirect(url_for("campaigns.detail", id=id))
+    return _back_to(id)
+
+
+@bp.route("/lances/<int:lance_id>/delete", methods=["POST"])
+def delete_lance(lance_id: int):
+    campaign_id = request.form.get("campaign_id")
+    try:
+        lance = campaign_service.delete_campaign_lance(lance_id)
+        flash(f"Lance '{lance.name}' deleted", "info")
+        campaign_id = lance.campaign_id
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return _back_to(int(campaign_id) if campaign_id else None)
 
 
 @bp.route("/lances/<int:lance_id>/update", methods=["POST"])
@@ -269,7 +359,7 @@ def update_lance(lance_id: int):
         return redirect(url_for("campaigns.list_campaigns"))
     flash("Lance updated", "success")
     target_id = lance.campaign_id if not campaign_id else int(campaign_id)
-    return redirect(url_for("campaigns.detail", id=target_id))
+    return _back_to(target_id)
 
 
 @bp.route("/<int:id>/units", methods=["POST"])
@@ -286,7 +376,7 @@ def add_unit(id: int):  # noqa: A002
         flash("Campaign unit added", "success")
     except (TypeError, ValueError) as exc:
         flash(str(exc) if isinstance(exc, ValueError) else "Invalid unit values", "danger")
-    return redirect(url_for("campaigns.detail", id=id))
+    return _back_to(id)
 
 
 @bp.route("/units/<int:unit_id>/update", methods=["POST"])
@@ -342,9 +432,7 @@ def delete_unit(unit_id: int):
     campaign_id = data.get("campaign_id")
     deleted = campaign_service.delete_campaign_unit(unit_id)
     flash("Unit removed" if deleted else "Unit not found", "info" if deleted else "warning")
-    if campaign_id:
-        return redirect(url_for("campaigns.detail", id=int(campaign_id)))
-    return redirect(url_for("campaigns.list_campaigns"))
+    return _back_to(int(campaign_id) if campaign_id else None)
 
 
 @bp.route("/<int:id>/pilots", methods=["POST"])
@@ -575,7 +663,7 @@ def sell_unit(id: int, unit_id: int):  # noqa: A002
         flash(f"Sold {unit.chassis}. {unit.notes}", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
-    return redirect(url_for("campaigns.detail", id=id))
+    return _back_to(id)
 
 
 @bp.route("/units/<int:unit_id>/omni", methods=["POST"])
@@ -701,6 +789,7 @@ def create_aces_sortie(id: int):  # noqa: A002
         sortie = campaign_service.create_aces_sortie(
             id,
             request.form.get("name") or "",
+            scenario_pv=request.form.get("scenario_pv"),
             scenario_type=request.form.get("scenario_type"),
             location=request.form.get("location"),
             notes=request.form.get("notes"),
@@ -762,6 +851,4 @@ def retire_unit(unit_id: int):
     except ValueError as exc:
         flash(str(exc), "danger")
         target = int(campaign_id) if campaign_id else None
-    if target:
-        return redirect(url_for("campaigns.detail", id=int(target)))
-    return redirect(url_for("campaigns.list_campaigns"))
+    return _back_to(target)

@@ -146,6 +146,9 @@ def _apply_schema_migrations(db_engine) -> None:
                 "pending_ledger": "TEXT",
             },
             "sorties": {
+                "scenario_pv": "INTEGER",
+                "pv_modifier_percent": "INTEGER",
+                "max_sortie_pv": "INTEGER",
                 "date_played": "DATE",
                 "force_commander_pilot_id": "INTEGER",
                 "force_commander_callsign": "VARCHAR(64)",

@@ -228,7 +228,7 @@ def test_create_route_uses_aces_flow(client, realistic_force):
     )
     assert resp.status_code == 200
     assert b"640 SP opening Warchest" in resp.data
-    assert b"Max Sortie PV" in resp.data
+    assert b"Sortie PV adjustment" in resp.data
     assert b"Advance Month" not in resp.data
 
 
@@ -256,7 +256,7 @@ def test_chaos_create_and_detail_unchanged(client, minimal_force):
     assert campaign.experienced_force_sp == 0
     detail = client.get(f"/campaigns/{campaign.id}")
     assert b"Advance Month" in detail.data
-    assert b"Max Sortie PV" not in detail.data
+    assert b"Sortie PV adjustment" not in detail.data
 
 
 # --- Sortie PV validation ------------------------------------------------------------------
@@ -302,22 +302,23 @@ def test_standard_difficulty_allows_the_whole_force(client, minimal_force):
     assert contract_service.mark_sortie_ready(sortie.id).status == "ready"
 
 
-def test_difficulty_reduces_allowed_sortie_pv(client, minimal_force):
-    campaign, pilots = _aces(minimal_force, difficulty="Legendary")  # -30% of 80 = 56
-    sortie, _ = _sortie(campaign, pilots, [0, 1])
-    with pytest.raises(ValueError, match="allows 56 PV"):
-        contract_service.mark_sortie_ready(sortie.id)
-    contract_service.remove_sortie_unit(contract_service.get_sortie_by_id(sortie.id).units[1].id)
-    assert contract_service.mark_sortie_ready(sortie.id).status == "ready"
+@pytest.mark.no_default_pv
+def test_difficulty_adjusts_the_scenario_pv_into_the_sortie_maximum(client, minimal_force):
+    campaign, pilots = _aces(minimal_force, difficulty="Legendary")  # -30%
+    sortie = campaign_service.create_aces_sortie(campaign.id, "PV test", scenario_pv=80)
+    assert (sortie.scenario_pv, sortie.pv_modifier_percent, sortie.max_sortie_pv) == (80, -30, 56)
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)  # 40 PV fits
+    with pytest.raises(ValueError, match=r"Sortie force would be 80 / 56 PV"):
+        contract_service.add_unit_to_sortie(sortie.id, campaign.units[1].id)
 
 
+@pytest.mark.no_default_pv
 def test_experienced_modifier_stacks_with_difficulty(client, minimal_force):
     campaign, pilots = _aces(minimal_force, difficulty="Veteran", experienced_force_sp=7000)
     allowance = campaign_service.aces_sortie_pv_allowance(campaign.id)
     assert allowance["allowed_pv"] == 56  # 80 x (100 - 10 - 20)%
-    sortie, _ = _sortie(campaign, pilots, [0, 1])
-    with pytest.raises(ValueError, match="experienced force -20%"):
-        contract_service.mark_sortie_ready(sortie.id)
+    sortie = campaign_service.create_aces_sortie(campaign.id, "Stacked", scenario_pv=100)
+    assert (sortie.pv_modifier_percent, sortie.max_sortie_pv) == (-30, 70)
 
 
 def test_rookie_never_allows_more_than_the_force(client, minimal_force):
@@ -337,11 +338,15 @@ def test_allowance_counts_only_available_units(client, minimal_force):
     assert allowance["allowed_pv"] == 36
 
 
-def test_sortie_page_shows_allowance_not_scale(client, minimal_force):
+@pytest.mark.no_default_pv
+def test_sortie_page_shows_the_stored_maximum_not_scale(client, minimal_force):
     campaign, pilots = _aces(minimal_force, difficulty="Veteran")
-    sortie, _ = _sortie(campaign, pilots, [0])
-    page = client.get(f"/sorties/{sortie.id}")
-    assert b"/ 72 PV" in page.data
+    sortie = campaign_service.create_aces_sortie(campaign.id, "Page", scenario_pv=80)
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)
+    page = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "<strong>Maximum:</strong> 72 PV" in page
+    assert "<strong>Selected:</strong> 40 PV" in page
+    assert "<strong>Remaining:</strong> 32 PV" in page
 
 
 # --- Omni reconfiguration ------------------------------------------------------------------
@@ -550,7 +555,7 @@ def test_trades_wait_for_finalize_and_never_touch_the_sortie_report(client, mini
 
 def test_sell_route_and_report_page_shows_trades(client, minimal_force):
     campaign, _ = _aces(minimal_force)
-    page = client.get(f"/campaigns/{campaign.id}")
+    page = client.get(f"/campaigns/{campaign.id}/roster")
     assert b"Sell (800 SP)" in page.data
     resp = client.post(
         f"/campaigns/{campaign.id}/units/{campaign.units[1].id}/sell", follow_redirects=True
@@ -568,7 +573,7 @@ def test_aces_summary_shows_difficulty_and_hides_chaos_controls(client, minimal_
     assert b"Veteran" in page.data
     assert b"-20% PV" not in page.data  # difficulty alone shows -10
     assert b"Experienced force (4000 SP)" in page.data
-    assert b"Max Sortie PV" in page.data
+    assert b"Sortie PV adjustment" in page.data
     assert b"Advance Month" not in page.data
     assert b"Contracts" not in page.data
     redirect = client.get(f"/campaigns/{campaign.id}/advance-month", follow_redirects=True)

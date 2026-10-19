@@ -61,6 +61,81 @@ def set_force_commander(sortie_id: int, pilot_id: int) -> Sortie:
         return sortie
 
 
+# --- Sortie Maximum PV ----------------------------------------------------------------------
+
+
+def _positive_int(value: Any, label: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a whole number") from exc
+    if number <= 0:
+        raise ValueError(f"{label} must be greater than zero")
+    return number
+
+
+def apply_sortie_pv(
+    sortie: Sortie,
+    campaign: Campaign,
+    *,
+    scenario_pv: Any = None,
+    max_pv: Any = None,
+    selected_pv: int = 0,
+) -> dict[str, Any]:
+    """Set the Sortie's stored Maximum PV from the scenario value (and difficulty).
+
+    The scenario PV is what the physical scenario gives. Campaign difficulty and the
+    experienced-force modifier are applied to it to suggest the final Maximum PV, which the
+    player may still override (a caution is flagged when it exceeds the adjusted value).
+    Whatever is stored here is authoritative: it is never recomputed from later state.
+    """
+    scenario = _positive_int(scenario_pv, "Scenario PV")
+    explicit = _positive_int(max_pv, "Maximum PV")
+    if scenario is None and explicit is None:
+        raise ValueError("Enter the scenario PV (or a Maximum PV) for this Sortie")
+    percent = None
+    adjusted = None
+    if scenario is not None:
+        percent = campaign_rules.aces_pv_allowance_percent(
+            campaign.difficulty, campaign.experienced_force_sp
+        )
+        adjusted = campaign_rules.aces_allowed_sortie_pv(
+            scenario, campaign.difficulty, campaign.experienced_force_sp
+        )
+    final = explicit if explicit is not None else adjusted
+    if final is None or final <= 0:
+        raise ValueError("The Maximum PV must be greater than zero")
+    if final < selected_pv:
+        raise ValueError(
+            f"Maximum PV {final} is below the selected force ({selected_pv} PV). "
+            "Remove units first."
+        )
+    sortie.scenario_pv = scenario
+    sortie.pv_modifier_percent = percent
+    sortie.max_sortie_pv = final
+    return {
+        "scenario_pv": scenario,
+        "pv_modifier_percent": percent,
+        "adjusted_pv": adjusted,
+        "max_sortie_pv": final,
+        "above_adjusted": adjusted is not None and final > adjusted,
+    }
+
+
+def set_sortie_pv(sortie_id: int, *, scenario_pv: Any = None, max_pv: Any = None) -> dict[str, Any]:
+    """Enter or change the Sortie's scenario PV / Maximum PV while it is in Planning."""
+    with session_scope() as session:
+        sortie, campaign = _require_aces_sortie(session, sortie_id)
+        if sortie.status not in contract_service.EDITABLE_SORTIE_STATUSES:
+            raise ValueError("The Maximum PV is locked once the Sortie is Ready")
+        selected = sum(int(row.point_value or 0) for row in sortie.units)
+        return apply_sortie_pv(
+            sortie, campaign, scenario_pv=scenario_pv, max_pv=max_pv, selected_pv=selected
+        )
+
+
 # --- Failed Sorties and replays ------------------------------------------------------------
 
 
@@ -142,6 +217,9 @@ def create_replay(failed_sortie_id: int) -> Sortie:
             sortie_number=failed.sortie_number,
             attempt_number=(failed.attempt_number or 1) + 1,
             replay_of_sortie_id=failed.id,
+            scenario_pv=failed.scenario_pv,
+            pv_modifier_percent=failed.pv_modifier_percent,
+            max_sortie_pv=failed.max_sortie_pv,
         )
         session.add(replay)
         session.flush()
@@ -382,6 +460,7 @@ def list_aces_sorties(campaign_id: int) -> list[dict[str, Any]]:
                     "status": sortie.status,
                     "outcome": sortie.outcome,
                     "force_commander": sortie.force_commander_callsign,
+                    "max_pv": sortie.max_sortie_pv,
                     "keywords": gained.get(sortie.id, []),
                     "is_replay": sortie.replay_of_sortie_id is not None,
                 }

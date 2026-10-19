@@ -321,6 +321,7 @@ def _fought_other(campaign, pilot):
     sortie = Sortie(
         campaign_id=campaign.id,
         name="Played",
+        max_sortie_pv=1000,
         status="planning",
         sortie_number=2,
         attempt_number=1,
@@ -420,7 +421,7 @@ def test_in_progress_campaign_page_hides_roster_forms(client, minimal_force):
     assert "Continue Sortie 1" in page
     for hidden in ("Create Sortie", "Purchase Replacement", "New Named Pilot", "Sell ("):
         assert hidden not in page, hidden
-    assert "wait until the current Sortie is finalized" in page
+    assert "wait until then" in page
     blocked = client.post(
         f"/campaigns/{campaign.id}/sorties", data={"name": "Next"}, follow_redirects=True
     )
@@ -516,3 +517,39 @@ def test_upgrade_finishes_legacy_aces_repairs_and_drops_report_columns(tmp_path)
         conditions = dict(conn.execute(text("SELECT chassis, condition FROM campaign_units")).all())
         assert conditions == {"Mech0": "active", "Mech1": "damaged"}
     engine.dispose()
+
+
+def test_purchase_form_lives_in_the_between_sorties_card(client, minimal_force):
+    campaign, _ = _campaign(minimal_force)
+    page = client.get(f"/campaigns/{campaign.id}").data.decode()
+    between = page.index('id="betweenSorties"')
+    summary = page.index("Player Force Summary")
+    purchase = page.index("Purchase Replacement / Additional Unit")
+    assert between < purchase < summary  # inside the Between Sorties card, above the summary
+    assert page.count("Purchase Replacement / Additional Unit") == 1
+    assert "acesSearchMul" in page
+
+
+def test_player_force_card_is_titled_summary_and_create_sortie_is_green(client, minimal_force):
+    campaign, _ = _campaign(minimal_force)
+    page = client.get(f"/campaigns/{campaign.id}").data.decode()
+    assert "Player Force Summary" in page
+    assert '<h5 class="mb-0">Player Force</h5>' not in page
+    button = page[page.index("Create Sortie</button>") - 120 : page.index("Create Sortie</button>")]
+    assert "btn-success" in button
+
+
+def test_sorties_have_their_own_card(client, minimal_force):
+    campaign, (hawk, _) = _campaign(minimal_force)
+    sortie, _ = _fought(campaign, {0: hawk})
+    finish_aces(sortie.id)
+    page = client.get(f"/campaigns/{campaign.id}").data.decode()
+    sorties_start = page.index('id="sorties"')
+    summary_start = page.index("Player Force Summary")
+    sorties_card = page[sorties_start:summary_start]
+    for expected in ("Create Sortie", "Full Sortie History", "Sortie 1", "Date played"):
+        assert expected in sorties_card, expected
+    summary_card = page[summary_start : page.index("Roster</h5>")]
+    for moved in ("Create Sortie", "Full Sortie History", "Date played"):
+        assert moved not in summary_card, moved
+    assert "Difficulty:" in summary_card and "Story Keywords:" in summary_card

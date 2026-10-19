@@ -404,3 +404,51 @@ def test_chaos_detail_still_shows_legacy_pilot_form(client, minimal_force):
     resp = client.get(f"/campaigns/{campaign.id}")
     assert b"Pilot name" in resp.data
     assert b"acesPilotForm" not in resp.data
+
+
+# --- Add Named Pilot dialog ----------------------------------------------------------------
+
+
+def _add_button(html: str) -> str:
+    start = html.index('id="acesAddPilotBtn"')
+    return html[start : html.index("</button>", start)]
+
+
+def test_add_pilot_form_lives_in_a_dialog_opened_by_a_button(client, minimal_force):
+    campaign = _aces_campaign(minimal_force)
+    html = client.get(f"/campaigns/{campaign.id}").data.decode()
+    button = _add_button(html)
+    assert 'data-bs-target="#acesPilotModal"' in button
+    assert "disabled" not in button
+    modal = html[html.index('id="acesPilotModal"') :]
+    assert 'id="acesPilotForm"' in modal[: modal.index("</form>") + 7]
+    assert "modal-title" in modal
+
+
+def test_add_button_is_greyed_out_at_six_pilots(client, minimal_force):
+    campaign = _aces_campaign(minimal_force)
+    for index in range(rules.MAX_NAMED_PILOTS):
+        _pilot(campaign.id, callsign=f"P{index}")
+    html = client.get(f"/campaigns/{campaign.id}").data.decode()
+    assert "disabled" in _add_button(html)
+    assert "Maximum of 6 living Named Pilots reached" in html
+    assert 'id="acesPilotModal"' not in html  # no dialog to open
+
+
+def test_add_button_is_greyed_out_while_a_sortie_is_unresolved(client, minimal_force):
+    from app.extensions import session_scope
+    from app.models.sortie import Sortie
+
+    campaign = _aces_campaign(minimal_force)
+    with session_scope() as session:
+        session.add(Sortie(campaign_id=campaign.id, name="Live", status="fought"))
+    html = client.get(f"/campaigns/{campaign.id}").data.decode()
+    assert "disabled" in _add_button(html)
+    assert 'id="acesPilotModal"' not in html
+
+
+def test_new_pilot_boxes_cannot_exceed_the_starting_sp(client, minimal_force):
+    campaign = _aces_campaign(minimal_force)
+    html = client.get(f"/campaigns/{campaign.id}").data.decode()
+    assert "function clampToTotal" in html
+    assert "inputs[k].max = Math.max(0, TOTAL - (sum - raw(k)))" in html

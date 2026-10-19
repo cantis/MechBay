@@ -37,6 +37,11 @@ class Sortie(Base):
     salvage_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     salvage_wp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     mvp_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Aces-only: the scenario's PV, the difficulty adjustment applied to it, and the stored
+    # Maximum PV for this Sortie (authoritative; never recalculated from later state).
+    scenario_pv: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pv_modifier_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_sortie_pv: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Aces-only: real-world date, Force Commander, attempt tracking.
     date_played: Mapped[date | None] = mapped_column(Date, nullable=True)
     force_commander_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

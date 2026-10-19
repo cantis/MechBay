@@ -30,6 +30,15 @@
                 {% for kw in keywords.gained %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}—{% endfor %}</div>
             <div class="col-md-6"><div class="small text-muted">Story Keywords removed</div>
                 {% for kw in keywords.removed %}<span class="badge bg-secondary me-1">{{ kw }}</span>{% else %}—{% endfor %}</div>
+            <div class="col-12">
+                <div class="small text-muted">Player Force</div>
+                <strong>{{ force_pv }}{% if sortie.max_sortie_pv %} / {{ sortie.max_sortie_pv }}{% endif %} PV</strong>
+                {% if sortie.max_sortie_pv is none %}<span class="text-muted">(Maximum PV not recorded)</span>{% endif %}
+                {% if sortie.scenario_pv %}
+                <span class="text-muted small ms-2">Scenario {{ sortie.scenario_pv }} PV
+                    {% if sortie.pv_modifier_percent %}{{ '%+d' % sortie.pv_modifier_percent }}% difficulty adjustment{% endif %}</span>
+                {% endif %}
+            </div>
             {% if lineage.replay_of %}
             <div class="col-12 small">Replay of <a href="{{ url_for('contracts.sortie_report', id=lineage.replay_of.id) }}">{{ lineage.replay_of.attempt_label }}</a> (failed).</div>
             {% endif %}
@@ -70,6 +79,35 @@
             </tbody>
         </table>
     </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Reconnaissance</h5>
+        <span class="small">Total Reconnaissance: <strong>{{ recon_total }} SP</strong></span>
+    </div>
+    {% if recon %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Action</th><th>Unit</th><th class="text-end">SP</th><th>Notes</th></tr></thead>
+            <tbody>
+                {% for action in recon %}
+                <tr>
+                    <td>{{ action.name }}</td>
+                    <td>{{ action.unit_label or '—' }}</td>
+                    <td class="text-end">{{ action.sp_cost }}</td>
+                    <td class="small text-muted">{{ action.notes or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted">No reconnaissance was recorded for this Sortie.</div>
+    {% endif %}
+    {% if sortie.status == 'failed' and recon %}
+    <div class="card-footer small text-muted">This attempt failed, so this reconnaissance was not charged.</div>
+    {% endif %}
 </div>
 
 {% if repairs %}

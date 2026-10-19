@@ -44,6 +44,29 @@
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
         crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/files.js') }}"></script>
+    <script>
+        // After a form post redirects back to the same page, return to where the user was
+        // instead of jumping to the top.
+        (function () {
+            const KEY = 'mechbay.scroll';
+            try {
+                const saved = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+                sessionStorage.removeItem(KEY);
+                if (saved && saved.path === location.pathname && Date.now() - saved.at < 15000) {
+                    window.scrollTo(0, saved.y);
+                }
+            } catch (e) { /* storage unavailable: nothing to restore */ }
+            document.addEventListener('submit', (event) => {
+                const form = event.target;
+                if (!form || (form.method || '').toLowerCase() !== 'post') return;
+                try {
+                    sessionStorage.setItem(KEY, JSON.stringify({
+                        path: location.pathname, y: window.scrollY, at: Date.now(),
+                    }));
+                } catch (e) { /* ignore */ }
+            });
+        })();
+    </script>
 </body>
 
 </html>

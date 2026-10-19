@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 
 import structlog
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from ..services import (
     aces_after_action_service,
     aces_pilot_rules,
+    aces_recon_service,
     aces_sortie_service,
     after_action_service,
     campaign_service,
     contract_service,
+    jeff_export_service,
 )
 from ..services.after_action_service import DAMAGE_OUTCOMES
 from ..services.contract_service import CONTRACT_STATUSES, SORTIE_OUTCOMES, SORTIE_STATUSES
+from ..services.jeff_export_service import JeffExportError
 
 logger = structlog.get_logger()
 
@@ -242,19 +246,61 @@ def sortie_detail(id: int):  # noqa: A002
     selected_ids = {unit.campaign_unit_id for unit in sortie.units}
     available_units = [unit for unit in eligible_units if unit.id not in selected_ids]
     lances = campaign.lances if campaign else []
+    # What each lance would add: its available units not already in the Sortie force.
+    lance_adds: dict[int, dict[str, int]] = {}
+    for unit in available_units:
+        if unit.campaign_lance_id is not None:
+            entry = lance_adds.setdefault(unit.campaign_lance_id, {"units": 0, "pv": 0})
+            entry["units"] += 1
+            entry["pv"] += int(unit.point_value or 0)
     pv_limit = contract_service.sortie_pv_limit(sortie.scale)
     unit_limit = contract_service.sortie_unit_limit(sortie.scale)
     is_aces = bool(campaign and campaign.ruleset == "aces")
+    pv_context: dict = {}
     if is_aces:
         allowance = campaign_service.aces_sortie_pv_allowance(sortie.campaign_id)
-        pv_limit = allowance["allowed_pv"]
+        pv_limit = sortie.max_sortie_pv
+        adjusted = None
+        if sortie.scenario_pv is not None and sortie.pv_modifier_percent is not None:
+            adjusted = max(0, sortie.scenario_pv * (100 + sortie.pv_modifier_percent) // 100)
+        parts = []
+        if allowance["difficulty_percent"]:
+            parts.append(
+                f"{campaign.difficulty or 'Standard'} {allowance['difficulty_percent']:+d}%"
+            )
+        if allowance["experienced_percent"]:
+            parts.append(f"experienced force {allowance['experienced_percent']:+d}%")
+        pv_context = {
+            "pv_percent_now": allowance["difficulty_percent"] + allowance["experienced_percent"],
+            "pv_modifier_label": ", ".join(parts) or "no difficulty adjustment",
+            "adjusted_pv": adjusted,
+            "above_adjusted": adjusted is not None
+            and sortie.max_sortie_pv is not None
+            and sortie.max_sortie_pv > adjusted,
+            "pv_remaining": (sortie.max_sortie_pv - contract_service.sortie_point_total(sortie))
+            if sortie.max_sortie_pv is not None
+            else None,
+        }
     eligible_pilots = contract_service.eligible_named_pilots(sortie.campaign_id)
-    aces_context: dict = {"is_aces": is_aces}
+    aces_context: dict = {"is_aces": is_aces, **pv_context}
     if is_aces:
         typed = [pilot for pilot in eligible_pilots if pilot.pilot_type]
         eligible_pilots = typed
         aces_context.update(
             pv_allowance=allowance,
+            recon_actions=aces_recon_service.list_recon_actions(sortie.id),
+            recon_units=[
+                unit
+                for unit in (campaign.units if campaign else [])
+                if unit.condition not in aces_recon_service.OUT_OF_SERVICE
+            ],
+            can_copy_recon=sortie.status == "planning"
+            and aces_recon_service.previous_attempt_has_recon(sortie.id)
+            and not aces_recon_service.list_recon_actions(sortie.id),
+            required_pilot_type={
+                unit.id: aces_pilot_rules.pilot_type_for_unit_type(unit.unit_type_name)
+                for unit in sortie.units
+            },
             pilots_by_unit={
                 unit.id: [
                     pilot
@@ -270,6 +316,8 @@ def sortie_detail(id: int):  # noqa: A002
             and sortie.outcome != aces_sortie_service.FAILED_OUTCOME,
             pilot_types=aces_pilot_rules.PILOT_TYPES,
             aces_damage_outcomes=aces_after_action_service.ACES_DAMAGE_OUTCOMES,
+            damage_help=aces_after_action_service.DAMAGE_HELP,
+            damage_help_note=aces_after_action_service.DAMAGE_HELP_NOTE,
             pilot_thresholds=aces_pilot_rules.thresholds_payload(),
             pending_shares=(
                 aces_after_action_service.pending_shares(sortie.id)
@@ -288,6 +336,7 @@ def sortie_detail(id: int):  # noqa: A002
         unit_limit=unit_limit,
         available_units=available_units,
         lances=lances,
+        lance_adds=lance_adds,
         pilots=eligible_pilots,
         outcomes=SORTIE_OUTCOMES,
         statuses=SORTIE_STATUSES,
@@ -296,6 +345,22 @@ def sortie_detail(id: int):  # noqa: A002
         named_sortie_pilots=[
             unit for unit in sortie.units if unit.campaign_pilot_id and not unit.is_generic_crew
         ],
+    )
+
+
+@bp.route("/sorties/<int:id>/export/jeff")
+def export_sortie_jeff(id: int):  # noqa: A002
+    """Download the Sortie force as a Jeff's BT Tools group."""
+    try:
+        json_string, filename = jeff_export_service.export_jeff_sortie(id)
+    except JeffExportError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("contracts.sortie_detail", id=id))
+    return send_file(
+        BytesIO(json_string.encode("utf-8")),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
     )
 
 
@@ -328,8 +393,11 @@ def add_sortie_unit(id: int):  # noqa: A002
         lance_id = _optional_int(request.form.get("lance_id"))
         unit_id = _optional_int(request.form.get("campaign_unit_id"))
         if lance_id:
-            added = contract_service.add_lance_to_sortie(id, lance_id)
-            flash(f"Added {len(added)} available unit(s) from the lance", "success")
+            added, notice = contract_service.add_lance_to_sortie_with_notice(id, lance_id)
+            if notice:
+                flash(f"Added {len(added)} unit(s). {notice}", "warning")
+            else:
+                flash(f"Added {len(added)} available unit(s) from the lance", "success")
         elif unit_id:
             contract_service.add_unit_to_sortie(id, unit_id)
             flash("Unit added to Sortie", "success")
@@ -405,6 +473,80 @@ def omni_variants(campaign_id: int, unit_id: int):
         return jsonify({"success": True, "data": units}), 200
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
+
+
+def _error_text(exc: Exception, fallback: str) -> str:
+    return str(exc) if isinstance(exc, ValueError) else fallback
+
+
+def _recon_form() -> dict:
+    return {
+        "campaign_unit_id": _optional_int(request.form.get("campaign_unit_id")),
+        "sp_cost": request.form.get("sp_cost") or 0,
+        "notes": request.form.get("notes"),
+    }
+
+
+@bp.route("/sorties/<int:id>/recon", methods=["POST"])
+def add_recon(id: int):  # noqa: A002
+    try:
+        aces_recon_service.add_recon_action(id, request.form.get("name", ""), **_recon_form())
+        flash("Reconnaissance action added", "success")
+    except (TypeError, ValueError) as exc:
+        flash(_error_text(exc, "Invalid reconnaissance values"), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id) + "#recon")
+
+
+@bp.route("/sorties/<int:id>/recon/copy", methods=["POST"])
+def copy_recon(id: int):  # noqa: A002
+    try:
+        copied = aces_recon_service.copy_from_previous_attempt(id)
+        flash(f"Copied {len(copied)} reconnaissance action(s) from the previous attempt", "success")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id) + "#recon")
+
+
+@bp.route("/sorties/<int:id>/recon/<int:action_id>/update", methods=["POST"])
+def update_recon(id: int, action_id: int):  # noqa: A002
+    try:
+        aces_recon_service.update_recon_action(
+            action_id, request.form.get("name", ""), **_recon_form()
+        )
+        flash("Reconnaissance action saved", "success")
+    except (TypeError, ValueError) as exc:
+        flash(_error_text(exc, "Invalid reconnaissance values"), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id) + "#recon")
+
+
+@bp.route("/sorties/<int:id>/recon/<int:action_id>/delete", methods=["POST"])
+def delete_recon(id: int, action_id: int):  # noqa: A002
+    try:
+        aces_recon_service.delete_recon_action(action_id)
+        flash("Reconnaissance action removed", "info")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id) + "#recon")
+
+
+@bp.route("/sorties/<int:id>/pv", methods=["POST"])
+def set_sortie_pv(id: int):  # noqa: A002
+    try:
+        result = aces_sortie_service.set_sortie_pv(
+            id,
+            scenario_pv=request.form.get("scenario_pv"),
+            max_pv=request.form.get("max_pv"),
+        )
+        message = f"Maximum PV set to {result['max_sortie_pv']}"
+        if result["above_adjusted"]:
+            message += (
+                f". Caution: this is above the difficulty-adjusted {result['adjusted_pv']} PV "
+                f"for scenario PV {result['scenario_pv']}."
+            )
+        flash(message, "warning" if result["above_adjusted"] else "success")
+    except (TypeError, ValueError) as exc:
+        flash(_error_text(exc, "Invalid PV values"), "danger")
+    return redirect(url_for("contracts.sortie_detail", id=id))
 
 
 @bp.route("/sorties/<int:id>/force-commander", methods=["POST"])
@@ -545,7 +687,6 @@ def _aces_inputs(sortie_id: int) -> dict:
         "primary_objective_sp": request.form.get("primary_objective_sp"),
         "secondary_objective_sp": request.form.get("secondary_objective_sp"),
         "other_income": request.form.get("other_income"),
-        "reconnaissance": request.form.get("reconnaissance"),
         "waypoint": request.form.get("waypoint"),
         "other_expense": request.form.get("other_expense"),
         "max_pilot_sp": request.form.get("max_pilot_sp"),

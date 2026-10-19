@@ -31,7 +31,7 @@ from ..models.repair_order import RepairOrder
 from ..models.sortie import Sortie
 from ..models.sortie_unit import SortieUnit
 from . import aces_pilot_rules as pilot_rules
-from . import aces_pilot_service, aces_sortie_service, campaign_rules
+from . import aces_pilot_service, aces_recon_service, aces_sortie_service, campaign_rules
 from .after_action_service import (
     REARM_COST,
     REPAIRABLE_DAMAGE,
@@ -44,6 +44,61 @@ ACES_DAMAGE_OUTCOMES = ("none", "armour", "structure", "crippled", "destroyed", 
 WOUND_TREATMENT_COST = pilot_rules.WOUND_TREATMENT_COST
 GENERIC_CREW_COST = 100
 SUCCESS_OUTCOME = "success"
+
+# Plain-language guidance shown next to the Sortie result picker. Repair multipliers match
+# campaign_rules.ACES_REPAIR_MULTIPLIERS; BattleMechs pay Size x multiplier, other unit
+# types pay half Size.
+DAMAGE_HELP: dict[str, dict[str, str]] = {
+    "none": {
+        "label": "None",
+        "text": "No damage that needs repair. The unit is still rearmed (20 SP, free with ENE).",
+        "cost": "No repair cost",
+    },
+    "armour": {
+        "label": "Armour",
+        "text": "Armour was lost, but there is no structure damage and no critical hits.",
+        "cost": "Repair: Size × 20 SP",
+    },
+    "structure": {
+        "label": "Structure",
+        "text": (
+            "Structure damage and/or critical damage: worse than armour-only, "
+            "but the unit is not crippled."
+        ),
+        "cost": "Repair: Size × 40 SP",
+    },
+    "crippled": {
+        "label": "Crippled",
+        "text": (
+            "Still functioning at the end of the Sortie, but badly hurt (it counts as crippled "
+            "under the Aces rules). It was never knocked out of the fight."
+        ),
+        "cost": "Repair: Size × 60 SP",
+    },
+    "destroyed": {
+        "label": "Destroyed",
+        "text": (
+            "Knocked out during the Sortie, but the physical game's recovery check let you "
+            "recover the hull. It is repaired in full and returns to service when the Sortie "
+            "is finalized."
+        ),
+        "cost": "Repair: Size × 100 SP",
+    },
+    "truly-destroyed": {
+        "label": "Truly destroyed",
+        "text": (
+            "Destroyed and not recoverable. It cannot be repaired or sold, is removed from the "
+            "Player Force, and stays in the campaign history."
+        ),
+        "cost": "No repair, no rearm",
+    },
+}
+DAMAGE_HELP_NOTE = (
+    "Crippled vs Destroyed: a crippled unit finished the Sortie still working; a destroyed "
+    "one was knocked out and had to be recovered, so it costs more to restore. Non-BattleMechs "
+    "pay half Size. This summarises how MechBay applies the rules; the Aces rulebook decides "
+    "what counts as crippled."
+)
 
 
 def _non_negative(value: Any, label: str) -> int:
@@ -143,7 +198,8 @@ def build_plan(session, sortie: Sortie, campaign: Campaign, inputs: dict[str, An
             )
         )
     expenses = {
-        "reconnaissance": _non_negative(inputs.get("reconnaissance"), "Reconnaissance"),
+        # Entered during Sortie Setup; settled here as part of this Sortie's expenses.
+        "reconnaissance": aces_recon_service.recon_total(session, sortie.id),
         "waypoint": _non_negative(inputs.get("waypoint"), "Waypoint adjustments"),
         "rearming": sum(u["rearm_cost"] for u in units),
         "personnel": sum(amount for _, amount in personnel_lines),
@@ -684,6 +740,8 @@ def get_sortie_report(sortie_id: int) -> dict[str, Any] | None:
                 session.expunge(data[key])
     # These open their own session scopes (which share the thread's session), so they must
     # run after the objects above have been detached.
+    data["recon"] = aces_recon_service.list_recon_actions(sortie_id)
+    data["recon_total"] = sum(action.sp_cost for action in data["recon"])
     data["keywords"] = aces_sortie_service.get_sortie_keywords(sortie_id)
     data["lineage"] = aces_sortie_service.get_lineage(sortie_id)
     return data

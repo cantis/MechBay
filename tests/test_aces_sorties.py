@@ -472,3 +472,149 @@ def test_keyword_route_and_campaign_summary(client, minimal_force):
     summary = client.get(f"/campaigns/{campaign.id}")
     assert b"Story Keywords" in summary.data
     assert b"Betrayal" in summary.data
+
+
+# --- Force Commander dropdown ---------------------------------------------------------------
+
+
+def _fc_card(html: str) -> str:
+    start = html.index("Force Commander</h5>")
+    return html[start : html.index("</form>", start)]
+
+
+def test_force_commander_dropdown_explains_it_needs_assigned_pilots(client, minimal_force):
+    campaign, pilots = _setup(minimal_force)
+    sortie, rows = _sortie_with_units(campaign)
+    card = _fc_card(client.get(f"/sorties/{sortie.id}").data.decode())
+    assert "No Named Pilot is crewing a unit yet" in card
+    assert "disabled" in card
+    assert "Hawk" not in card
+
+    contract_service.assign_sortie_pilot(rows[0].id, pilots[0].id)
+    card = _fc_card(client.get(f"/sorties/{sortie.id}").data.decode())
+    assert "No Named Pilot is crewing a unit yet" not in card
+    assert "disabled" not in card
+    assert "Hawk" in card
+    assert "Ghost" not in card  # only pilots crewing a unit in this Sortie
+
+
+def test_unit_pilot_dropdown_says_why_a_unit_has_no_pilot_choices(client, minimal_force):
+    campaign, pilots = _setup(minimal_force)
+    with session_scope() as session:
+        units = session.query(CampaignUnit).filter_by(campaign_id=campaign.id).all()
+        units[0].unit_type_name = "Combat Vehicle"
+        units[1].unit_type_name = "Conventional Infantry"
+    campaign = campaign_service.get_campaign_by_id(campaign.id)
+    sortie, _ = _sortie_with_units(campaign)
+    html = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "No available CV pilots" in html
+    assert "This unit type cannot have a Named Pilot" in html
+    assert "this.form.submit()" in html  # choosing a pilot saves immediately
+
+
+# --- Jeff's BT Tools export of the Sortie force -------------------------------------------
+
+JEFF_RAW = {
+    "Id": 7563,
+    "Name": "Warhammer WHM-8R",
+    "Class": "Warhammer",
+    "Variant": "WHM-8R",
+    "Tonnage": 70,
+    "BFPointValue": 40,
+    "BFMove": '8"',
+    "BFArmor": 5,
+    "BFStructure": 4,
+    "BFDamageShort": 4,
+    "BFDamageMedium": 4,
+    "BFDamageLong": 2,
+    "BFAbilities": "IF, SRM",
+    "Type": {"Id": 18, "Name": "BattleMech"},
+}
+
+
+def _give_mul_data(campaign):
+    import json
+
+    with session_scope() as session:
+        for unit in session.query(CampaignUnit).filter_by(campaign_id=campaign.id):
+            unit.mul_snapshot_json = json.dumps(JEFF_RAW)
+
+
+def test_sortie_force_exports_to_jeff_with_pilot_skill_and_edge(client, minimal_force):
+    import json
+
+    from app.services import jeff_export_service
+
+    campaign, pilots = _setup(minimal_force)
+    _give_mul_data(campaign)
+    sortie, rows = _sortie_with_units(campaign)  # second unit stays generic crew
+    contract_service.assign_sortie_pilot(rows[0].id, pilots[0].id)
+
+    text, filename = jeff_export_service.export_jeff_sortie(sortie.id)
+    group = json.loads(text)
+    assert filename.startswith("JeffGroup_Sortie 1 Waypoint 1_") and filename.endswith(".json")
+    assert group["name"] == "Sortie 1 Waypoint 1"
+    assert len(group["members"]) == 2
+    hawk, generic = group["members"]
+    assert hawk["pilot"]["name"] == "Hawk (BM, Edge 1)"
+    assert hawk["currentSkill"] == 4 and hawk["pilot"]["gunnery"] == 4
+    assert hawk["customName"].startswith("Hawk · ")
+    assert hawk["variant"] == "WHM-8R" and hawk["basePoints"] == 40
+    assert generic["pilot"]["name"] == ""
+    assert generic["customName"].startswith("Generic crew · ")
+
+
+def test_sortie_export_uses_the_frozen_pilot_snapshot(client, minimal_force):
+    import json
+
+    from app.services import jeff_export_service
+
+    campaign, pilots = _setup(minimal_force)
+    _give_mul_data(campaign)
+    sortie, rows = _sortie_with_units(campaign)
+    contract_service.assign_sortie_pilot(rows[0].id, pilots[0].id)
+    with session_scope() as session:  # Hawk improves after the Sortie was prepared
+        aces_pilot_service.apply_advancement(
+            session,
+            session.get(CampaignPilot, pilots[0].id),
+            source_type="sortie",
+            sp_received=450,
+            skill_sp=400,
+            edge_sp=50,
+            ability_sp=0,
+            new_abilities=[],
+        )
+    member = json.loads(jeff_export_service.export_jeff_sortie(sortie.id)[0])["members"][0]
+    assert member["currentSkill"] == 4  # as fielded when the Sortie was set up
+    assert member["pilot"]["name"] == "Hawk (BM, Edge 1)"
+
+
+def test_sortie_export_route_and_button(client, minimal_force):
+    import json
+
+    campaign, pilots = _setup(minimal_force)
+    _give_mul_data(campaign)
+    sortie, rows = _sortie_with_units(campaign)
+
+    page = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert f"/sorties/{sortie.id}/export/jeff" in page
+    assert "Export to Jeff" in page
+
+    resp = client.get(f"/sorties/{sortie.id}/export/jeff")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/json"
+    assert "attachment" in resp.headers["Content-Disposition"]
+    assert len(json.loads(resp.data)["members"]) == 2
+
+
+def test_sortie_export_needs_units_and_alpha_strike_data(client, minimal_force):
+    campaign, pilots = _setup(minimal_force)
+    empty = campaign_service.create_aces_sortie(campaign.id, "Empty")
+    page = client.get(f"/sorties/{empty.id}").data.decode()
+    assert "Export to Jeff" not in page  # nothing to export yet
+    resp = client.get(f"/sorties/{empty.id}/export/jeff", follow_redirects=True)
+    assert b"Add units to the Sortie force before exporting" in resp.data
+
+    contract_service.add_unit_to_sortie(empty.id, campaign.units[0].id)  # no MUL snapshot
+    resp = client.get(f"/sorties/{empty.id}/export/jeff", follow_redirects=True)
+    assert b"no Alpha Strike data to export" in resp.data

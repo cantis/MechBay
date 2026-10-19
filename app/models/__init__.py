@@ -20,6 +20,7 @@ from .pilot_injury_event import PilotInjuryEvent  # noqa: F401
 from .rearm_order import RearmOrder  # noqa: F401
 from .repair_order import RepairOrder  # noqa: F401
 from .sortie import Sortie  # noqa: F401
+from .sortie_recon_action import SortieReconAction  # noqa: F401
 from .sortie_unit import SortieUnit  # noqa: F401
 from .story_keyword_event import StoryKeywordEvent  # noqa: F401
 from .travel_event import TravelEvent  # noqa: F401

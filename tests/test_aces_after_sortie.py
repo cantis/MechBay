@@ -18,6 +18,7 @@ from app.services import (
 )
 from app.services import (
     aces_pilot_service,
+    aces_recon_service,
     aces_sortie_service,
     after_action_service,
     campaign_service,
@@ -50,9 +51,14 @@ def _campaign(force_id, *, warchest=1000, difficulty=None, name="Aces After"):
     return campaign_service.get_campaign_by_id(campaign.id), pilots
 
 
-def _fought(campaign, crew, *, units=(0,), name="Waypoint"):
-    """Fought Sortie. ``crew`` maps unit index -> pilot (omitted units use generic crew)."""
+def _fought(campaign, crew, *, units=(0,), name="Waypoint", recon=()):
+    """Fought Sortie. ``crew`` maps unit index -> pilot (omitted units use generic crew).
+
+    ``recon`` is a list of (name, sp_cost) reconnaissance actions entered in Sortie Setup.
+    """
     sortie = campaign_service.create_aces_sortie(campaign.id, name)
+    for action_name, cost in recon:
+        aces_recon_service.add_recon_action(sortie.id, action_name, sp_cost=cost)
     rows = {i: contract_service.add_unit_to_sortie(sortie.id, campaign.units[i].id) for i in units}
     first = None
     for index, pilot in crew.items():
@@ -85,12 +91,11 @@ def _report(sortie_id):
 
 def test_income_expenses_earnings_and_ledger(client, minimal_force):
     campaign, (hawk, ghost) = _campaign(minimal_force)
-    sortie, rows = _fought(campaign, {0: hawk})
+    sortie, rows = _fought(campaign, {0: hawk}, recon=[("Scout", 6), ("Sweep", 4)])
     apply_aces(
         sortie.id,
         "structure",
         primary_objective_sp=300,
-        reconnaissance=10,
         max_pilot_sp=50,
     )
     report = _report(sortie.id)
@@ -501,11 +506,10 @@ def test_finalize_freezes_the_report_and_snapshots_history(client, minimal_force
 
 def test_preview_matches_applied_numbers(client, minimal_force):
     campaign, (hawk, ghost) = _campaign(minimal_force)
-    sortie, rows = _fought(campaign, {0: hawk})
+    sortie, rows = _fought(campaign, {0: hawk}, recon=[("Scout", 10)])
     form = {
         f"damage_outcome_{rows[0].id}": "structure",
         "primary_objective_sp": "300",
-        "reconnaissance": "10",
         "max_pilot_sp": "50",
         "mvp_pilot_id": str(hawk.id),
     }
@@ -632,3 +636,49 @@ def test_sortie_history_net_sp_and_mvp(client, minimal_force):
     assert row["force_pv"] == 40
     assert row["date_played"] == date.today()
     assert row["label"] == "Sortie 1"
+
+
+def test_result_picker_explains_each_outcome(client, minimal_force):
+    campaign, (hawk, _) = _campaign(minimal_force)
+    sortie, _ = _fought(campaign, {0: hawk})
+    html = client.get(f"/sorties/{sortie.id}").data.decode()
+    for key, entry in svc.DAMAGE_HELP.items():
+        assert f'value="{key}"' in html
+        assert entry["label"] in html
+    assert svc.DAMAGE_HELP_NOTE.split(".")[0] in html  # the crippled vs destroyed note
+    assert 'id="damageHelpIcon"' in html
+    assert "Size × 60 SP" in html and "Size × 100 SP" in html
+    assert set(svc.DAMAGE_HELP) == set(svc.ACES_DAMAGE_OUTCOMES)
+
+
+def test_result_help_costs_match_the_repair_rules(client):
+    from app.services import campaign_rules
+
+    for key, multiplier in campaign_rules.ACES_REPAIR_MULTIPLIERS.items():
+        assert f"Size × {multiplier} SP" in svc.DAMAGE_HELP[key]["cost"]
+
+
+def test_improvement_form_shows_invested_sp_and_next_threshold(client, minimal_force):
+    campaign, (hawk, ghost) = _campaign(minimal_force)
+    sortie, _ = _fought(campaign, {0: hawk})
+    apply_aces(sortie.id, primary_objective_sp=1000, max_pilot_sp=200)
+    html = client.get(f"/sorties/{sortie.id}").data.decode()
+    for track in ("skill", "edge", "ability"):
+        assert f'data-info="{track}"' in html
+    # The form carries what the pilot has already invested, plus the threshold tables the
+    # script uses to show the next bump (Hawk: 150 Skill SP, nothing else yet).
+    assert 'data-skill="150" data-edge="0"' in html
+    assert 'data-ability="0"' in html
+    assert "next at " in html and "to go" in html and "maxed out" in html
+
+
+def test_improvement_boxes_cannot_exceed_the_sp_to_allocate(client, minimal_force):
+    campaign, (hawk, ghost) = _campaign(minimal_force)
+    sortie, _ = _fought(campaign, {0: hawk})
+    apply_aces(sortie.id, primary_objective_sp=1000, max_pilot_sp=45)
+    html = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "function clampToTotal" in html
+    assert "inputs[k].max = Math.max(0, total - (sum - raw(k)))" in html
+    # The server still refuses an over- or under-allocation.
+    with pytest.raises(ValueError, match="must be allocated"):
+        svc.allocate_pilot_share(sortie.id, hawk.id, skill_sp=30, edge_sp=25, ability_sp=0)

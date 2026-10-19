@@ -72,12 +72,6 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('campaigns.list_campaigns') }}">Campaigns</a>
                 </li>
-                {% if active_campaign %}
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('campaigns.detail', id=active_campaign.id) }}"
-                        title="Loaded campaign">{{ active_campaign.name }}</a>
-                </li>
-                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('lance_templates.list_templates') }}">Lance Templates</a>
                 </li>
@@ -85,6 +79,16 @@
                     <a class="nav-link" href="{{ url_for('about') }}">About</a>
                 </li>
             </ul>
+            {% if active_campaign %}
+            <a class="navbar-campaign btn btn-sm btn-outline-success d-inline-flex align-items-center gap-2 ms-lg-2 my-2 my-lg-0"
+                href="{{ url_for('campaigns.detail', id=active_campaign.id) }}"
+                title="Loaded campaign: {{ active_campaign.name }} ({{ 'Aces' if active_campaign.ruleset == 'aces' else 'Chaos' }})">
+                <i class="fa-solid fa-flag"></i>
+                <span class="text-uppercase small opacity-75">Campaign</span>
+                <strong class="text-truncate" style="max-width: 12rem">{{ active_campaign.name }}</strong>
+                <span class="badge rounded-pill text-bg-success">{{ 'Aces' if active_campaign.ruleset == 'aces' else 'Chaos' }}</span>
+            </a>
+            {% endif %}
             {% if document_status is defined %}
             <div class="navbar-text small text-end ms-lg-2 d-none d-lg-block">
                 <span class="text-muted">Inventory:</span>

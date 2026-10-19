@@ -69,6 +69,9 @@ def build_jeff_member(
     assignment_raw: dict[str, Any],
     lance_name: str,
     miniature_label: str,
+    skill: int = DEFAULT_PILOT_SKILL,
+    pilot_name: str = "",
+    custom_name: str | None = None,
 ) -> dict[str, Any]:
     """Build one Jeff group member from a MUL snapshot and MechBay context."""
     unit = mul_service.parse_mul_unit(assignment_raw)
@@ -95,14 +98,14 @@ def build_jeff_member(
         "class": unit.class_name,
         "variant": unit.variant,
         "name": unit.name,
-        "customName": f"{lance_name} · {miniature_label}",
+        "customName": custom_name or f"{lance_name} · {miniature_label}",
         "tmm": float(card.get("bf_tmm") or 0),
         "tonnage": float(unit.tonnage),
         "role": unit.role or "",
         "threshold": int(card.get("bf_threshold") or 0),
         "mulID": unit.id,
         "basePoints": unit.point_value,
-        "currentSkill": DEFAULT_PILOT_SKILL,
+        "currentSkill": skill,
         "overheat": int(card.get("bf_overheat") or 0),
         "structure": int(card.get("bf_structure") or 0),
         "armor": int(card.get("bf_armor") or 0),
@@ -116,9 +119,9 @@ def build_jeff_member(
         "jumpMove": jump_move,
         "damage": damage,
         "pilot": {
-            "name": "",
-            "piloting": DEFAULT_PILOT_SKILL,
-            "gunnery": DEFAULT_PILOT_SKILL,
+            "name": pilot_name,
+            "piloting": skill,
+            "gunnery": skill,
             "wounds": 0,
         },
     }
@@ -264,3 +267,71 @@ def export_jeff_force_zip(force_id: int) -> tuple[bytes, str]:
         lance_count=len(lance_groups),
     )
     return buffer.getvalue(), zip_filename
+
+
+def _sortie_pilot_label(row) -> str:
+    """Pilot name for Jeff's tool: the Callsign, plus Edge and abilities for Aces pilots."""
+    if row.is_generic_crew or not row.campaign_pilot_id:
+        return ""
+    name = row.pilot_callsign or row.pilot_name or ""
+    if row.pilot_type and row.pilot_edge_tokens is not None:
+        edge = f"Edge {row.pilot_edge_tokens}"
+        if row.pilot_abilities:
+            edge += f": {row.pilot_abilities}"
+        return f"{name} ({row.pilot_type}, {edge})"
+    return name
+
+
+def export_jeff_sortie(sortie_id: int) -> tuple[str, str]:
+    """Export a Sortie's force as one Jeff group, exactly as it will be fielded.
+
+    Uses the Sortie's own frozen unit configuration and pilot snapshot (Skill, Callsign,
+    Edge, abilities), so Omni changes and later pilot advancement do not alter it.
+    """
+    from ..models.sortie import Sortie
+
+    with session_scope() as session:
+        sortie = session.get(Sortie, sortie_id)
+        if not sortie:
+            raise JeffExportError("Sortie not found")
+        rows = sorted(sortie.units, key=lambda row: row.order)
+        if not rows:
+            raise JeffExportError("Add units to the Sortie force before exporting")
+        group_name = f"{sortie.attempt_label} {sortie.name}".strip()
+        members: list[dict[str, Any]] = []
+        missing: list[UnassignedMiniature] = []
+        for row in rows:
+            label = " ".join(p for p in (row.prefix, row.chassis, row.variant) if p)
+            if not row.mul_snapshot_json:
+                missing.append(UnassignedMiniature(lance_name=group_name, label=label))
+                continue
+            pilot = _sortie_pilot_label(row)
+            members.append(
+                build_jeff_member(
+                    assignment_raw=json.loads(row.mul_snapshot_json),
+                    lance_name=group_name,
+                    miniature_label=label,
+                    skill=int(row.alpha_strike_skill),
+                    pilot_name=pilot,
+                    custom_name=f"{pilot.split(' (')[0] or 'Generic crew'} · {label}",
+                )
+            )
+        if missing:
+            raise JeffExportError(
+                "These units have no Alpha Strike data to export: "
+                + ", ".join(item.label for item in missing),
+                unassigned=missing,
+            )
+
+    group = {
+        "name": group_name,
+        "uuid": str(uuid_lib.uuid4()),
+        "lastUpdated": datetime.now(UTC).isoformat(),
+        "formationBonus": "",
+        "groupLabel": "",
+        "members": members,
+    }
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"JeffGroup_{_safe_filename(group_name)}_{timestamp}.json"
+    logger.info("jeff_sortie_exported", sortie_id=sortie_id, members=len(members))
+    return json.dumps(group, indent=2), filename

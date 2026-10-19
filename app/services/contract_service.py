@@ -29,6 +29,10 @@ from .campaign_service import GENERIC_AS_SKILL, pilot_is_available
 
 logger = structlog.get_logger()
 
+class SortiePvLimitError(ValueError):
+    """Adding a unit would take the Sortie force over its stored Maximum PV."""
+
+
 CONTRACT_STATUSES = ("draft", "active", "completed", "cancelled")
 SORTIE_STATUSES = ("planning", "ready", "fought", "after_action", "closed", "failed")
 SORTIE_OUTCOMES = ("victory", "loss", "draw", "inconclusive")
@@ -923,10 +927,20 @@ def add_unit_to_sortie(sortie_id: int, campaign_unit_id: int) -> SortieUnit:
             raise ValueError("Unit is not part of this campaign")
         if not unit_is_available(unit):
             raise ValueError("Unit is not currently available")
-        if unit.point_value is None:
+        if unit.point_value is None or (
+            sortie.contract_id is None and unit.point_value <= 0
+        ):
             raise ValueError(
                 "This unit has no Alpha Strike Point Value and cannot be added to a campaign force."
             )
+        if sortie.contract_id is None and sortie.max_sortie_pv is not None:
+            fielded = sum(int(row.point_value or 0) for row in sortie.units)
+            if fielded + int(unit.point_value) > sortie.max_sortie_pv:
+                name = " ".join(p for p in (unit.prefix, unit.chassis, unit.variant) if p)
+                raise SortiePvLimitError(
+                    f"Cannot add {name}: Sortie force would be "
+                    f"{fielded + int(unit.point_value)} / {sortie.max_sortie_pv} PV."
+                )
         if sortie.contract_id is not None and not unit_on_contract_roster(
             session, sortie.contract_id, campaign_unit_id
         ):
@@ -970,6 +984,17 @@ def add_unit_to_sortie(sortie_id: int, campaign_unit_id: int) -> SortieUnit:
 
 
 def add_lance_to_sortie(sortie_id: int, campaign_lance_id: int) -> list[SortieUnit]:
+    return add_lance_to_sortie_with_notice(sortie_id, campaign_lance_id)[0]
+
+
+def add_lance_to_sortie_with_notice(
+    sortie_id: int, campaign_lance_id: int
+) -> tuple[list[SortieUnit], str | None]:
+    """Add a lance's available units in order.
+
+    If a unit would take an Aces Sortie over its Maximum PV, adding stops there: what fit is
+    kept and the notice names the unit that did not fit and those left out after it.
+    """
     with session_scope() as session:
         sortie = session.get(Sortie, sortie_id)
         if not sortie:
@@ -985,20 +1010,25 @@ def add_lance_to_sortie(sortie_id: int, campaign_lance_id: int) -> list[SortieUn
                     select(ContractUnit).where(ContractUnit.contract_id == sortie.contract_id)
                 ).scalars()
             }
-        unit_ids = [
-            unit.id
+        candidates = [
+            (unit.id, " ".join(p for p in (unit.prefix, unit.chassis, unit.variant) if p))
             for unit in lance.units
             if unit_is_available(unit)
             and (roster_ids is None or unit.id in roster_ids)
             and unit.point_value is not None
         ]
     added: list[SortieUnit] = []
-    for unit_id in unit_ids:
+    notice: str | None = None
+    for index, (unit_id, _label) in enumerate(candidates):
         try:
             added.append(add_unit_to_sortie(sortie_id, unit_id))
+        except SortiePvLimitError as exc:
+            left_out = ", ".join(label for _, label in candidates[index:])
+            notice = f"{exc} Stopped adding the lance; not added: {left_out}."
+            break
         except ValueError:
             continue
-    return added
+    return added, notice
 
 
 def remove_sortie_unit(sortie_unit_id: int) -> bool:
@@ -1102,15 +1132,15 @@ def _validate_aces_ready(session, sortie: Sortie) -> None:
             f"An Aces campaign needs at least {aces_pilot_rules.MIN_NAMED_PILOTS} "
             "living Named Pilots before a Sortie can begin"
         )
-    campaign = session.get(Campaign, sortie.campaign_id)
-    allowance = campaign_service.compute_aces_pv_allowance(session, campaign)
-    fielded_pv = sum(int(row.point_value or 0) for row in sortie.units)
-    if fielded_pv > allowance["allowed_pv"]:
+    if sortie.max_sortie_pv is None or sortie.max_sortie_pv <= 0:
+        raise ValueError("Set the Sortie's Maximum PV before it can be Ready")
+    if any(not row.point_value or row.point_value <= 0 for row in sortie.units):
+        raise ValueError("Every selected unit needs a valid Alpha Strike Point Value")
+    fielded_pv = sum(int(row.point_value) for row in sortie.units)
+    if fielded_pv > sortie.max_sortie_pv:
         raise ValueError(
-            f"Sortie force would be {fielded_pv} PV; this campaign allows "
-            f"{allowance['allowed_pv']} PV ({allowance['force_pv']} PV Player Force, "
-            f"difficulty {allowance['difficulty_percent']:+d}%, "
-            f"experienced force {allowance['experienced_percent']:+d}%)"
+            f"Sortie force is {fielded_pv} / {sortie.max_sortie_pv} PV: remove units, "
+            "or raise the Maximum PV if the scenario allows it"
         )
     if sortie.force_commander_pilot_id is None:
         raise ValueError("Select a Force Commander from the participating Named Pilots")

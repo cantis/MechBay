@@ -484,6 +484,11 @@ def delete_campaign(campaign_id: int) -> bool:
             for row in session.execute(select(Sortie.id).where(Sortie.campaign_id == campaign_id))
         ]
         if sortie_ids:
+            from ..models.sortie_recon_action import SortieReconAction
+
+            session.query(SortieReconAction).filter(
+                SortieReconAction.sortie_id.in_(sortie_ids)
+            ).delete(synchronize_session=False)
             records = session.query(SortieUnit).filter(SortieUnit.sortie_id.in_(sortie_ids)).all()
             for record in records:
                 session.delete(record)
@@ -540,6 +545,39 @@ def add_campaign_lance(
             special_rules=special_rules.strip() if special_rules else None,
         )
         session.add(lance)
+        session.flush()
+        session.expunge(lance)
+        return lance
+
+
+IN_SERVICE_BLOCKERS = ("retired", "truly-destroyed")
+
+
+def delete_campaign_lance(lance_id: int) -> CampaignLance:
+    """Delete a lance that has no units in service.
+
+    Units that are retired or truly destroyed are history, not roster: they are kept and
+    simply no longer belong to any lance.
+    """
+    with session_scope() as session:
+        lance = session.get(CampaignLance, lance_id)
+        if not lance:
+            raise ValueError("Lance not found")
+        members = list(
+            session.execute(
+                select(CampaignUnit).where(CampaignUnit.campaign_lance_id == lance_id)
+            ).scalars()
+        )
+        in_service = [u for u in members if u.condition not in IN_SERVICE_BLOCKERS]
+        if in_service:
+            raise ValueError(
+                f"{lance.name} still has {len(in_service)} unit(s). "
+                "Move them to another lance first."
+            )
+        for unit in members:
+            unit.campaign_lance_id = None
+        session.flush()
+        session.delete(lance)
         session.flush()
         session.expunge(lance)
         return lance
@@ -657,6 +695,49 @@ def update_campaign_unit(
         return unit
 
 
+def move_campaign_unit(
+    campaign_id: int,
+    unit_id: int,
+    lance_id: int | None,
+    ordered_unit_ids: list[int],
+) -> CampaignUnit:
+    """Move a unit into a lance (or out of all lances) and set that lance's unit order.
+
+    ``ordered_unit_ids`` is the full new order of the target lance, including the moved unit.
+    Organising the roster does not touch the Warchest, so it is allowed at any time.
+    """
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, unit_id)
+        if not unit or unit.campaign_id != campaign_id:
+            raise ValueError("Unit is not part of this campaign")
+        if lance_id is not None:
+            lance = session.get(CampaignLance, lance_id)
+            if not lance or lance.campaign_id != campaign_id:
+                raise ValueError("Lance not found in this campaign")
+        if unit_id not in ordered_unit_ids or len(set(ordered_unit_ids)) != len(ordered_unit_ids):
+            raise ValueError("The new order must list the moved unit exactly once")
+        rows = {
+            row.id: row
+            for row in session.execute(
+                select(CampaignUnit).where(
+                    CampaignUnit.campaign_id == campaign_id,
+                    CampaignUnit.id.in_(ordered_unit_ids),
+                )
+            ).scalars()
+        }
+        if set(rows) != set(ordered_unit_ids):
+            raise ValueError("Every unit in the new order must belong to this campaign")
+        unit.campaign_lance_id = lance_id
+        for position, row_id in enumerate(ordered_unit_ids):
+            rows[row_id].order = position
+            if row_id != unit_id and rows[row_id].campaign_lance_id != lance_id:
+                rows[row_id].campaign_lance_id = lance_id
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
 def delete_campaign_unit(unit_id: int) -> bool:
     with session_scope() as session:
         unit = session.get(CampaignUnit, unit_id)
@@ -665,6 +746,12 @@ def delete_campaign_unit(unit_id: int) -> bool:
         session.query(CampaignPilot).filter(CampaignPilot.preferred_unit_id == unit_id).update(
             {"preferred_unit_id": None}
         )
+        # Reconnaissance history keeps the unit's name (unit_label) but loses the live link.
+        from ..models.sortie_recon_action import SortieReconAction
+
+        session.query(SortieReconAction).filter(
+            SortieReconAction.campaign_unit_id == unit_id
+        ).update({"campaign_unit_id": None})
         session.delete(unit)
         return True
 
@@ -1103,9 +1190,16 @@ def create_aces_sortie(
     location: str | None = None,
     notes: str | None = None,
     date_played: date | None = None,
+    scenario_pv: int | None = None,
+    max_pv: int | None = None,
 ) -> Sortie:
-    """Create a Sortie directly under an Aces Campaign (no Contract)."""
-    from .aces_sortie_service import unreplayed_failed_sortie
+    """Create a Sortie directly under an Aces Campaign (no Contract).
+
+    ``scenario_pv`` is the scenario's PV value; the campaign's difficulty is applied to it to
+    give the Sortie's stored Maximum PV (``max_pv`` may override). Both are optional here so
+    a Sortie can be created first, but the Sortie cannot be Ready without a Maximum PV.
+    """
+    from .aces_sortie_service import apply_sortie_pv, unreplayed_failed_sortie
 
     cleaned = name.strip()
     if not cleaned:
@@ -1143,6 +1237,8 @@ def create_aces_sortie(
             sortie_number=next_number,
             attempt_number=1,
         )
+        if scenario_pv not in (None, "") or max_pv not in (None, ""):
+            apply_sortie_pv(sortie, campaign, scenario_pv=scenario_pv, max_pv=max_pv)
         session.add(sortie)
         session.flush()
         session.expunge(sortie)

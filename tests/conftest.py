@@ -15,6 +15,27 @@ if str(ROOT) not in sys.path:  # pragma: no cover - defensive
 from app import create_app  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def default_sortie_max_pv(request, monkeypatch):
+    """Give Aces Sorties a generous Maximum PV unless a test sets its own.
+
+    A Sortie cannot be Ready without a Maximum PV; tests about other behaviour should not
+    each have to enter one. Tests of the limit itself opt out with ``no_default_pv``.
+    """
+    if request.node.get_closest_marker("no_default_pv"):
+        return
+    from app.services import campaign_service
+
+    original = campaign_service.create_aces_sortie
+
+    def with_default(campaign_id, name, **kwargs):
+        if kwargs.get("scenario_pv") in (None, "") and kwargs.get("max_pv") in (None, ""):
+            kwargs["max_pv"] = 1000
+        return original(campaign_id, name, **kwargs)
+
+    monkeypatch.setattr(campaign_service, "create_aces_sortie", with_default)
+
+
 @pytest.fixture(scope="function")
 def app():
     """Provide a fresh Flask app backed by an in-memory SQLite database per test.

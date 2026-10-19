@@ -13,8 +13,8 @@
             <span class="mx-1">·</span>Sortie Scale {{ sortie.scale }}
             {% endif %}
             {% if contract %}<span class="mx-1">·</span>Contract Scale {{ contract.scale }} · {{ contract.contract_number }}{% else %}<span class="mx-1">·</span>Direct Campaign Sortie{% endif %}
-            <span class="mx-1">·</span>{{ pv_total }} / {{ pv_limit }} PV
-            {% if is_aces %}<span class="text-muted">({{ pv_allowance.force_pv }} PV force {{ '%+d' % (pv_allowance.difficulty_percent + pv_allowance.experienced_percent) }}%)</span>{% else %}
+            <span class="mx-1">·</span>{{ pv_total }} / {{ pv_limit if pv_limit is not none else 'no max set' }} PV
+            {% if is_aces %}{% else %}
             <span class="mx-1">·</span>{{ sortie.units | length }} / {{ unit_limit }} units{% endif %}
             {% if sortie.outcome %}<span class="mx-1">·</span>{{ sortie.outcome }}{% endif %}
         </small>
@@ -74,9 +74,80 @@
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Sortie force</h5>
-        <span class="small text-muted">{% if not is_aces %}{{ sortie.units | length }} / {{ unit_limit }} unit(s) · {% endif %}{{ pv_total }} / {{ pv_limit }} PV</span>
+        <span class="d-flex align-items-center gap-3">
+        {% if sortie.units %}
+        <a href="{{ url_for('contracts.export_sortie_jeff', id=sortie.id) }}" class="btn btn-sm btn-outline-success"
+            title="Download this Sortie force as a group for Jeff's BT Tools">
+            <i class="fa-solid fa-file-export"></i> Export to Jeff's BT Tools
+        </a>
+        {% endif %}
+        {% if not is_aces %}<span class="small text-muted">{{ sortie.units | length }} / {{ unit_limit }} unit(s) · {{ pv_total }} / {{ pv_limit }} PV</span>{% endif %}
+        </span>
     </div>
     <div class="card-body">
+        {% if is_aces %}
+        {% set over = pv_limit is not none and pv_total > pv_limit %}
+        <div id="pvBar" class="alert {{ 'alert-danger' if over else ('alert-warning' if pv_limit is none else 'alert-secondary') }} d-flex flex-wrap gap-4 py-2 mb-3 fs-5">
+            <span><strong>Selected:</strong> {{ pv_total }} PV</span>
+            <span><strong>Maximum:</strong> {% if pv_limit is not none %}{{ pv_limit }} PV{% else %}not set{% endif %}</span>
+            <span><strong>Remaining:</strong> {% if pv_remaining is not none %}{{ pv_remaining }} PV{% else %}—{% endif %}</span>
+            {% if over %}<span class="fw-bold">Over the limit: remove units or raise the Maximum PV before Ready.</span>{% endif %}
+        </div>
+        {% if editable %}
+        <form method="post" action="{{ url_for('contracts.set_sortie_pv', id=sortie.id) }}" class="row g-2 align-items-end mb-3" id="pvForm"
+            data-percent="{{ pv_percent_now }}" data-label="{{ pv_modifier_label }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Scenario PV</label>
+                <input type="number" min="1" name="scenario_pv" id="pvScenario" class="form-control" value="{{ sortie.scenario_pv or '' }}" placeholder="From the scenario">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Maximum PV <span class="text-muted">(after {{ pv_modifier_label }})</span></label>
+                <input type="number" min="1" name="max_pv" id="pvMax" class="form-control" value="{{ sortie.max_sortie_pv or '' }}"
+                    data-auto="{{ 'false' if sortie.max_sortie_pv else 'true' }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-primary w-100">Set Maximum</button>
+            </div>
+            <div class="col-md-4 small">
+                <span id="pvAdjusted" class="text-muted"></span>
+                <span id="pvCaution" class="text-warning-emphasis fw-semibold {% if not above_adjusted %}d-none{% endif %}">
+                    Caution: above the difficulty-adjusted value{% if adjusted_pv is not none %} ({{ adjusted_pv }} PV){% endif %}.
+                </span>
+            </div>
+        </form>
+        <script>
+            (function () {
+                const form = document.getElementById('pvForm');
+                if (!form) return;
+                const percent = Number(form.dataset.percent || 0);
+                const scenario = document.getElementById('pvScenario');
+                const max = document.getElementById('pvMax');
+                const adjusted = document.getElementById('pvAdjusted');
+                const caution = document.getElementById('pvCaution');
+                const compute = () => {
+                    const base = parseInt(scenario.value, 10);
+                    return base > 0 ? Math.max(0, Math.floor((base * (100 + percent)) / 100)) : null;
+                };
+                function refresh(fromScenario) {
+                    const value = compute();
+                    if (value === null) {
+                        adjusted.textContent = '';
+                        caution.classList.add('d-none');
+                        return;
+                    }
+                    adjusted.textContent = scenario.value + ' PV → ' + value + ' PV after ' + form.dataset.label + '. ';
+                    if (fromScenario && max.dataset.auto === 'true') max.value = value;
+                    const entered = parseInt(max.value, 10);
+                    caution.classList.toggle('d-none', !(entered > value));
+                }
+                scenario.addEventListener('input', () => refresh(true));
+                max.addEventListener('input', () => { max.dataset.auto = 'false'; refresh(false); });
+                refresh(false);
+            })();
+        </script>
+        {% endif %}
+        {% endif %}
         <div class="table-responsive mb-3">
             <table class="table table-hover table-sm align-middle">
                 <thead>
@@ -114,9 +185,14 @@
                             <form method="post" action="{{ url_for('contracts.assign_pilot', unit_id=unit.id) }}" class="d-flex gap-1">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="sortie_id" value="{{ sortie.id }}">
-                                <select name="campaign_pilot_id" class="form-select form-select-sm">
+                                <select name="campaign_pilot_id" class="form-select form-select-sm" onchange="this.form.submit()">
                                     <option value="">Generic crew (AS 4)</option>
                                     {% if is_aces %}
+                                    {% if not pilots_by_unit[unit.id] %}
+                                    <option value="" disabled>
+                                        {% if required_pilot_type[unit.id] %}No available {{ required_pilot_type[unit.id] }} pilots{% else %}This unit type cannot have a Named Pilot{% endif %}
+                                    </option>
+                                    {% endif %}
                                     {% for pilot in pilots_by_unit[unit.id] %}
                                     <option value="{{ pilot.id }}" {% if unit.campaign_pilot_id == pilot.id %}selected{% endif %}>
                                         {{ pilot.display_name }} ({{ pilot.pilot_type }}, Skill {{ pilot.alpha_strike_skill }})
@@ -163,7 +239,8 @@
                         <select name="lance_id" class="form-select" required>
                             <option value="">Add lance…</option>
                             {% for lance in lances %}
-                            <option value="{{ lance.id }}">{{ lance.name }}</option>
+                            {% set add = lance_adds.get(lance.id) %}
+                            <option value="{{ lance.id }}" {% if not add %}disabled{% endif %}>{{ lance.name }} — {% if add %}{{ add.units }} unit{{ '' if add.units == 1 else 's' }}, {{ add.pv }} PV{% else %}no units available{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -179,7 +256,7 @@
                         <select name="campaign_unit_id" class="form-select" required>
                             <option value="">Add available unit…</option>
                             {% for unit in available_units %}
-                            <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }}{% if unit.lance %} · {{ unit.lance.name }}{% endif %}</option>
+                            <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }}{% if unit.variant %} {{ unit.variant }}{% endif %} — {{ unit.point_value }} PV{% if unit.lance %} · {{ unit.lance.name }}{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -194,19 +271,112 @@
 </div>
 
 {% if is_aces %}
+<div class="card mb-3" id="recon">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Reconnaissance</h5>
+        <span class="small text-muted">
+            {% set recon_sum = recon_actions | sum(attribute='sp_cost') %}
+            {{ recon_actions | length }} action{{ '' if recon_actions | length == 1 else 's' }} ·
+            <strong>{{ recon_sum }} SP</strong>{% if editable %} planned{% endif %}
+        </span>
+    </div>
+    <div class="card-body">
+        {% if editable %}
+        <p class="small text-muted">
+            Enter what the physical Aces reconnaissance produced. Nothing is charged now: the total is included in
+            this Sortie's expenses when the After-Sortie is applied. A failed attempt is never charged.
+        </p>
+        {% if can_copy_recon %}
+        <form method="post" action="{{ url_for('contracts.copy_recon', id=sortie.id) }}" class="mb-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+                <i class="fa-solid fa-copy"></i> Copy reconnaissance from the previous attempt
+            </button>
+        </form>
+        {% endif %}
+        {% for action in recon_actions %}
+        <form method="post" action="{{ url_for('contracts.update_recon', id=sortie.id, action_id=action.id) }}" class="row g-2 mb-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-lg-3"><input type="text" name="name" class="form-control form-control-sm" value="{{ action.name }}" required maxlength="256" aria-label="Action"></div>
+            <div class="col-lg-3">
+                <select name="campaign_unit_id" class="form-select form-select-sm" aria-label="Unit">
+                    <option value="">No unit</option>
+                    {% for unit in recon_units %}
+                    <option value="{{ unit.id }}" {% if action.campaign_unit_id == unit.id %}selected{% endif %}>{{ unit.prefix }} {{ unit.chassis }} {{ unit.variant or '' }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-lg-1"><input type="number" min="0" name="sp_cost" value="{{ action.sp_cost }}" class="form-control form-control-sm" aria-label="SP"></div>
+            <div class="col-lg-3"><input type="text" name="notes" class="form-control form-control-sm" value="{{ action.notes or '' }}" placeholder="Notes" aria-label="Notes"></div>
+            <div class="col-lg-2 d-flex gap-1">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Save</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                    formaction="{{ url_for('contracts.delete_recon', id=sortie.id, action_id=action.id) }}"
+                    onclick="return confirm('Remove this reconnaissance action?');">Remove</button>
+            </div>
+        </form>
+        {% else %}
+        <p class="text-muted">No reconnaissance actions for this Sortie.</p>
+        {% endfor %}
+        <hr>
+        <form method="post" action="{{ url_for('contracts.add_recon', id=sortie.id) }}" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-lg-3"><input type="text" name="name" class="form-control" placeholder="Action, e.g. Scout northern approach" required maxlength="256"></div>
+            <div class="col-lg-3">
+                <select name="campaign_unit_id" class="form-select">
+                    <option value="">No unit (optional)</option>
+                    {% for unit in recon_units %}
+                    <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }} {{ unit.variant or '' }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-lg-1"><input type="number" min="0" name="sp_cost" value="0" class="form-control" title="SP cost"></div>
+            <div class="col-lg-3"><input type="text" name="notes" class="form-control" placeholder="Notes (optional)"></div>
+            <div class="col-lg-2"><button type="submit" class="btn btn-outline-primary w-100">Add action</button></div>
+        </form>
+        {% elif recon_actions %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Action</th><th>Unit</th><th class="text-end">SP</th><th>Notes</th></tr></thead>
+                <tbody>
+                    {% for action in recon_actions %}
+                    <tr>
+                        <td>{{ action.name }}</td>
+                        <td>{{ action.unit_label or '—' }}</td>
+                        <td class="text-end">{{ action.sp_cost }}</td>
+                        <td class="small text-muted">{{ action.notes or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No reconnaissance was recorded for this Sortie.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if is_aces %}
 <div class="card mb-3">
     <div class="card-header"><h5 class="mb-0">Force Commander</h5></div>
     <div class="card-body">
         {% if editable %}
+        {% if not named_sortie_pilots %}
+        <div class="alert alert-info py-2">
+            No Named Pilot is crewing a unit yet. Choose a pilot in the <strong>Pilot</strong> column of the
+            Sortie force above (click <strong>Set</strong>), then pick the Force Commander from them here.
+        </div>
+        {% endif %}
         <form method="post" action="{{ url_for('contracts.set_force_commander', id=sortie.id) }}" class="d-flex gap-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <select name="pilot_id" class="form-select" required>
+            <select name="pilot_id" class="form-select" required {% if not named_sortie_pilots %}disabled{% endif %}>
                 <option value="">Select a participating Named Pilot…</option>
                 {% for unit in named_sortie_pilots %}
                 <option value="{{ unit.campaign_pilot_id }}" {% if sortie.force_commander_pilot_id == unit.campaign_pilot_id %}selected{% endif %}>{{ unit.pilot_name }}</option>
                 {% endfor %}
             </select>
-            <button type="submit" class="btn btn-outline-primary">Set</button>
+            <button type="submit" class="btn btn-outline-primary" {% if not named_sortie_pilots %}disabled{% endif %}>Set</button>
         </form>
         <div class="form-text">Required before the Sortie can be marked Ready. Separate from MVP.</div>
         {% else %}
@@ -297,7 +467,20 @@
             <div class="table-responsive mb-3">
                 <table class="table table-hover table-sm align-middle">
                     <thead>
-                        <tr><th>Unit</th><th>Pilot</th><th>Result</th><th>Wounded</th><th>Killed</th><th>Crew lost</th></tr>
+                        <tr>
+                            <th>Unit</th>
+                            <th>Pilot</th>
+                            <th>
+                                Result
+                                <i class="fa-solid fa-circle-info text-primary ms-1" role="button" tabindex="0"
+                                    id="damageHelpIcon" aria-label="What do the results mean?"
+                                    data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-html="true"
+                                    data-bs-placement="bottom" data-bs-custom-class="damage-help-popover"
+                                    data-bs-title="Sortie result"
+                                    data-bs-content="{% for key in aces_damage_outcomes %}<div class='mb-2'><strong>{{ damage_help[key].label }}</strong> <span class='text-muted'>({{ damage_help[key].cost }})</span><br>{{ damage_help[key].text | e }}</div>{% endfor %}<div class='small text-muted'>{{ damage_help_note | e }}</div>"></i>
+                            </th>
+                            <th>Wounded</th><th>Killed</th><th>Crew lost</th>
+                        </tr>
                     </thead>
                     <tbody>
                         {% for unit in sortie.units %}
@@ -305,11 +488,12 @@
                             <td>{{ unit.prefix }} {{ unit.chassis }} {{ unit.variant or '' }}</td>
                             <td>{{ unit.pilot_name }}{% if unit.is_generic_crew %} <span class="text-muted">(generic)</span>{% endif %}</td>
                             <td>
-                                <select name="damage_outcome_{{ unit.id }}" class="form-select form-select-sm">
+                                <select name="damage_outcome_{{ unit.id }}" class="form-select form-select-sm damage-select">
                                     {% for damage in aces_damage_outcomes %}
-                                    <option value="{{ damage }}">{{ damage | replace('-', ' ') }}</option>
+                                    <option value="{{ damage }}" title="{{ damage_help[damage].text }} {{ damage_help[damage].cost }}">{{ damage_help[damage].label }}</option>
                                     {% endfor %}
                                 </select>
+                                <div class="form-text damage-hint">{{ damage_help['none'].text }}</div>
                             </td>
                             <td>{% if not unit.is_generic_crew %}<input type="checkbox" name="pilot_wounded_{{ unit.id }}" value="on">{% endif %}</td>
                             <td>{% if not unit.is_generic_crew %}<input type="checkbox" name="pilot_killed_{{ unit.id }}" value="on">{% endif %}</td>
@@ -337,7 +521,8 @@
                     <h6>Expenses <span class="small text-muted">(rearming, repairs and personnel are automatic)</span></h6>
                     <div class="row g-2">
                         <div class="col-md-4"><label class="form-label small mb-0">Reconnaissance</label>
-                            <input type="number" min="0" name="reconnaissance" value="0" class="form-control"></div>
+                            <input type="text" class="form-control" readonly
+                                value="{{ recon_actions | sum(attribute='sp_cost') }} SP (from Sortie Setup)"></div>
                         <div class="col-md-4"><label class="form-label small mb-0">Waypoint adjustments</label>
                             <input type="number" min="0" name="waypoint" value="0" class="form-control"></div>
                         <div class="col-md-4"><label class="form-label small mb-0">Other</label>
@@ -386,6 +571,24 @@
         </form>
     </div>
 </div>
+<style>
+    .damage-help-popover { --bs-popover-max-width: 26rem; }
+</style>
+<script>
+    (function () {
+        const help = {{ damage_help | tojson }};
+        document.querySelectorAll('#damageHelpIcon').forEach((el) => new bootstrap.Popover(el));
+        document.querySelectorAll('.damage-select').forEach((select) => {
+            const hint = select.parentElement.querySelector('.damage-hint');
+            const update = () => {
+                const entry = help[select.value];
+                if (hint && entry) hint.textContent = entry.text + ' ' + entry.cost + '.';
+            };
+            select.addEventListener('change', update);
+            update();
+        });
+    })();
+</script>
 <script>
     (function () {
         const form = document.getElementById('acesAfterForm');
@@ -476,11 +679,14 @@
             </div>
             <div class="row g-2">
                 <div class="col-md-3"><label class="form-label small mb-0">Skill SP</label>
-                    <input type="number" min="0" name="skill_sp" value="0" class="form-control" data-track="skill"></div>
+                    <input type="number" min="0" name="skill_sp" value="0" class="form-control" data-track="skill">
+                    <div class="form-text" data-info="skill"></div></div>
                 <div class="col-md-3"><label class="form-label small mb-0">Edge Token SP</label>
-                    <input type="number" min="0" name="edge_sp" value="0" class="form-control" data-track="edge"></div>
+                    <input type="number" min="0" name="edge_sp" value="0" class="form-control" data-track="edge">
+                    <div class="form-text" data-info="edge"></div></div>
                 <div class="col-md-3"><label class="form-label small mb-0">Edge Ability SP</label>
-                    <input type="number" min="0" name="ability_sp" value="0" class="form-control" data-track="ability"></div>
+                    <input type="number" min="0" name="ability_sp" value="0" class="form-control" data-track="ability">
+                    <div class="form-text" data-info="ability"></div></div>
                 <div class="col-md-3 d-flex align-items-end">
                     <div class="form-text mb-2">Allocated <strong data-allocated>0</strong> / {{ item.total }}</div>
                 </div>
@@ -537,8 +743,39 @@
                 }
                 picks.appendChild(row);
             }
+            const names = { skill: 'Skill', edge: 'Edge Tokens', ability: 'Edge Abilities' };
+            function describe(track, extra) {
+                const table = T[track];
+                const total = base[track] + extra;
+                const current = lookup(table, total);
+                const next = table.find(([threshold]) => threshold > total);
+                const invested = base[track] + ' SP invested'
+                    + (extra ? ' + ' + extra + ' now = ' + total : '');
+                const bump = next
+                    ? 'next at ' + next[0] + ' SP (' + (next[0] - total) + ' to go) → ' + next[1]
+                    : 'maxed out';
+                return invested + ' · ' + names[track] + ' ' + current + ' · ' + bump;
+            }
+            // Never let the three boxes add up to more than the SP being allocated: each box
+            // may only use what the other two have left (this also stops the arrow spinners).
+            function clampToTotal(changed) {
+                const raw = (k) => Math.max(0, parseInt(inputs[k].value, 10) || 0);
+                if (changed) {
+                    const others = Object.keys(inputs).filter((k) => k !== changed)
+                        .reduce((sum, k) => sum + raw(k), 0);
+                    const room = Math.max(0, total - others);
+                    if (raw(changed) > room) inputs[changed].value = room;
+                }
+                const sum = Object.keys(inputs).reduce((acc, k) => acc + raw(k), 0);
+                Object.keys(inputs).forEach((k) => {
+                    inputs[k].max = Math.max(0, total - (sum - raw(k)));
+                });
+            }
             function refresh() {
                 const v = (k) => Math.max(0, parseInt(inputs[k].value, 10) || 0);
+                Object.keys(inputs).forEach((track) => {
+                    form.querySelector('[data-info="' + track + '"]').textContent = describe(track, v(track));
+                });
                 const allocated = v('skill') + v('edge') + v('ability');
                 form.querySelector('[data-allocated]').textContent = allocated;
                 submit.disabled = allocated !== total;
@@ -548,7 +785,10 @@
                     rebuild(needed);
                 }
             }
-            Object.values(inputs).forEach((el) => el.addEventListener('input', refresh));
+            Object.entries(inputs).forEach(([track, el]) => {
+                el.addEventListener('input', () => { clampToTotal(track); refresh(); });
+            });
+            clampToTotal(null);
             refresh();
         });
     })();

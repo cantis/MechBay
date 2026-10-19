@@ -24,7 +24,7 @@
                     </td>
                     <td>{{ s.date_played.isoformat() if s.date_played else '—' }}</td>
                     <td><span class="badge rounded-pill {% if s.status == 'failed' %}bg-danger{% elif s.outcome == 'success' %}bg-success{% else %}bg-secondary{% endif %}">{{ s.outcome or s.status }}</span></td>
-                    <td class="text-end">{{ s.force_pv }}</td>
+                    <td class="text-end">{{ s.force_pv }}{% if s.max_pv %} / {{ s.max_pv }}{% endif %}</td>
                     <td>{{ s.mvp or '—' }}</td>
                     <td class="text-end">{{ s.net_sp if s.net_sp is not none else '—' }}</td>
                     <td>{% for kw in s.keywords %}<span class="badge bg-info text-dark me-1">{{ kw }}</span>{% else %}—{% endfor %}</td>

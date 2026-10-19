@@ -127,7 +127,7 @@ def test_aces_detail_shows_no_chaos_time_or_location_controls(client, minimal_fo
         "Unknown",
     ):
         assert text_ not in page, text_
-    for text_ in ("Story Keywords", "Max Sortie PV", "Named Pilots", "Warchest"):
+    for text_ in ("Story Keywords", "Sortie PV adjustment", "Named Pilots", "Warchest"):
         assert text_ in page
 
 
