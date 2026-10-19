@@ -466,8 +466,17 @@ def delete_campaign(campaign_id: int) -> bool:
         campaign = session.get(Campaign, campaign_id)
         if not campaign:
             return False
+        from ..models.aces_sortie_report import AcesSortieReport, SortiePilotShare
+        from ..models.story_keyword_event import StoryKeywordEvent
+
         session.query(PilotAdvancementEvent).filter(
             PilotAdvancementEvent.campaign_id == campaign_id
+        ).delete()
+        session.query(StoryKeywordEvent).filter(
+            StoryKeywordEvent.campaign_id == campaign_id
+        ).delete()
+        session.query(AcesSortieReport).filter(
+            AcesSortieReport.campaign_id == campaign_id
         ).delete()
         for model in (
             DamageEvent,
@@ -488,6 +497,9 @@ def delete_campaign(campaign_id: int) -> bool:
 
             session.query(SortieReconAction).filter(
                 SortieReconAction.sortie_id.in_(sortie_ids)
+            ).delete(synchronize_session=False)
+            session.query(SortiePilotShare).filter(
+                SortiePilotShare.sortie_id.in_(sortie_ids)
             ).delete(synchronize_session=False)
             records = session.query(SortieUnit).filter(SortieUnit.sortie_id.in_(sortie_ids)).all()
             for record in records:

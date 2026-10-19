@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import json
 import tempfile
+from io import BytesIO
 from pathlib import Path
 
 import structlog
-from flask import Blueprint, flash, jsonify, redirect, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, request, send_file, url_for
 
 from ..native_dialog import native_dialogs_enabled, pick_file_path
-from ..services import document_service, force_service, inventory_project_service
+from ..services import (
+    campaign_file_service,
+    document_service,
+    force_service,
+    inventory_project_service,
+)
 from ..services.session_restore_service import inventory_has_data
 
 logger = structlog.get_logger()
@@ -208,9 +214,7 @@ def inventory_save_as():
 
     if not path:
         if not native_dialogs_enabled():
-            default_name = Path(
-                document_service.load_state().inventory_path or "MyCollection"
-            ).stem
+            default_name = Path(document_service.load_state().inventory_path or "MyCollection").stem
             return _json_or_redirect(
                 True,
                 {
@@ -359,9 +363,7 @@ def force_save_as(force_id: int):
 
     if not path:
         if not native_dialogs_enabled():
-            safe = "".join(
-                c if c.isalnum() or c in ("-", "_") else "_" for c in force.name
-            )
+            safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in force.name)
             return _json_or_redirect(
                 True,
                 {
@@ -485,4 +487,56 @@ def upload_force():
             "status": document_service.get_status(),
         },
         redirect_to=url_for("forces.detail", id=result["force_id"]),
+    )
+
+
+@bp.route("/campaign/<int:campaign_id>/export")
+def campaign_export(campaign_id: int):
+    """Download one campaign, with all its history, as a .mbcampaign file."""
+    try:
+        data = campaign_file_service.export_campaign(campaign_id)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("campaigns.list_campaigns"))
+    filename = campaign_file_service.export_filename(data["campaign_name"])
+    return send_file(
+        BytesIO(json.dumps(data, indent=2).encode("utf-8")),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@bp.route("/upload/campaign", methods=["POST"])
+def upload_campaign():
+    """Load a campaign from an uploaded .mbcampaign file as a new campaign."""
+    uploaded = request.files.get("file")
+    back = url_for("campaigns.list_campaigns")
+    if not uploaded or uploaded.filename == "":
+        return _json_or_redirect(False, {"error": "No file selected"}, redirect_to=back)
+    try:
+        payload = json.loads(uploaded.read().decode("utf-8"))
+        result = campaign_file_service.import_campaign(payload)
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        message = (
+            "That file is not valid JSON"
+            if isinstance(exc, json.JSONDecodeError | UnicodeDecodeError)
+            else str(exc)
+        )
+        return _json_or_redirect(False, {"error": message}, redirect_to=back)
+    warning = None
+    if result["missing_miniatures"]:
+        warning = (
+            f"{result['missing_miniatures']} unit(s) have no matching miniature in your "
+            "inventory and are marked as missing."
+        )
+    return _json_or_redirect(
+        True,
+        {
+            "message": f"Loaded campaign '{result['name']}'",
+            "warning": warning,
+            "campaign_id": result["campaign_id"],
+            "redirect": url_for("campaigns.detail", id=result["campaign_id"]),
+        },
+        redirect_to=url_for("campaigns.detail", id=result["campaign_id"]),
     )

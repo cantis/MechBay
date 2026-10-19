@@ -194,6 +194,17 @@ async function openForceUpload(input) {
     input.value = '';
 }
 
+async function openCampaignUpload(input) {
+    if (!input.files || !input.files[0]) {
+        return;
+    }
+    const form = new FormData();
+    form.append('csrf_token', csrfToken());
+    form.append('file', input.files[0]);
+    await postFileAction('/files/upload/campaign', form, { json: false });
+    input.value = '';
+}
+
 async function saveForce(forceId) {
     await postFileAction(`/files/force/${forceId}/save`, {});
 }
@@ -211,6 +222,7 @@ window.MechBayFiles = {
     openInventoryUpload,
     openForce,
     openForceUpload,
+    openCampaignUpload,
     saveForce,
     saveForceAs,
 };

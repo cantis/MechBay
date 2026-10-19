@@ -47,6 +47,10 @@
         {% if campaign.ruleset != 'aces' %}
         <a href="{{ url_for('campaigns.advance_month_form', id=campaign.id) }}" class="btn btn-primary">Advance Month</a>
         {% endif %}
+        <a href="{{ url_for('files.campaign_export', campaign_id=campaign.id) }}" class="btn btn-outline-primary"
+            title="Download this campaign with all its history, Sorties and force as a .mbcampaign file">
+            <i class="fa-solid fa-floppy-disk"></i> Save to file
+        </a>
         <a href="{{ url_for('campaigns.list_campaigns') }}" class="btn btn-outline-secondary">Back to Campaigns</a>
     </div>
 </div>

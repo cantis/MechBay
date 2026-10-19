@@ -10,8 +10,19 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="m-0">Campaigns</h2>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createCampaignModal"
-        {% if not forces %}disabled{% endif %}>Create Campaign</button>
+    <div class="d-flex gap-2">
+        <form method="post" action="{{ url_for('files.upload_campaign') }}" enctype="multipart/form-data" class="m-0"
+            id="loadCampaignForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="btn btn-outline-secondary mb-0" title="Load a campaign saved with Save to file">
+                <i class="fa-solid fa-folder-open"></i> Load from file
+                <input type="file" name="file" accept=".mbcampaign,.json,application/json" class="d-none"
+                    onchange="if (this.files.length) this.form.submit()">
+            </label>
+        </form>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createCampaignModal"
+            {% if not forces %}disabled{% endif %}>Create Campaign</button>
+    </div>
 </div>
 
 {% if campaigns %}

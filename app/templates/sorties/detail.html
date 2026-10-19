@@ -81,7 +81,9 @@
             <i class="fa-solid fa-file-export"></i> Export to Jeff's BT Tools
         </a>
         {% endif %}
-        {% if not is_aces %}<span class="small text-muted">{{ sortie.units | length }} / {{ unit_limit }} unit(s) · {{ pv_total }} / {{ pv_limit }} PV</span>{% endif %}
+        {% if not is_aces %}<span class="small text-muted">{{ sortie.units | length }} / {{ unit_limit }} unit(s) · {{ pv_total }} / {{ pv_limit }} PV</span>
+        {% elif pv_limit is none %}<span class="badge text-bg-warning">Set a Maximum PV</span>
+        {% else %}<span class="badge fs-6 {{ 'text-bg-danger' if pv_total > pv_limit else ('text-bg-success' if pv_remaining > 0 else 'text-bg-secondary') }}">Remaining to allocate: {{ pv_remaining }} PV <span class="fw-normal">of {{ pv_limit }}</span></span>{% endif %}
         </span>
     </div>
     <div class="card-body">
@@ -240,7 +242,7 @@
                             <option value="">Add lance…</option>
                             {% for lance in lances %}
                             {% set add = lance_adds.get(lance.id) %}
-                            <option value="{{ lance.id }}" {% if not add %}disabled{% endif %}>{{ lance.name }} — {% if add %}{{ add.units }} unit{{ '' if add.units == 1 else 's' }}, {{ add.pv }} PV{% else %}no units available{% endif %}</option>
+                            <option value="{{ lance.id }}" {% if not add or add.fits == 0 %}disabled{% endif %}>{{ lance.name }} — {% if add %}{{ add.units }} unit{{ '' if add.units == 1 else 's' }}, {{ add.pv }} PV{% if remaining_pv is not none and add.fits < add.units %} · {% if add.fits == 0 %}none fit{% else %}first {{ add.fits }} fit{% endif %}{% endif %}{% else %}no units available{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -256,7 +258,7 @@
                         <select name="campaign_unit_id" class="form-select" required>
                             <option value="">Add available unit…</option>
                             {% for unit in available_units %}
-                            <option value="{{ unit.id }}">{{ unit.prefix }} {{ unit.chassis }}{% if unit.variant %} {{ unit.variant }}{% endif %} — {{ unit.point_value }} PV{% if unit.lance %} · {{ unit.lance.name }}{% endif %}</option>
+                            <option value="{{ unit.id }}" {% if remaining_pv is not none and unit.point_value > remaining_pv %}disabled{% endif %}>{{ unit.prefix }} {{ unit.chassis }}{% if unit.variant %} {{ unit.variant }}{% endif %} — {{ unit.point_value }} PV{% if remaining_pv is not none and unit.point_value > remaining_pv %} (over by {{ unit.point_value - remaining_pv }}){% endif %}{% if unit.lance %} · {{ unit.lance.name }}{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -266,6 +268,13 @@
                 </form>
             </div>
         </div>
+        {% if is_aces %}
+        <p id="pvRemainingLine" class="mt-3 mb-0 fw-semibold">
+            {% if pv_limit is none %}Set a Maximum PV above to see how many points remain.
+            {% else %}Remaining to allocate: {{ pv_remaining }} PV
+            <span class="fw-normal text-muted">(Maximum {{ pv_limit }} − Selected {{ pv_total }}). Units that do not fit are greyed out.</span>{% endif %}
+        </p>
+        {% endif %}
         {% endif %}
     </div>
 </div>

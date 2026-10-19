@@ -246,13 +246,31 @@ def sortie_detail(id: int):  # noqa: A002
     selected_ids = {unit.campaign_unit_id for unit in sortie.units}
     available_units = [unit for unit in eligible_units if unit.id not in selected_ids]
     lances = campaign.lances if campaign else []
-    # What each lance would add: its available units not already in the Sortie force.
+    # What each lance would add: its available units not already in the Sortie force, and
+    # (for an Aces Maximum PV) how many of them fit, in order, in the PV still remaining.
+    sortie_is_aces = bool(campaign and campaign.ruleset == "aces" and sortie.contract_id is None)
+    remaining_pv = (
+        sortie.max_sortie_pv - contract_service.sortie_point_total(sortie)
+        if sortie_is_aces and sortie.max_sortie_pv is not None
+        else None
+    )
+    available_by_id = {unit.id: unit for unit in available_units}
     lance_adds: dict[int, dict[str, int]] = {}
-    for unit in available_units:
-        if unit.campaign_lance_id is not None:
-            entry = lance_adds.setdefault(unit.campaign_lance_id, {"units": 0, "pv": 0})
-            entry["units"] += 1
-            entry["pv"] += int(unit.point_value or 0)
+    for lance in lances:
+        members = [available_by_id[u.id] for u in lance.units if u.id in available_by_id]
+        if not members:
+            continue
+        fits, running = 0, 0
+        for unit in members:
+            running += int(unit.point_value or 0)
+            if remaining_pv is not None and running > remaining_pv:
+                break
+            fits += 1
+        lance_adds[lance.id] = {
+            "units": len(members),
+            "pv": sum(int(u.point_value or 0) for u in members),
+            "fits": fits,
+        }
     pv_limit = contract_service.sortie_pv_limit(sortie.scale)
     unit_limit = contract_service.sortie_unit_limit(sortie.scale)
     is_aces = bool(campaign and campaign.ruleset == "aces")
@@ -337,6 +355,7 @@ def sortie_detail(id: int):  # noqa: A002
         available_units=available_units,
         lances=lances,
         lance_adds=lance_adds,
+        remaining_pv=remaining_pv,
         pilots=eligible_pilots,
         outcomes=SORTIE_OUTCOMES,
         statuses=SORTIE_STATUSES,

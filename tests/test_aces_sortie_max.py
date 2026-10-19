@@ -409,3 +409,31 @@ def test_add_lists_show_point_values(client, minimal_force):
     contract_service.add_unit_to_sortie(sortie.id, campaign.units[1].id)
     page = client.get(f"/sorties/{sortie.id}").data.decode()
     assert f"{lance_name} — no units available" in page
+
+
+def test_remaining_pv_is_shown_and_pickers_grey_out_what_does_not_fit(client, minimal_force):
+    campaign, _ = _campaign(minimal_force)
+    campaign = _set_pv(campaign, 36, 44)
+    sortie = _sortie(campaign, max_pv=50)
+
+    page = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "Remaining to allocate: 50 PV" in page  # header badge and the line by the pickers
+    assert "(Maximum 50 − Selected 0)" in page
+    lance = campaign.lances[0].name
+    assert f"{lance} — 2 units, 80 PV · first 1 fit" in page  # 36 fits, 36 + 44 does not
+
+    contract_service.add_unit_to_sortie(sortie.id, campaign.units[0].id)  # 36 selected
+    page = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "Remaining to allocate: 14 PV" in page
+    assert "(over by 30)" in page  # the 44 PV unit exceeds the 14 left
+    unit_option = page[page.index("— 44 PV") - 120 : page.index("— 44 PV")]
+    assert "disabled" in unit_option
+    assert f"{lance} — 1 unit, 44 PV · none fit" in page
+
+
+def test_remaining_line_asks_for_a_maximum_when_none_is_set(client, minimal_force):
+    campaign, _ = _campaign(minimal_force)
+    sortie = _sortie(campaign)
+    page = client.get(f"/sorties/{sortie.id}").data.decode()
+    assert "Set a Maximum PV" in page
+    assert "Set a Maximum PV above to see how many points remain" in page
