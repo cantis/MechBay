@@ -34,7 +34,7 @@
             <span class="mx-1">·</span>
             {% if force.is_active %}<span class="badge bg-success">Active</span><span class="mx-1">·</span>{% endif %}
             {% set total_minis = force.lances | map(attribute='miniatures') | map('length') | sum %}
-            {{ force.lances | length }} Lance(s), {{ total_minis }} Miniature(s)
+            {{ force.lances | length }} Lance(s), <span id="forceMiniCount">{{ total_minis }}</span> Miniature(s)
         </small>
     </div>
     <div>
@@ -67,6 +67,9 @@
             <i class="fa-solid fa-list"></i> Inventory
         </a>
         <a href="{{ url_for('forces.list_forces') }}" class="btn btn-outline-secondary">Back to Forces</a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createCampaignFromForceModal">
+            <i class="fa-solid fa-flag"></i> Create Campaign
+        </button>
     </div>
 </div>
 
@@ -76,7 +79,7 @@
         <h5 class="mb-0"><i class="fa-solid fa-crosshairs"></i> Alpha Strike</h5>
         {% if as_config and as_summary %}
         <span id="asBudgetBadge" class="badge {% if as_summary.status == 'over_hard' %}bg-danger{% elif as_summary.status == 'over_fudge' %}bg-warning text-dark{% elif as_summary.status == 'within' %}bg-success{% else %}bg-secondary{% endif %}">
-            {{ as_summary.total_pv }} PV
+            <span class="force-pv-total">{{ as_summary.total_pv }}</span> PV
             {% if as_config.point_budget %}/ {{ as_config.point_budget }}{% endif %}
         </span>
         {% endif %}
@@ -374,7 +377,7 @@
 {% if as_config and as_summary %}
 <div class="alert alert-light border mb-3 py-2">
     <div class="d-flex flex-wrap align-items-center gap-3">
-        <span><strong>Force points:</strong> {{ as_summary.total_pv }} PV committed</span>
+        <span><strong>Force points:</strong> <span class="force-pv-total">{{ as_summary.total_pv }}</span> PV committed</span>
         {% if as_config.point_budget %}
         <span class="text-muted">·</span>
         <span>
@@ -406,7 +409,7 @@
                         <i class="fa-solid fa-pen-to-square fa-xs text-muted ms-1"></i>
                     </h6>
                     {% if as_config %}
-                    <span class="badge bg-secondary">{{ lance_pv_totals.get(lance.id, 0) }} PV</span>
+                    <span class="badge bg-secondary lance-pv-badge"><span class="lance-pv">{{ lance_pv_totals.get(lance.id, 0) }}</span> PV</span>
                     <a href="{{ url_for('forces.export_lance_jeff', id=force.id, lance_id=lance.id) }}"
                         class="btn btn-sm btn-link text-success p-0" title="Export lance to Jeff's BT Tools">
                         <i class="fa-solid fa-file-export"></i>
@@ -429,6 +432,7 @@
                     <li class="list-group-item"
                         data-miniature-id="{{ m.id }}"
                         data-fm-id="{{ fm.id }}"
+                        data-pv="{{ as_assign.point_value if as_assign else 0 }}"
                         data-chassis="{{ m.chassis }}">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
@@ -464,7 +468,7 @@
                     {% endfor %}
                 </ul>
                 <div class="mt-2">
-                    <small class="text-muted">{{ lance.miniatures | length }} miniatures</small>
+                    <small class="text-muted lance-count">{{ lance.miniatures | length }} miniatures</small>
                 </div>
             </div>
         </div>
@@ -635,6 +639,67 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createCampaignFromForceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('campaigns.create') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="force_id" value="{{ force.id }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Campaign from {{ force.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Campaign Name *</label>
+                        <input type="text" name="name" required class="form-control"
+                            value="{{ force.name }} Campaign">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Scale (1–5)</label>
+                            <input type="number" name="scale" min="1" max="5" value="1" class="form-control">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Reputation</label>
+                            <input type="number" name="reputation" value="1" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Starting year *</label>
+                            <input type="number" name="starting_bt_year" min="1000" max="9999" class="form-control"
+                                placeholder="e.g. 3152" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Starting month *</label>
+                            <input type="number" name="starting_bt_month" min="1" max="12" class="form-control"
+                                placeholder="1–12" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Starting location</label>
+                        <input type="text" name="current_location" class="form-control" placeholder="e.g. Galatea">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Opening Warchest (SP)</label>
+                        <input type="number" name="opening_warchest" class="form-control" value="3000">
+                        <div class="form-text">Default Hot Spots opening Warchest is 3,000 SP. Override if needed.</div>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Notes</label>
+                        <textarea name="notes" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Campaign</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

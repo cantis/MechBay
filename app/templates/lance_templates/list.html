@@ -13,9 +13,15 @@
 <p class="text-muted">Pre-defined lance configurations for quick force building.</p>
 
 {% if templates %}
-<div class="row g-3">
+{% if templates|length > 5 %}
+<div class="mb-3">
+    <input type="search" id="templateSearchInput" class="form-control" placeholder="Search templates by name..."
+        aria-label="Search templates by name" autocomplete="off">
+</div>
+{% endif %}
+<div class="row g-3" id="templatesGrid">
     {% for template in templates %}
-    <div class="col-md-6 col-lg-4">
+    <div class="col-md-6 col-lg-4 template-card" data-template-name="{{ template.name|lower }}">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="m-0">{{ template.name }}</h5>
@@ -57,10 +63,29 @@
     </div>
     {% endfor %}
 </div>
+<div id="templateSearchNoResults" class="alert alert-info d-none">No templates match your search.</div>
 {% else %}
 <div class="alert alert-info">
     No templates yet. Create your first lance template to get started!
 </div>
 {% endif %}
+
+<script>
+    const templateSearchInput = document.getElementById('templateSearchInput');
+    if (templateSearchInput) {
+        const cards = Array.from(document.querySelectorAll('.template-card'));
+        const noResults = document.getElementById('templateSearchNoResults');
+        templateSearchInput.addEventListener('input', () => {
+            const term = templateSearchInput.value.trim().toLowerCase();
+            let visibleCount = 0;
+            cards.forEach(card => {
+                const match = !term || card.dataset.templateName.includes(term);
+                card.classList.toggle('d-none', !match);
+                if (match) visibleCount++;
+            });
+            noResults.classList.toggle('d-none', visibleCount !== 0);
+        });
+    }
+</script>
 
 {% endblock %}

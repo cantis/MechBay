@@ -33,6 +33,8 @@ def init_db(app: Flask) -> None:
     Base.metadata.create_all(bind=engine)
     _apply_schema_constraints(engine)
     _apply_schema_migrations(engine)
+    # Table rebuilds drop partial indexes; re-assert them (idempotent).
+    _apply_schema_constraints(engine)
 
     @app.teardown_appcontext
     def remove_session(exception: Exception | None) -> None:  # noqa: ARG001
@@ -42,24 +44,50 @@ def init_db(app: Flask) -> None:
 def _apply_schema_constraints(db_engine) -> None:
     """Apply database constraints not expressible via SQLAlchemy models alone."""
     dialect_name = db_engine.dialect.name
-    index_sql = None
-
+    indexes: list[tuple[str, str]] = []
     if dialect_name == "sqlite":
-        index_sql = (
-            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
-            'ON "forces"(is_active) WHERE is_active = 1'
-        )
+        indexes = [
+            (
+                "uix_one_active_force",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force "
+                'ON "forces"(is_active) WHERE is_active = 1',
+            ),
+            (
+                "uix_one_active_campaign",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_campaign "
+                'ON "campaigns"(is_active) WHERE is_active = 1',
+            ),
+            (
+                "uix_one_active_contract",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_contract "
+                "ON \"contracts\"(campaign_id) WHERE status = 'active'",
+            ),
+        ]
     elif dialect_name == "postgresql":
-        index_sql = (
-            'CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force '
-            'ON "forces"(is_active) WHERE is_active IS TRUE'
-        )
+        indexes = [
+            (
+                "uix_one_active_force",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_force "
+                'ON "forces"(is_active) WHERE is_active IS TRUE',
+            ),
+            (
+                "uix_one_active_campaign",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_campaign "
+                'ON "campaigns"(is_active) WHERE is_active IS TRUE',
+            ),
+            (
+                "uix_one_active_contract",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_one_active_contract "
+                "ON \"contracts\"(campaign_id) WHERE status = 'active'",
+            ),
+        ]
 
-    if index_sql is not None:
+    if indexes:
         with db_engine.connect() as conn:
-            conn.execute(text(index_sql))
+            for name, index_sql in indexes:
+                conn.execute(text(index_sql))
+                logger.info("schema_constraint_applied", constraint=name)
             conn.commit()
-        logger.info("schema_constraint_applied", constraint="uix_one_active_force")
 
 
 def _apply_schema_migrations(db_engine) -> None:
@@ -68,23 +96,264 @@ def _apply_schema_migrations(db_engine) -> None:
         return
 
     with db_engine.connect() as conn:
-        columns = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(forces)")).fetchall()
-        }
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(forces)")).fetchall()}
         if "inventory_faction" not in columns:
             conn.execute(text('ALTER TABLE "forces" ADD COLUMN inventory_faction VARCHAR(64)'))
             conn.commit()
             logger.info("schema_migration_applied", table="forces", column="inventory_faction")
 
         lance_columns = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
+            row[1] for row in conn.execute(text("PRAGMA table_info(lances)")).fetchall()
         }
         if "header_color" not in lance_columns:
             conn.execute(text('ALTER TABLE "lances" ADD COLUMN header_color VARCHAR(7)'))
             conn.commit()
             logger.info("schema_migration_applied", table="lances", column="header_color")
+
+        campaign_tables = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }
+        if "campaigns" in campaign_tables:
+            campaign_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(campaigns)")).fetchall()
+            }
+            campaign_adds = {
+                "mul_faction_id": "INTEGER",
+                "mul_era_id": "INTEGER",
+                "mul_faction_name": "VARCHAR(128)",
+                "mul_era_name": "VARCHAR(128)",
+            }
+            for column, col_type in campaign_adds.items():
+                if column not in campaign_columns:
+                    conn.execute(text(f'ALTER TABLE "campaigns" ADD COLUMN {column} {col_type}'))
+                    conn.commit()
+                    logger.info("schema_migration_applied", table="campaigns", column=column)
+
+        if "travel_events" in campaign_tables:
+            travel_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(travel_events)")).fetchall()
+            }
+            if "contract_id" not in travel_columns:
+                conn.execute(text('ALTER TABLE "travel_events" ADD COLUMN contract_id INTEGER'))
+                conn.commit()
+                logger.info("schema_migration_applied", table="travel_events", column="contract_id")
+
+        extra_columns = {
+            "aces_sortie_reports": {
+                "pending_ledger": "TEXT",
+            },
+            "sorties": {
+                "scenario_pv": "INTEGER",
+                "pv_modifier_percent": "INTEGER",
+                "max_sortie_pv": "INTEGER",
+                "date_played": "DATE",
+                "force_commander_pilot_id": "INTEGER",
+                "force_commander_callsign": "VARCHAR(64)",
+                "sortie_number": "INTEGER",
+                "attempt_number": "INTEGER DEFAULT 1",
+                "replay_of_sortie_id": "INTEGER",
+                "objectives_summary": "TEXT",
+                "combat_pay": "INTEGER DEFAULT 0",
+                "salvage_notes": "TEXT",
+                "salvage_wp": "INTEGER DEFAULT 0",
+                "mvp_pilot_id": "INTEGER",
+                "after_action_notes": "TEXT",
+            },
+            "sortie_units": {
+                "repair_cost": "INTEGER DEFAULT 0",
+                "rearm_cost": "INTEGER DEFAULT 0",
+                "generic_crew_lost": "BOOLEAN DEFAULT 0",
+                "pilot_type": "VARCHAR(2)",
+                "pilot_edge_tokens": "INTEGER",
+                "pilot_abilities": "TEXT",
+                "damage_outcome": "VARCHAR(32)",
+                "needs_rearm": "BOOLEAN DEFAULT 0",
+                "pilot_wounded": "BOOLEAN DEFAULT 0",
+                "pilot_killed": "BOOLEAN DEFAULT 0",
+            },
+            "campaign_units": {
+                "damage_category": "VARCHAR(32) DEFAULT 'none'",
+            },
+            "campaign_pilots": {
+                "wounded": "BOOLEAN DEFAULT 0",
+                "pilot_type": "VARCHAR(2)",
+                "skill_sp": "INTEGER DEFAULT 0",
+                "edge_sp": "INTEGER DEFAULT 0",
+                "ability_sp": "INTEGER DEFAULT 0",
+                "total_sp_earned": "INTEGER DEFAULT 0",
+                "mvp_count": "INTEGER DEFAULT 0",
+            },
+            "travel_events": {
+                "transport_mode": "VARCHAR(32) DEFAULT 'manual'",
+                "actual_expense": "INTEGER DEFAULT 0",
+            },
+            "campaigns": {
+                "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
+                "difficulty": "VARCHAR(32)",
+                "experienced_force_sp": "INTEGER DEFAULT 0",
+            },
+            "repair_orders": {
+                "ruleset": "VARCHAR(16) DEFAULT 'chaos'",
+            },
+        }
+        for table, cols in extra_columns.items():
+            if table not in campaign_tables:
+                continue
+            existing = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            }
+            for column, col_type in cols.items():
+                if column not in existing:
+                    conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {col_type}'))
+                    conn.commit()
+                    logger.info("schema_migration_applied", table=table, column=column)
+
+        for table_name, columns in _NULLABLE_COLUMNS.items():
+            if table_name in campaign_tables:
+                _make_columns_nullable(conn, table_name, columns)
+        _drop_obsolete_report_columns(conn, campaign_tables)
+        if "campaigns" in campaign_tables:
+            _clear_aces_time_and_location(conn, campaign_tables)
+            _finish_legacy_aces_repairs(conn, campaign_tables)
+        if "sorties" in campaign_tables:
+            _backfill_aces_sortie_numbers(conn)
+
+
+def _backfill_aces_sortie_numbers(conn) -> None:
+    """Number pre-existing contract-free (Aces) Sorties in creation order, once."""
+    conn.execute(
+        text(
+            "UPDATE sorties SET sortie_number = ("
+            "SELECT COUNT(*) FROM sorties s2 WHERE s2.campaign_id = sorties.campaign_id "
+            "AND s2.contract_id IS NULL AND s2.id <= sorties.id) "
+            "WHERE contract_id IS NULL AND sortie_number IS NULL"
+        )
+    )
+    conn.commit()
+
+
+# Columns that must allow NULL: Aces is Sortie-based and has no campaign month, and Aces
+# Sorties have no Contract. Chaos code always fills the month in.
+_NULLABLE_COLUMNS: dict[str, set[str]] = {
+    "campaigns": {"current_campaign_month"},
+    "sorties": {"contract_id", "campaign_month"},
+    "warchest_transactions": {"campaign_month"},
+    "damage_events": {"campaign_month"},
+    "pilot_injury_events": {"campaign_month"},
+    "rearm_orders": {"campaign_month"},
+    "repair_orders": {"campaign_month"},
+    "unit_configuration_events": {"campaign_month"},
+}
+
+_ACES_EVENT_TABLES = (
+    "sorties",
+    "warchest_transactions",
+    "damage_events",
+    "pilot_injury_events",
+    "rearm_orders",
+    "repair_orders",
+    "unit_configuration_events",
+)
+
+
+def _make_columns_nullable(conn, table_name: str, columns: set[str]) -> None:
+    """Rebuild a table so the given NOT NULL columns allow NULL (SQLite cannot ALTER this).
+
+    A copy is built under a temporary name, filled, and swapped in, so other tables'
+    foreign keys keep pointing at the final table name.
+    """
+    info = conn.execute(text(f'PRAGMA table_info("{table_name}")')).fetchall()
+    if not any(row[1] in columns and row[3] == 1 for row in info):
+        return  # already nullable (or column missing)
+
+    table = Base.metadata.tables[table_name]
+    existing = {row[1] for row in info}
+    shared = [column.name for column in table.columns if column.name in existing]
+    col_list = ", ".join(f'"{name}"' for name in shared)
+    temp_name = f"{table_name}__rebuild"
+
+    clone = table.to_metadata(Base.metadata, name=temp_name)
+    try:
+        clone.create(bind=conn)
+    finally:
+        Base.metadata.remove(clone)
+    conn.execute(
+        text(f'INSERT INTO "{temp_name}" ({col_list}) SELECT {col_list} FROM "{table_name}"')
+    )
+    conn.execute(text(f'DROP TABLE "{table_name}"'))
+    conn.execute(text(f'ALTER TABLE "{temp_name}" RENAME TO "{table_name}"'))
+    conn.commit()
+    logger.info("schema_migration_applied", table=table_name, column="nullable_rebuild")
+
+
+def _drop_obsolete_report_columns(conn, tables: set[str]) -> None:
+    """Sortie Reports no longer carry purchases/sales or a finalize-time Warchest balance."""
+    if "aces_sortie_reports" not in tables:
+        return
+    existing = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(aces_sortie_reports)")).fetchall()
+    }
+    for column in ("purchases_total", "sales_total", "warchest_after"):
+        if column in existing:
+            conn.execute(text(f'ALTER TABLE "aces_sortie_reports" DROP COLUMN "{column}"'))
+            conn.commit()
+            logger.info("schema_migration_applied", table="aces_sortie_reports", column=column)
+
+
+def _finish_legacy_aces_repairs(conn, tables: set[str]) -> None:
+    """Old-flow Aces repair orders were prepaid but needed a manual click: finish them.
+
+    Only orders whose Sortie is already resolved (closed/failed) or that have no Sortie are
+    touched; an After-Sortie still open is completed by its own Finalize.
+    """
+    if not {"repair_orders", "campaign_units", "sorties"} <= tables:
+        return
+    open_aces = (
+        "SELECT id FROM repair_orders WHERE ruleset = 'aces' AND status IN "
+        "('pending', 'approved', 'in_progress') AND (sortie_id IS NULL OR sortie_id IN "
+        "(SELECT id FROM sorties WHERE status IN ('closed', 'failed')))"
+    )
+    conn.execute(
+        text(
+            "UPDATE campaign_units SET condition = 'active', damage_category = 'none', "
+            "available = 1 WHERE condition IN ('damaged', 'destroyed') AND id IN "
+            f"(SELECT campaign_unit_id FROM repair_orders WHERE id IN ({open_aces}))"
+        )
+    )
+    conn.execute(
+        text(
+            "UPDATE repair_orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP "
+            f"WHERE id IN ({open_aces})"
+        )
+    )
+    conn.commit()
+
+
+def _clear_aces_time_and_location(conn, tables: set[str]) -> None:
+    """Aces campaigns are Sortie-based: drop any stored Chaos calendar/location values."""
+    conn.execute(
+        text(
+            "UPDATE campaigns SET starting_bt_year = NULL, starting_bt_month = NULL, "
+            "current_location = NULL, current_campaign_month = NULL "
+            "WHERE ruleset = 'aces' AND (starting_bt_year IS NOT NULL "
+            "OR starting_bt_month IS NOT NULL OR current_location IS NOT NULL "
+            "OR current_campaign_month IS NOT NULL)"
+        )
+    )
+    for table_name in _ACES_EVENT_TABLES:
+        if table_name not in tables:
+            continue
+        conn.execute(
+            text(
+                f'UPDATE "{table_name}" SET campaign_month = NULL '
+                "WHERE campaign_month IS NOT NULL AND campaign_id IN "
+                "(SELECT id FROM campaigns WHERE ruleset = 'aces')"
+            )
+        )
+    conn.commit()
 
 
 @contextmanager

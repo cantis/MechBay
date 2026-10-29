@@ -1,0 +1,1729 @@
+"""Campaign management: roster snapshots, pilots, Warchest, and travel."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime
+from typing import Any
+
+import structlog
+from sqlalchemy import func, select
+
+from ..extensions import session_scope
+from ..models.campaign import Campaign
+from ..models.campaign_lance import CampaignLance
+from ..models.campaign_pilot import CampaignPilot
+from ..models.campaign_unit import CampaignUnit
+from ..models.miniature import Miniature
+from ..models.sortie import Sortie
+from ..models.travel_event import TravelEvent
+from ..models.warchest_transaction import WarchestTransaction
+from . import alpha_strike_service, campaign_rules, force_service, mul_service
+
+logger = structlog.get_logger()
+
+CAMPAIGN_STATUSES = ("planning", "active", "paused", "completed")
+UNIT_CONDITIONS = ("active", "damaged", "destroyed", "truly-destroyed", "retired")
+PILOT_STATUSES = ("alive", "dead", "retired")
+TRAVEL_STATUSES = ("in_transit", "arrived")
+BT_MONTHS = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+GENERIC_AS_SKILL = 4
+DEFAULT_PILOT_GUNNERY = 4
+DEFAULT_PILOT_PILOTING = 5
+DEFAULT_OPENING_WARCHEST = 3000
+UNAVAILABLE_CONDITIONS = {"destroyed", "truly-destroyed", "retired"}
+
+
+class MiniatureInActiveCampaignError(ValueError):
+    """Raised when a physical miniature cannot be deleted because it is on the loaded campaign."""
+
+
+def unit_is_omni(raw: dict[str, Any] | None, variant: str | None = None) -> bool:
+    """Detect Omni units from a MUL snapshot without inventing a configuration."""
+    if not raw:
+        return False
+    type_info = raw.get("Type") or {}
+    type_name = type_info.get("Name") if isinstance(type_info, dict) else str(type_info)
+    abilities = str(raw.get("BFAbilities") or "")
+    name = str(raw.get("Name") or "")
+    resolved_variant = (variant or raw.get("Variant") or "").strip()
+    haystack = f"{type_name} {abilities}".upper()
+    if "OMNI" in haystack:
+        return True
+    if resolved_variant.lower() == "prime":
+        return True
+    return name.lower().endswith(" prime")
+
+
+def availability_for_condition(condition: str, available: bool | None = None) -> bool:
+    if condition in UNAVAILABLE_CONDITIONS:
+        return False
+    if available is not None:
+        return available
+    return condition in {"active", "damaged"}
+
+
+def campaign_month_label(campaign: Campaign, month: int | None = None) -> str:
+    """Return 'Campaign Month N' and optional BattleTech calendar display."""
+    number = month if month is not None else campaign.current_campaign_month
+    if number is None:
+        return ""
+    label = f"Campaign Month {number}"
+    if campaign.starting_bt_year is None or campaign.starting_bt_month is None:
+        return label
+    if campaign.starting_bt_month < 1 or campaign.starting_bt_month > 12:
+        return label
+    offset = (campaign.starting_bt_month - 1) + (number - 1)
+    year = campaign.starting_bt_year + offset // 12
+    month_name = BT_MONTHS[offset % 12]
+    return f"{label} — {month_name} {year}"
+
+
+def location_display(campaign: Campaign) -> str:
+    """Current location, or in-transit origin → destination when a move is underway."""
+    in_transit = next(
+        (event for event in campaign.travel_events if event.status == "in_transit"),
+        None,
+    )
+    if in_transit:
+        return f"In transit: {in_transit.origin} → {in_transit.destination}"
+    return campaign.current_location or "Unknown"
+
+
+def compute_opening_warchest(override: int | None = None) -> int:
+    """Hot Spots default opening Warchest is 3,000 SP unless the player overrides."""
+    if override is not None:
+        return override
+    return DEFAULT_OPENING_WARCHEST
+
+
+def sync_pilot_wounded_flag(pilot: CampaignPilot) -> None:
+    """Keep legacy wounded boolean aligned with wounds; wounds are authoritative."""
+    pilot.wounded = pilot.wounds > 0
+
+
+def pilot_is_available(pilot: CampaignPilot) -> bool:
+    return pilot.status == "alive" and pilot.wounds == 0
+
+
+def _eager_load_campaign(campaign: Campaign) -> None:
+    for lance in campaign.lances:
+        for unit in lance.units:
+            _ = unit.miniature
+    for unit in campaign.units:
+        _ = unit.miniature
+        _ = unit.lance
+    for pilot in campaign.pilots:
+        _ = pilot.preferred_unit
+    _ = campaign.transactions
+    _ = campaign.travel_events
+    for contract in campaign.contracts:
+        _ = contract.sorties
+        for roster in contract.roster_units:
+            _ = roster.campaign_unit
+    for sortie in campaign.sorties:
+        _ = sortie.units
+    for order in campaign.repair_orders:
+        _ = order.unit
+    for order in campaign.rearm_orders:
+        _ = order.unit
+    for event in campaign.damage_events:
+        _ = event.unit
+    for event in campaign.injury_events:
+        _ = event.pilot
+    for event in campaign.configuration_events:
+        _ = event.unit
+
+
+def _expunge_campaign(session, campaign: Campaign) -> Campaign:
+    _eager_load_campaign(campaign)
+    session.expunge(campaign)
+    return campaign
+
+
+def get_active_campaign() -> Campaign | None:
+    with session_scope() as session:
+        campaign = session.execute(
+            select(Campaign).where(Campaign.is_active == True)  # noqa: E712
+        ).scalar_one_or_none()
+        if campaign:
+            return _expunge_campaign(session, campaign)
+        return None
+
+
+def get_all_campaigns() -> list[Campaign]:
+    with session_scope() as session:
+        campaigns = list(
+            session.execute(
+                select(Campaign).order_by(Campaign.is_active.desc(), Campaign.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for campaign in campaigns:
+            _eager_load_campaign(campaign)
+            session.expunge(campaign)
+        return campaigns
+
+
+def get_campaign_by_id(campaign_id: int) -> Campaign | None:
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if campaign:
+            return _expunge_campaign(session, campaign)
+        return None
+
+
+def missing_miniature_units(campaign: Campaign) -> list[CampaignUnit]:
+    missing: list[CampaignUnit] = []
+    for unit in campaign.units:
+        if unit.miniature_missing or (unit.miniature_id is not None and unit.miniature is None):
+            missing.append(unit)
+    return missing
+
+
+def _snapshot_unit_from_miniature(
+    session,
+    *,
+    campaign_id: int,
+    lance_id: int | None,
+    miniature: Miniature,
+    assignment: Any | None,
+    order: int,
+) -> CampaignUnit:
+    raw: dict[str, Any] | None = None
+    variant: str | None = None
+    if assignment is not None:
+        try:
+            raw = json.loads(assignment.mul_snapshot_json)
+        except (TypeError, json.JSONDecodeError):
+            raw = None
+        variant = assignment.variant or None
+        is_omni = unit_is_omni(raw, variant)
+        unit = CampaignUnit(
+            campaign_id=campaign_id,
+            campaign_lance_id=lance_id,
+            miniature_id=miniature.id,
+            series=miniature.series,
+            unique_id=miniature.unique_id,
+            prefix=miniature.prefix,
+            chassis=miniature.chassis,
+            type=miniature.type,
+            faction=miniature.faction,
+            mul_unit_id=assignment.mul_unit_id,
+            variant=variant,
+            class_name=assignment.class_name,
+            tonnage=assignment.tonnage,
+            point_value=assignment.point_value,
+            unit_type_id=assignment.unit_type_id,
+            unit_type_name=assignment.unit_type_name,
+            display_name=assignment.display_name,
+            mul_snapshot_json=assignment.mul_snapshot_json,
+            is_omni=is_omni,
+            condition="active",
+            available=True,
+            miniature_missing=False,
+            order=order,
+        )
+        session.add(unit)
+        return unit
+
+    unit = CampaignUnit(
+        campaign_id=campaign_id,
+        campaign_lance_id=lance_id,
+        miniature_id=miniature.id,
+        series=miniature.series,
+        unique_id=miniature.unique_id,
+        prefix=miniature.prefix,
+        chassis=miniature.chassis,
+        type=miniature.type,
+        faction=miniature.faction,
+        variant=None,
+        is_omni=False,
+        condition="active",
+        available=True,
+        miniature_missing=False,
+        order=order,
+    )
+    session.add(unit)
+    return unit
+
+
+def create_campaign_from_force(
+    force_id: int,
+    name: str,
+    *,
+    ruleset: str = "chaos",
+    difficulty: str | None = None,
+    scale: int = 1,
+    reputation: int = 1,
+    status: str = "planning",
+    starting_bt_year: int | None = None,
+    starting_bt_month: int | None = None,
+    current_location: str | None = None,
+    notes: str | None = None,
+    opening_warchest: int | None = None,
+    experienced_force_sp: int = 0,
+    opening_description: str = "Opening Warchest",
+) -> Campaign:
+    """Snapshot a saved Force into an independent Campaign and load it as active."""
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Campaign name is required")
+    campaign_rules.require_valid_ruleset(ruleset)
+    if status not in CAMPAIGN_STATUSES:
+        raise ValueError("Invalid campaign status")
+    if scale < 1 or scale > 5:
+        raise ValueError("Scale must be between 1 and 5")
+    is_aces = ruleset == "aces"
+    if is_aces:
+        # Aces is Sortie-based: no strategic calendar or location is stored.
+        starting_bt_year = starting_bt_month = current_location = None
+    else:
+        if starting_bt_year is None:
+            raise ValueError("Starting year is required")
+        if starting_bt_year < 1000 or starting_bt_year > 9999:
+            raise ValueError("Starting year must be a 4-digit year")
+        if starting_bt_month is None:
+            raise ValueError("Starting month is required")
+        if starting_bt_month < 1 or starting_bt_month > 12:
+            raise ValueError("Starting month must be between 1 and 12")
+
+    force = force_service.get_force_by_id(force_id)
+    if force is None:
+        raise ValueError("Force not found")
+
+    opening = compute_opening_warchest(opening_warchest)
+    assignments = alpha_strike_service.get_assignments_for_force(force_id)
+    as_force = alpha_strike_service.get_alpha_strike_force(force_id)
+
+    with session_scope() as session:
+        session.query(Campaign).update({"is_active": False})
+        campaign = Campaign(
+            name=cleaned,
+            ruleset=ruleset,
+            difficulty=difficulty.strip() if difficulty else None,
+            experienced_force_sp=experienced_force_sp,
+            status=status,
+            is_active=True,
+            current_campaign_month=None if is_aces else 1,
+            starting_bt_year=starting_bt_year,
+            starting_bt_month=starting_bt_month,
+            current_location=current_location.strip() if current_location else None,
+            warchest_balance=0,
+            reputation=reputation,
+            scale=scale,
+            notes=notes.strip() if notes else None,
+            source_force_name=force.name,
+            mul_faction_id=as_force.mul_faction_id if as_force else None,
+            mul_era_id=as_force.mul_era_id if as_force else None,
+            mul_faction_name=as_force.faction_name if as_force else None,
+            mul_era_name=as_force.era_name if as_force else None,
+        )
+        session.add(campaign)
+        session.flush()
+
+        for lance in force.lances:
+            campaign_lance = CampaignLance(
+                campaign_id=campaign.id,
+                name=lance.name or f"Lance {lance.order + 1}",
+                order=lance.order,
+            )
+            session.add(campaign_lance)
+            session.flush()
+            for fm in lance.miniatures:
+                miniature = fm.miniature
+                _snapshot_unit_from_miniature(
+                    session,
+                    campaign_id=campaign.id,
+                    lance_id=campaign_lance.id,
+                    miniature=miniature,
+                    assignment=assignments.get(fm.id),
+                    order=fm.order,
+                )
+
+        tx = WarchestTransaction(
+            campaign_id=campaign.id,
+            campaign_month=None if is_aces else 1,
+            transaction_type="opening_balance",
+            description=opening_description,
+            gross_amount=opening,
+            covered_amount=0,
+            actual_amount=opening,
+            resulting_balance=opening,
+        )
+        session.add(tx)
+        campaign.warchest_balance = opening
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        logger.info(
+            "campaign_created",
+            campaign_id=campaign.id,
+            source_force=force.name,
+            opening_warchest=opening,
+        )
+        return _expunge_campaign(session, campaign)
+
+
+def switch_campaign(campaign_id: int) -> Campaign | None:
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            return None
+        session.query(Campaign).update({"is_active": False})
+        campaign.is_active = True
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        return _expunge_campaign(session, campaign)
+
+
+def update_campaign(
+    campaign_id: int,
+    *,
+    name: str | None = None,
+    status: str | None = None,
+    current_campaign_month: int | None = None,
+    starting_bt_year: int | None | object = ...,
+    starting_bt_month: int | None | object = ...,
+    current_location: str | None | object = ...,
+    reputation: int | None = None,
+    scale: int | None = None,
+    notes: str | None | object = ...,
+) -> Campaign | None:
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            return None
+        if name is not None:
+            cleaned = name.strip()
+            if not cleaned:
+                raise ValueError("Campaign name is required")
+            campaign.name = cleaned
+        if status is not None:
+            if status not in CAMPAIGN_STATUSES:
+                raise ValueError("Invalid campaign status")
+            campaign.status = status
+        if current_campaign_month is not None:
+            if current_campaign_month < 1:
+                raise ValueError("Campaign month must be 1 or greater")
+            campaign.current_campaign_month = current_campaign_month
+        if starting_bt_year is not ...:
+            year = starting_bt_year
+            if year is not None and (year < 1000 or year > 9999):
+                raise ValueError("Starting year must be a 4-digit year")
+            campaign.starting_bt_year = year  # type: ignore[assignment]
+        if starting_bt_month is not ...:
+            month = starting_bt_month
+            if month is not None and (month < 1 or month > 12):
+                raise ValueError("Starting month must be between 1 and 12")
+            campaign.starting_bt_month = month  # type: ignore[assignment]
+        if current_location is not ...:
+            loc = current_location
+            if isinstance(loc, str) and loc.strip():
+                campaign.current_location = loc.strip()
+            else:
+                campaign.current_location = None
+        if reputation is not None:
+            campaign.reputation = reputation
+        if scale is not None:
+            if scale < 1 or scale > 5:
+                raise ValueError("Scale must be between 1 and 5")
+            campaign.scale = scale
+        if notes is not ...:
+            value = notes
+            campaign.notes = value.strip() if isinstance(value, str) and value.strip() else None
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        return _expunge_campaign(session, campaign)
+
+
+def delete_campaign(campaign_id: int) -> bool:
+    from ..models.contract import Contract
+    from ..models.contract_unit import ContractUnit
+    from ..models.damage_event import DamageEvent
+    from ..models.pilot_advancement_event import PilotAdvancementEvent
+    from ..models.pilot_injury_event import PilotInjuryEvent
+    from ..models.rearm_order import RearmOrder
+    from ..models.repair_order import RepairOrder
+    from ..models.sortie import Sortie
+    from ..models.sortie_unit import SortieUnit
+    from ..models.unit_configuration_event import UnitConfigurationEvent
+
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            return False
+        from ..models.aces_sortie_report import AcesSortieReport, SortiePilotShare
+        from ..models.story_keyword_event import StoryKeywordEvent
+
+        session.query(PilotAdvancementEvent).filter(
+            PilotAdvancementEvent.campaign_id == campaign_id
+        ).delete()
+        session.query(StoryKeywordEvent).filter(
+            StoryKeywordEvent.campaign_id == campaign_id
+        ).delete()
+        session.query(AcesSortieReport).filter(
+            AcesSortieReport.campaign_id == campaign_id
+        ).delete()
+        for model in (
+            DamageEvent,
+            RepairOrder,
+            RearmOrder,
+            PilotInjuryEvent,
+            UnitConfigurationEvent,
+        ):
+            records = session.query(model).filter(model.campaign_id == campaign_id).all()
+            for record in records:
+                session.delete(record)
+        sortie_ids = [
+            row[0]
+            for row in session.execute(select(Sortie.id).where(Sortie.campaign_id == campaign_id))
+        ]
+        if sortie_ids:
+            from ..models.sortie_recon_action import SortieReconAction
+
+            session.query(SortieReconAction).filter(
+                SortieReconAction.sortie_id.in_(sortie_ids)
+            ).delete(synchronize_session=False)
+            session.query(SortiePilotShare).filter(
+                SortiePilotShare.sortie_id.in_(sortie_ids)
+            ).delete(synchronize_session=False)
+            records = session.query(SortieUnit).filter(SortieUnit.sortie_id.in_(sortie_ids)).all()
+            for record in records:
+                session.delete(record)
+        session.query(Sortie).filter(Sortie.campaign_id == campaign_id).delete()
+        contract_ids = [
+            row[0]
+            for row in session.execute(
+                select(Contract.id).where(Contract.campaign_id == campaign_id)
+            )
+        ]
+        if contract_ids:
+            roster = (
+                session.query(ContractUnit).filter(ContractUnit.contract_id.in_(contract_ids)).all()
+            )
+            for record in roster:
+                session.delete(record)
+        session.query(WarchestTransaction).filter(
+            WarchestTransaction.campaign_id == campaign_id
+        ).delete()
+        session.query(TravelEvent).filter(TravelEvent.campaign_id == campaign_id).delete()
+        session.query(Contract).filter(Contract.campaign_id == campaign_id).delete()
+        session.query(CampaignPilot).filter(CampaignPilot.campaign_id == campaign_id).delete()
+        session.query(CampaignUnit).filter(CampaignUnit.campaign_id == campaign_id).delete()
+        session.query(CampaignLance).filter(CampaignLance.campaign_id == campaign_id).delete()
+        session.delete(campaign)
+        logger.info("campaign_deleted", campaign_id=campaign_id)
+        return True
+
+
+def delete_all_campaigns() -> int:
+    campaigns = get_all_campaigns()
+    deleted = 0
+    for campaign in campaigns:
+        if delete_campaign(campaign.id):
+            deleted += 1
+    return deleted
+
+
+def add_campaign_lance(
+    campaign_id: int, name: str, special_rules: str | None = None
+) -> CampaignLance:
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Lance name is required")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        next_order = len(campaign.lances)
+        lance = CampaignLance(
+            campaign_id=campaign_id,
+            name=cleaned,
+            order=next_order,
+            special_rules=special_rules.strip() if special_rules else None,
+        )
+        session.add(lance)
+        session.flush()
+        session.expunge(lance)
+        return lance
+
+
+IN_SERVICE_BLOCKERS = ("retired", "truly-destroyed")
+
+
+def delete_campaign_lance(lance_id: int) -> CampaignLance:
+    """Delete a lance that has no units in service.
+
+    Units that are retired or truly destroyed are history, not roster: they are kept and
+    simply no longer belong to any lance.
+    """
+    with session_scope() as session:
+        lance = session.get(CampaignLance, lance_id)
+        if not lance:
+            raise ValueError("Lance not found")
+        members = list(
+            session.execute(
+                select(CampaignUnit).where(CampaignUnit.campaign_lance_id == lance_id)
+            ).scalars()
+        )
+        in_service = [u for u in members if u.condition not in IN_SERVICE_BLOCKERS]
+        if in_service:
+            raise ValueError(
+                f"{lance.name} still has {len(in_service)} unit(s). "
+                "Move them to another lance first."
+            )
+        for unit in members:
+            unit.campaign_lance_id = None
+        session.flush()
+        session.delete(lance)
+        session.flush()
+        session.expunge(lance)
+        return lance
+
+
+def update_campaign_lance(
+    lance_id: int, *, name: str | None = None, special_rules: str | None | object = ...
+) -> CampaignLance | None:
+    with session_scope() as session:
+        lance = session.get(CampaignLance, lance_id)
+        if not lance:
+            return None
+        if name is not None:
+            cleaned = name.strip()
+            if not cleaned:
+                raise ValueError("Lance name is required")
+            lance.name = cleaned
+        if special_rules is not ...:
+            value = special_rules
+            if isinstance(value, str) and value.strip():
+                lance.special_rules = value.strip()
+            else:
+                lance.special_rules = None
+        session.flush()
+        session.expunge(lance)
+        return lance
+
+
+def add_campaign_unit(
+    campaign_id: int,
+    miniature_id: int,
+    *,
+    lance_id: int | None = None,
+    notes: str | None = None,
+) -> CampaignUnit:
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        miniature = session.get(Miniature, miniature_id)
+        if not miniature:
+            raise ValueError("Miniature not found")
+        existing = session.execute(
+            select(CampaignUnit).where(
+                CampaignUnit.campaign_id == campaign_id,
+                CampaignUnit.miniature_id == miniature_id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise ValueError("Miniature is already in this campaign")
+        if lance_id is not None:
+            lance = session.get(CampaignLance, lance_id)
+            if not lance or lance.campaign_id != campaign_id:
+                raise ValueError("Lance not found in this campaign")
+        order = session.query(CampaignUnit).filter(CampaignUnit.campaign_id == campaign_id).count()
+        unit = _snapshot_unit_from_miniature(
+            session,
+            campaign_id=campaign_id,
+            lance_id=lance_id,
+            miniature=miniature,
+            assignment=None,
+            order=order,
+        )
+        unit.notes = notes.strip() if notes else None
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
+def update_campaign_unit(
+    unit_id: int,
+    *,
+    condition: str | None = None,
+    available: bool | None = None,
+    notes: str | None | object = ...,
+    is_omni: bool | None = None,
+    lance_id: int | None | object = ...,
+) -> CampaignUnit | None:
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, unit_id)
+        if not unit:
+            return None
+        owner = session.get(Campaign, unit.campaign_id)
+        if owner and owner.ruleset == "aces" and (condition is not None or available is not None):
+            raise ValueError(
+                "Unit condition is set by Sortie results and cannot be edited in an Aces campaign"
+            )
+        if condition is not None:
+            if condition not in UNIT_CONDITIONS:
+                raise ValueError("Invalid unit condition")
+            unit.condition = condition
+            unit.available = availability_for_condition(condition, available)
+        elif available is not None:
+            if unit.condition in UNAVAILABLE_CONDITIONS:
+                unit.available = False
+            else:
+                unit.available = available
+        if notes is not ...:
+            value = notes
+            unit.notes = value.strip() if isinstance(value, str) and value.strip() else None
+        if is_omni is not None:
+            unit.is_omni = is_omni
+        if lance_id is not ...:
+            if lance_id is None:
+                unit.campaign_lance_id = None
+            else:
+                lance = session.get(CampaignLance, lance_id)
+                if not lance or lance.campaign_id != unit.campaign_id:
+                    raise ValueError("Lance not found in this campaign")
+                unit.campaign_lance_id = lance.id  # type: ignore[assignment]
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
+def move_campaign_unit(
+    campaign_id: int,
+    unit_id: int,
+    lance_id: int | None,
+    ordered_unit_ids: list[int],
+) -> CampaignUnit:
+    """Move a unit into a lance (or out of all lances) and set that lance's unit order.
+
+    ``ordered_unit_ids`` is the full new order of the target lance, including the moved unit.
+    Organising the roster does not touch the Warchest, so it is allowed at any time.
+    """
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, unit_id)
+        if not unit or unit.campaign_id != campaign_id:
+            raise ValueError("Unit is not part of this campaign")
+        if lance_id is not None:
+            lance = session.get(CampaignLance, lance_id)
+            if not lance or lance.campaign_id != campaign_id:
+                raise ValueError("Lance not found in this campaign")
+        if unit_id not in ordered_unit_ids or len(set(ordered_unit_ids)) != len(ordered_unit_ids):
+            raise ValueError("The new order must list the moved unit exactly once")
+        rows = {
+            row.id: row
+            for row in session.execute(
+                select(CampaignUnit).where(
+                    CampaignUnit.campaign_id == campaign_id,
+                    CampaignUnit.id.in_(ordered_unit_ids),
+                )
+            ).scalars()
+        }
+        if set(rows) != set(ordered_unit_ids):
+            raise ValueError("Every unit in the new order must belong to this campaign")
+        unit.campaign_lance_id = lance_id
+        for position, row_id in enumerate(ordered_unit_ids):
+            rows[row_id].order = position
+            if row_id != unit_id and rows[row_id].campaign_lance_id != lance_id:
+                rows[row_id].campaign_lance_id = lance_id
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
+def delete_campaign_unit(unit_id: int) -> bool:
+    with session_scope() as session:
+        unit = session.get(CampaignUnit, unit_id)
+        if not unit:
+            return False
+        session.query(CampaignPilot).filter(CampaignPilot.preferred_unit_id == unit_id).update(
+            {"preferred_unit_id": None}
+        )
+        # Reconnaissance history keeps the unit's name (unit_label) but loses the live link.
+        from ..models.sortie_recon_action import SortieReconAction
+
+        session.query(SortieReconAction).filter(
+            SortieReconAction.campaign_unit_id == unit_id
+        ).update({"campaign_unit_id": None})
+        session.delete(unit)
+        return True
+
+
+def add_campaign_pilot(
+    campaign_id: int,
+    name: str,
+    *,
+    callsign: str | None = None,
+    gunnery: int = DEFAULT_PILOT_GUNNERY,
+    piloting: int = DEFAULT_PILOT_PILOTING,
+    alpha_strike_skill: int = GENERIC_AS_SKILL,
+    edge_tokens: int = 0,
+    edge_abilities: str | None = None,
+    improvement_sp: int = 0,
+    wounds: int = 0,
+    status: str = "alive",
+    notes: str | None = None,
+    preferred_unit_id: int | None = None,
+) -> CampaignPilot:
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Pilot name is required")
+    if status not in PILOT_STATUSES:
+        raise ValueError("Invalid pilot status")
+    if wounds < 0:
+        raise ValueError("Wounds cannot be negative")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        if preferred_unit_id is not None:
+            unit = session.get(CampaignUnit, preferred_unit_id)
+            if not unit or unit.campaign_id != campaign_id:
+                raise ValueError("Preferred unit must belong to this campaign")
+        pilot = CampaignPilot(
+            campaign_id=campaign_id,
+            name=cleaned,
+            callsign=callsign.strip() if callsign else None,
+            gunnery=gunnery,
+            piloting=piloting,
+            alpha_strike_skill=alpha_strike_skill,
+            edge_tokens=edge_tokens,
+            edge_abilities=edge_abilities.strip() if edge_abilities else None,
+            improvement_sp=improvement_sp,
+            wounds=wounds,
+            status=status,
+            notes=notes.strip() if notes else None,
+            preferred_unit_id=preferred_unit_id,
+        )
+        sync_pilot_wounded_flag(pilot)
+        session.add(pilot)
+        session.flush()
+        _ = pilot.preferred_unit
+        session.expunge(pilot)
+        return pilot
+
+
+def update_campaign_pilot(
+    pilot_id: int,
+    *,
+    name: str | None = None,
+    callsign: str | None | object = ...,
+    gunnery: int | None = None,
+    piloting: int | None = None,
+    alpha_strike_skill: int | None = None,
+    edge_tokens: int | None = None,
+    edge_abilities: str | None | object = ...,
+    improvement_sp: int | None = None,
+    wounds: int | None = None,
+    status: str | None = None,
+    notes: str | None | object = ...,
+    preferred_unit_id: int | None | object = ...,
+) -> CampaignPilot | None:
+    with session_scope() as session:
+        pilot = session.get(CampaignPilot, pilot_id)
+        if not pilot:
+            return None
+        if pilot.pilot_type is not None and any(
+            value is not None for value in (alpha_strike_skill, edge_tokens, improvement_sp)
+        ):
+            raise ValueError("Aces pilot Skill/Edge are derived from SP advancement")
+        if name is not None:
+            cleaned = name.strip()
+            if not cleaned:
+                raise ValueError("Pilot name is required")
+            pilot.name = cleaned
+        if callsign is not ...:
+            value = callsign
+            pilot.callsign = value.strip() if isinstance(value, str) and value.strip() else None
+        if gunnery is not None:
+            pilot.gunnery = gunnery
+        if piloting is not None:
+            pilot.piloting = piloting
+        if alpha_strike_skill is not None:
+            pilot.alpha_strike_skill = alpha_strike_skill
+        if edge_tokens is not None:
+            pilot.edge_tokens = edge_tokens
+        if edge_abilities is not ...:
+            value = edge_abilities
+            if isinstance(value, str) and value.strip():
+                pilot.edge_abilities = value.strip()
+            else:
+                pilot.edge_abilities = None
+        if improvement_sp is not None:
+            pilot.improvement_sp = improvement_sp
+        if wounds is not None:
+            if wounds < 0:
+                raise ValueError("Wounds cannot be negative")
+            pilot.wounds = wounds
+            sync_pilot_wounded_flag(pilot)
+        if status is not None:
+            if status not in PILOT_STATUSES:
+                raise ValueError("Invalid pilot status")
+            pilot.status = status
+            if status != "alive":
+                sync_pilot_wounded_flag(pilot)
+        if notes is not ...:
+            value = notes
+            pilot.notes = value.strip() if isinstance(value, str) and value.strip() else None
+        if preferred_unit_id is not ...:
+            if preferred_unit_id is None:
+                pilot.preferred_unit_id = None
+            else:
+                unit = session.get(CampaignUnit, preferred_unit_id)
+                if not unit or unit.campaign_id != pilot.campaign_id:
+                    raise ValueError("Preferred unit must belong to this campaign")
+                pilot.preferred_unit_id = unit.id
+        session.flush()
+        _ = pilot.preferred_unit
+        session.expunge(pilot)
+        return pilot
+
+
+def delete_campaign_pilot(pilot_id: int) -> bool:
+    with session_scope() as session:
+        pilot = session.get(CampaignPilot, pilot_id)
+        if not pilot:
+            return False
+        if pilot.pilot_type is not None:
+            raise ValueError("Aces Named Pilots cannot be deleted; mark them retired instead")
+        session.delete(pilot)
+        return True
+
+
+def recover_pilot_wound(pilot_id: int) -> CampaignPilot:
+    """Manually clear one wound from a living named pilot."""
+    from ..models.pilot_injury_event import PilotInjuryEvent
+
+    with session_scope() as session:
+        pilot = session.get(CampaignPilot, pilot_id)
+        if not pilot:
+            raise ValueError("Pilot not found")
+        if pilot.status != "alive":
+            raise ValueError("Only living pilots can recover wounds")
+        if pilot.wounds <= 0:
+            raise ValueError("Pilot has no wounds to recover")
+        campaign = session.get(Campaign, pilot.campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        pilot.wounds -= 1
+        sync_pilot_wounded_flag(pilot)
+        session.add(
+            PilotInjuryEvent(
+                campaign_id=campaign.id,
+                campaign_pilot_id=pilot.id,
+                campaign_month=campaign.current_campaign_month,
+                event_type="recovered",
+                notes="Recovered 1 wound",
+            )
+        )
+        session.flush()
+        _ = pilot.preferred_unit
+        session.expunge(pilot)
+        return pilot
+
+
+def add_warchest_transaction(
+    campaign_id: int,
+    *,
+    transaction_type: str,
+    description: str,
+    actual_amount: int,
+    campaign_month: int | None = None,
+    gross_amount: int | None = None,
+    covered_amount: int = 0,
+    related_entity_type: str | None = None,
+    related_entity_id: int | None = None,
+    notes: str | None = None,
+) -> WarchestTransaction:
+    cleaned = description.strip()
+    if not cleaned:
+        raise ValueError("Transaction description is required")
+    if not transaction_type.strip():
+        raise ValueError("Transaction type is required")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        require_between_sorties(session, campaign, "record Warchest entries")
+        month = campaign_month if campaign_month is not None else campaign.current_campaign_month
+        if campaign.ruleset == "aces":
+            month = None  # Aces is Sortie-based
+        elif month is None or month < 1:
+            raise ValueError("Campaign month must be 1 or greater")
+        gross = actual_amount if gross_amount is None else gross_amount
+        new_balance = campaign.warchest_balance + actual_amount
+        tx = WarchestTransaction(
+            campaign_id=campaign_id,
+            campaign_month=month,
+            transaction_type=transaction_type.strip(),
+            description=cleaned,
+            gross_amount=gross,
+            covered_amount=covered_amount,
+            actual_amount=actual_amount,
+            resulting_balance=new_balance,
+            related_entity_type=related_entity_type,
+            related_entity_id=related_entity_id,
+            notes=notes.strip() if notes else None,
+        )
+        session.add(tx)
+        campaign.warchest_balance = new_balance
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        session.expunge(tx)
+        return tx
+
+
+def create_travel_event(
+    campaign_id: int,
+    origin: str,
+    destination: str,
+    *,
+    departure_campaign_month: int | None = None,
+    arrival_campaign_month: int | None = None,
+    jump_count: int | None = None,
+    transport_mode: str = "manual",
+    standard_amount: int | None = None,
+    employer_payment: int | None = None,
+    actual_expense: int | None = None,
+    gross_cost: int | None = None,
+    covered_amount: int | None = None,
+    actual_warchest_impact: int | None = None,
+    status: str = "in_transit",
+    notes: str | None = None,
+    contract_id: int | None = None,
+) -> TravelEvent:
+    """Record travel. Net SP = employer payment - actual expense."""
+    from .contract_service import (
+        TRANSPORT_MODES,
+        calculate_standard_transport,
+        round_half_up_sp,
+    )
+
+    if status not in TRAVEL_STATUSES:
+        raise ValueError("Invalid travel status")
+    mode = (transport_mode or "manual").strip().lower()
+    if mode not in TRANSPORT_MODES:
+        raise ValueError("Invalid transportation mode")
+    origin_clean = origin.strip()
+    dest_clean = destination.strip()
+    if not origin_clean or not dest_clean:
+        raise ValueError("Origin and destination are required")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        linked_contract = None
+        if contract_id is not None:
+            from ..models.contract import Contract
+
+            linked_contract = session.get(Contract, contract_id)
+            if not linked_contract or linked_contract.campaign_id != campaign_id:
+                raise ValueError("Contract not found in this campaign")
+        scale = linked_contract.scale if linked_contract else campaign.scale
+        transport_percent = linked_contract.transportation_percent if linked_contract else 0
+
+        if standard_amount is None and gross_cost is not None:
+            standard_amount = gross_cost
+        if mode in {"standard", "jump"}:
+            calculated = calculate_standard_transport(
+                mode, scale=scale, jump_count=jump_count
+            )
+            if standard_amount is None:
+                standard_amount = calculated
+        if standard_amount is None:
+            raise ValueError("Standard transportation amount is required")
+        if standard_amount < 0:
+            raise ValueError("Standard transportation amount cannot be negative")
+
+        if employer_payment is None and covered_amount is not None:
+            employer_payment = covered_amount
+        if employer_payment is None:
+            if linked_contract:
+                employer_payment = round_half_up_sp(standard_amount * transport_percent / 100)
+            else:
+                employer_payment = 0
+        if employer_payment < 0:
+            raise ValueError("Employer transportation payment cannot be negative")
+
+        if actual_expense is None:
+            actual_expense = standard_amount
+        if actual_expense < 0:
+            raise ValueError("Actual transportation expense cannot be negative")
+
+        impact = (
+            actual_warchest_impact
+            if actual_warchest_impact is not None
+            else employer_payment - actual_expense
+        )
+        departure = (
+            departure_campaign_month
+            if departure_campaign_month is not None
+            else campaign.current_campaign_month
+        )
+        event = TravelEvent(
+            campaign_id=campaign_id,
+            contract_id=linked_contract.id if linked_contract else None,
+            origin=origin_clean,
+            destination=dest_clean,
+            departure_campaign_month=departure,
+            arrival_campaign_month=arrival_campaign_month,
+            jump_count=jump_count,
+            transport_mode=mode,
+            gross_cost=standard_amount,
+            covered_amount=employer_payment,
+            actual_expense=actual_expense,
+            actual_warchest_impact=impact,
+            status=status,
+            notes=notes.strip() if notes else None,
+        )
+        session.add(event)
+        session.flush()
+
+        if impact:
+            new_balance = campaign.warchest_balance + impact
+            session.add(
+                WarchestTransaction(
+                    campaign_id=campaign_id,
+                    campaign_month=departure,
+                    transaction_type="travel",
+                    description=(
+                        f"Travel {origin_clean} → {dest_clean} "
+                        f"(employer {employer_payment} SP − expense {actual_expense} SP)"
+                    ),
+                    gross_amount=-actual_expense,
+                    covered_amount=employer_payment,
+                    actual_amount=impact,
+                    resulting_balance=new_balance,
+                    related_entity_type="travel_event",
+                    related_entity_id=event.id,
+                )
+            )
+            campaign.warchest_balance = new_balance
+
+        if status == "arrived":
+            campaign.current_location = dest_clean
+            if event.arrival_campaign_month is None:
+                event.arrival_campaign_month = campaign.current_campaign_month
+
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        session.expunge(event)
+        return event
+
+
+def complete_travel_event(
+    event_id: int, *, arrival_campaign_month: int | None = None
+) -> TravelEvent | None:
+    with session_scope() as session:
+        event = session.get(TravelEvent, event_id)
+        if not event:
+            return None
+        campaign = session.get(Campaign, event.campaign_id)
+        if not campaign:
+            return None
+        event.status = "arrived"
+        event.arrival_campaign_month = (
+            arrival_campaign_month
+            if arrival_campaign_month is not None
+            else campaign.current_campaign_month
+        )
+        campaign.current_location = event.destination
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        session.expunge(event)
+        return event
+
+
+def miniature_blocked_by_active_campaign(miniature_id: int) -> Campaign | None:
+    """Return the loaded campaign if it still references this physical miniature."""
+    with session_scope() as session:
+        campaign = session.execute(
+            select(Campaign).where(Campaign.is_active == True)  # noqa: E712
+        ).scalar_one_or_none()
+        if not campaign:
+            return None
+        unit = session.execute(
+            select(CampaignUnit).where(
+                CampaignUnit.campaign_id == campaign.id,
+                CampaignUnit.miniature_id == miniature_id,
+            )
+        ).scalar_one_or_none()
+        if unit:
+            _eager_load_campaign(campaign)
+            session.expunge(campaign)
+            return campaign
+        return None
+
+
+def detach_miniature_from_inactive_campaigns(miniature_id: int) -> int:
+    """Clear miniature FKs on non-loaded campaigns; history keeps a missing-mini warning."""
+    with session_scope() as session:
+        active = session.execute(
+            select(Campaign).where(Campaign.is_active == True)  # noqa: E712
+        ).scalar_one_or_none()
+        active_id = active.id if active else None
+        stmt = select(CampaignUnit).where(CampaignUnit.miniature_id == miniature_id)
+        if active_id is not None:
+            stmt = stmt.where(CampaignUnit.campaign_id != active_id)
+        units = list(session.execute(stmt).scalars().all())
+        for unit in units:
+            unit.miniature_id = None
+            unit.miniature_missing = True
+        return len(units)
+
+
+# --- Aces ruleset: Contract-free Sorties, unit purchases, Player Force reporting ---
+
+
+def create_aces_sortie(
+    campaign_id: int,
+    name: str,
+    *,
+    scenario_type: str | None = None,
+    location: str | None = None,
+    notes: str | None = None,
+    date_played: date | None = None,
+    scenario_pv: int | None = None,
+    max_pv: int | None = None,
+) -> Sortie:
+    """Create a Sortie directly under an Aces Campaign (no Contract).
+
+    ``scenario_pv`` is the scenario's PV value; the campaign's difficulty is applied to it to
+    give the Sortie's stored Maximum PV (``max_pv`` may override). Both are optional here so
+    a Sortie can be created first, but the Sortie cannot be Ready without a Maximum PV.
+    """
+    from .aces_sortie_service import apply_sortie_pv, unreplayed_failed_sortie
+
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Sortie name is required")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "prepare the next Sortie")
+        failed = unreplayed_failed_sortie(session, campaign_id)
+        if failed:
+            raise ValueError(
+                f"{failed.attempt_label} failed and must be replayed before a new Sortie begins"
+            )
+        next_number = (
+            session.execute(
+                select(func.coalesce(func.max(Sortie.sortie_number), 0)).where(
+                    Sortie.campaign_id == campaign_id, Sortie.contract_id.is_(None)
+                )
+            ).scalar_one()
+            + 1
+        )
+        sortie = Sortie(
+            campaign_id=campaign.id,
+            contract_id=None,
+            name=cleaned,
+            campaign_month=None,
+            scale=1,
+            scenario_type=scenario_type.strip() if scenario_type else None,
+            location=location.strip() if location else None,
+            notes=notes.strip() if notes else None,
+            status="planning",
+            date_played=date_played or date.today(),
+            sortie_number=next_number,
+            attempt_number=1,
+        )
+        if scenario_pv not in (None, "") or max_pv not in (None, ""):
+            apply_sortie_pv(sortie, campaign, scenario_pv=scenario_pv, max_pv=max_pv)
+        session.add(sortie)
+        session.flush()
+        session.expunge(sortie)
+        return sortie
+
+
+def _validate_aces_starting_force(force_id: int, *, experienced: bool) -> int:
+    """Check a saved Force can start an Aces campaign; returns its total PV.
+
+    Missing PV always blocks (never treated as 0). A standard new force is capped at
+    400 PV with at least 8 units; an experienced force being reused keeps its own size.
+    """
+    force = force_service.get_force_by_id(force_id)
+    if force is None:
+        raise ValueError("Force not found")
+    assignments = alpha_strike_service.get_assignments_for_force(force_id)
+    total_pv = 0
+    unit_count = 0
+    missing: list[str] = []
+    for lance in force.lances:
+        for fm in lance.miniatures:
+            unit_count += 1
+            assignment = assignments.get(fm.id)
+            label = f"{fm.miniature.prefix} {fm.miniature.chassis}".strip()
+            if assignment is None or not assignment.point_value:
+                missing.append(label)
+                continue
+            type_name = assignment.unit_type_name
+            if type_name and campaign_rules.aces_unit_category(type_name) is None:
+                raise ValueError(
+                    f"{label} is a {type_name}; Aces supports BattleMechs, Battle Armor, "
+                    "Combat Vehicles and Conventional Infantry"
+                )
+            total_pv += int(assignment.point_value)
+    if missing:
+        raise ValueError(
+            "Aces force accounting needs an authoritative MUL Point Value for every unit; "
+            f"missing for: {', '.join(missing)}"
+        )
+    if not experienced:
+        if unit_count < campaign_rules.ACES_MIN_STARTING_UNITS:
+            raise ValueError(
+                f"A new Aces Player Force needs at least {campaign_rules.ACES_MIN_STARTING_UNITS} "
+                f"units (this force has {unit_count})"
+            )
+        if total_pv > campaign_rules.ACES_STARTING_FORCE_PV:
+            raise ValueError(
+                "A new Aces Player Force may be at most "
+                f"{campaign_rules.ACES_STARTING_FORCE_PV} PV (this force is {total_pv} PV)"
+            )
+    return total_pv
+
+
+def create_aces_campaign(
+    force_id: int,
+    name: str,
+    *,
+    difficulty: str | None = None,
+    existing_pilot_sp: int = 0,
+    opening_warchest: int | None = None,
+    status: str = "planning",
+    notes: str | None = None,
+) -> Campaign:
+    """Aces campaign creation flow.
+
+    New force: 400 PV max, 8 units min, opening Warchest = unused PV x 40 SP.
+    Experienced force (``existing_pilot_sp`` > 0, the total SP earned by its Named Pilots):
+    keeps its own size and Warchest (override or 0), and carries a fixed Player Force PV
+    penalty that stacks with the campaign difficulty.
+    """
+    if existing_pilot_sp < 0:
+        raise ValueError("Existing Named Pilot SP cannot be negative")
+    if difficulty and difficulty.strip():
+        key = difficulty.strip().lower()
+        if key not in campaign_rules.ACES_DIFFICULTIES:
+            raise ValueError(
+                "Difficulty must be one of: "
+                + ", ".join(k.capitalize() for k in campaign_rules.ACES_DIFFICULTIES)
+            )
+        difficulty = key.capitalize()
+    else:
+        difficulty = "Standard"
+
+    experienced = existing_pilot_sp > 0
+    total_pv = _validate_aces_starting_force(force_id, experienced=experienced)
+    if experienced:
+        opening = opening_warchest if opening_warchest is not None else 0
+        description = "Opening Warchest (carried over)"
+    else:
+        unused = campaign_rules.ACES_STARTING_FORCE_PV - total_pv
+        opening = unused * campaign_rules.ACES_UNUSED_PV_WARCHEST_MULTIPLIER
+        description = f"Opening Warchest ({unused} unused PV x 40 SP)"
+    return create_campaign_from_force(
+        force_id,
+        name,
+        ruleset="aces",
+        difficulty=difficulty,
+        status=status,
+        notes=notes,
+        opening_warchest=opening,
+        experienced_force_sp=existing_pilot_sp,
+        opening_description=description,
+    )
+
+
+def aces_sortie_pv_allowance(campaign_id: int) -> dict[str, Any]:
+    """Allowed Sortie PV from the available Player Force and the stacked PV modifiers."""
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        return compute_aces_pv_allowance(session, campaign)
+
+
+def compute_aces_pv_allowance(session, campaign: Campaign) -> dict[str, Any]:
+    """Same as ``aces_sortie_pv_allowance`` for callers already inside a session."""
+    campaign_id = campaign.id
+    units = list(
+        session.execute(
+            select(CampaignUnit).where(
+                CampaignUnit.campaign_id == campaign_id,
+                CampaignUnit.condition.not_in(["destroyed", "truly-destroyed", "retired"]),
+                CampaignUnit.available == True,  # noqa: E712
+            )
+        ).scalars()
+    )
+    force_pv = sum(unit.point_value or 0 for unit in units)
+    difficulty_mod = campaign_rules.force_pv_modifier_percent(campaign.difficulty)
+    experienced_mod = campaign_rules.experienced_force_modifier_percent(
+        campaign.experienced_force_sp
+    )
+    return {
+        "force_pv": force_pv,
+        "difficulty_percent": difficulty_mod,
+        "experienced_percent": experienced_mod,
+        "allowed_pv": campaign_rules.aces_allowed_sortie_pv(
+            force_pv, campaign.difficulty, campaign.experienced_force_sp
+        ),
+        "objective_percent": campaign_rules.objective_sp_percent(campaign.difficulty),
+    }
+
+
+UNRESOLVED_SORTIE_STATUSES = ("fought", "after_action")
+
+
+def unresolved_aces_sortie(
+    session, campaign_id: int, *, exclude_id: int | None = None
+) -> Sortie | None:
+    """An Aces Sortie that has been fought but whose After-Sortie is not yet finalized."""
+    stmt = select(Sortie).where(
+        Sortie.campaign_id == campaign_id,
+        Sortie.contract_id.is_(None),
+        Sortie.status.in_(UNRESOLVED_SORTIE_STATUSES),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Sortie.id != exclude_id)
+    return session.execute(stmt.order_by(Sortie.id)).scalars().first()
+
+
+def require_between_sorties(
+    session, campaign: Campaign, action: str, *, exclude_id: int | None = None
+) -> None:
+    """Aces roster and Warchest changes wait until the last Sortie is finalized."""
+    if campaign.ruleset != "aces":
+        return
+    pending = unresolved_aces_sortie(session, campaign.id, exclude_id=exclude_id)
+    if pending:
+        raise ValueError(f"Finalize {pending.attempt_label} before you {action}")
+
+
+def sell_campaign_unit(campaign_id: int, campaign_unit_id: int) -> CampaignUnit:
+    """Sell an active, repaired unit for standard Skill 4 PV x 20 SP (Aces)."""
+    from ..models.repair_order import RepairOrder
+
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "sell units")
+        unit = session.get(CampaignUnit, campaign_unit_id)
+        if not unit or unit.campaign_id != campaign_id:
+            raise ValueError("Unit is not part of this campaign")
+        if unit.condition != "active" or not unit.available or unit.damage_category not in (
+            "none",
+            "",
+        ):
+            raise ValueError("Only an active, fully repaired unit can be sold")
+        if not unit.point_value:
+            raise ValueError("This unit has no Point Value and cannot be valued for sale")
+        open_repair = session.execute(
+            select(RepairOrder.id).where(
+                RepairOrder.campaign_unit_id == unit.id,
+                RepairOrder.status.in_(["pending", "approved", "in_progress"]),
+            )
+        ).first()
+        if open_repair:
+            raise ValueError("Complete or cancel the unit's open Repair Orders before selling it")
+        from ..models.sortie_unit import SortieUnit
+
+        in_sortie = session.execute(
+            select(Sortie.id)
+            .join(SortieUnit, SortieUnit.sortie_id == Sortie.id)
+            .where(
+                SortieUnit.campaign_unit_id == unit.id,
+                Sortie.status.in_(["planning", "ready", "fought"]),
+            )
+        ).first()
+        if in_sortie:
+            raise ValueError("The unit is part of a Sortie that has not been resolved yet")
+
+        proceeds = campaign_rules.sale_value(unit.point_value)
+        new_balance = campaign.warchest_balance + proceeds
+        session.add(
+            WarchestTransaction(
+                campaign_id=campaign.id,
+                campaign_month=campaign.current_campaign_month,
+                transaction_type="unit_sale",
+                description=f"Sold {unit.display_name or unit.chassis}",
+                gross_amount=proceeds,
+                covered_amount=0,
+                actual_amount=proceeds,
+                resulting_balance=new_balance,
+                related_entity_type="campaign_unit",
+                related_entity_id=unit.id,
+            )
+        )
+        campaign.warchest_balance = new_balance
+        campaign.updated_at = datetime.now(UTC)
+        # Retired from the active Player Force; the CampaignUnit row and Miniature remain.
+        unit.condition = "retired"
+        unit.available = False
+        unit.notes = f"Sold for {proceeds} SP"
+        session.flush()
+        _ = unit.miniature
+        session.expunge(unit)
+        return unit
+
+
+def purchase_campaign_unit(
+    campaign_id: int,
+    mul_unit_id: int,
+    *,
+    search_name: str,
+    unit_type_id: int | None = None,
+    campaign_lance_id: int | None = None,
+) -> CampaignUnit:
+    """Spend Warchest SP to add a new (not reused/resurrected) CampaignUnit to the Player Force."""
+    if not search_name or not search_name.strip():
+        raise ValueError("A unit name/chassis is required to search the MUL")
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        campaign_rules.require_ruleset(campaign, "aces")
+        require_between_sorties(session, campaign, "buy units")
+        if campaign.mul_faction_id is None or campaign.mul_era_id is None:
+            raise ValueError("Campaign has no MUL faction/era configured for unit purchases")
+
+        if campaign_lance_id is not None:
+            lance = session.get(CampaignLance, campaign_lance_id)
+            if not lance or lance.campaign_id != campaign.id:
+                raise ValueError("Invalid Campaign Lance")
+
+        raw = mul_service.find_unit_in_search_results(
+            search_name,
+            mul_unit_id,
+            faction_id=campaign.mul_faction_id,
+            era_id=campaign.mul_era_id,
+            unit_type_id=unit_type_id,
+        )
+        parsed = mul_service.parse_mul_unit(raw)
+        if not parsed.point_value:
+            raise ValueError(
+                "Selected unit has no valid MUL Point Value and cannot be purchased."
+            )
+
+        cost = campaign_rules.purchase_cost(parsed.point_value)
+        if campaign.warchest_balance < cost:
+            raise ValueError(
+                f"Insufficient Warchest: purchase costs {cost} SP, "
+                f"Warchest has {campaign.warchest_balance} SP"
+            )
+
+        order = session.execute(
+            select(func.coalesce(func.max(CampaignUnit.order), -1)).where(
+                CampaignUnit.campaign_id == campaign.id
+            )
+        ).scalar_one()
+        unit = CampaignUnit(
+            campaign_id=campaign.id,
+            campaign_lance_id=campaign_lance_id,
+            chassis=parsed.name,
+            mul_unit_id=parsed.id,
+            variant=parsed.variant or None,
+            class_name=parsed.class_name,
+            tonnage=parsed.tonnage,
+            point_value=parsed.point_value,
+            unit_type_id=parsed.unit_type_id,
+            unit_type_name=parsed.unit_type_name,
+            display_name=f"{parsed.name} {parsed.variant}".strip(),
+            mul_snapshot_json=json.dumps(raw),
+            is_omni=unit_is_omni(raw, parsed.variant),
+            condition="active",
+            damage_category="none",
+            available=True,
+            order=int(order) + 1,
+        )
+        session.add(unit)
+        session.flush()
+
+        new_balance = campaign.warchest_balance - cost
+        session.add(
+            WarchestTransaction(
+                campaign_id=campaign.id,
+                campaign_month=campaign.current_campaign_month,
+                transaction_type="unit_purchase",
+                description=f"Purchased {unit.display_name}",
+                gross_amount=-cost,
+                covered_amount=0,
+                actual_amount=-cost,
+                resulting_balance=new_balance,
+                related_entity_type="campaign_unit",
+                related_entity_id=unit.id,
+            )
+        )
+        campaign.warchest_balance = new_balance
+        campaign.updated_at = datetime.now(UTC)
+        session.flush()
+        session.expunge(unit)
+        return unit
+
+
+def get_units_missing_pv(campaign_id: int) -> list[CampaignUnit]:
+    """Active/available Campaign Units that cannot participate in force accounting yet."""
+    with session_scope() as session:
+        units = list(
+            session.execute(
+                select(CampaignUnit).where(
+                    CampaignUnit.campaign_id == campaign_id,
+                    CampaignUnit.point_value.is_(None),
+                    CampaignUnit.condition.not_in(["truly-destroyed", "retired"]),
+                )
+            ).scalars()
+        )
+        for unit in units:
+            session.expunge(unit)
+        return units
+
+
+def get_aces_force_summary(campaign_id: int) -> dict[str, Any]:
+    """Player Force PV/Warchest/pilots/Sortie-count snapshot for the Aces detail view."""
+    with session_scope() as session:
+        campaign = session.get(Campaign, campaign_id)
+        if not campaign:
+            raise ValueError("Campaign not found")
+        active_units = list(
+            session.execute(
+                select(CampaignUnit).where(
+                    CampaignUnit.campaign_id == campaign_id,
+                    CampaignUnit.condition.not_in(["truly-destroyed", "retired"]),
+                    CampaignUnit.available == True,  # noqa: E712
+                )
+            ).scalars()
+        )
+        total_pv = sum(unit.point_value or 0 for unit in active_units)
+        named_pilot_count = session.execute(
+            select(func.count(CampaignPilot.id)).where(
+                CampaignPilot.campaign_id == campaign_id,
+                CampaignPilot.status == "alive",
+            )
+        ).scalar_one()
+        completed_sorties = session.execute(
+            select(func.count(Sortie.id)).where(
+                Sortie.campaign_id == campaign_id,
+                Sortie.status.in_(["after_action", "closed"]),
+            )
+        ).scalar_one()
+        allowance = compute_aces_pv_allowance(session, campaign)
+        return {
+            "pv_allowance": allowance,
+            "experienced_force_sp": campaign.experienced_force_sp,
+            "total_active_pv": total_pv,
+            "active_unit_count": len(active_units),
+            "warchest_balance": campaign.warchest_balance,
+            "difficulty": campaign.difficulty,
+            "named_pilot_count": named_pilot_count,
+            "completed_sortie_count": completed_sorties,
+            "units_missing_pv": len(get_units_missing_pv(campaign_id)),
+        }
+
+
+def get_campaign_log(campaign_id: int) -> list[dict[str, Any]]:
+    """Merge existing Warchest/damage/repair/rearm/injury history into one timeline.
+
+    Reads only - no duplicate ledger is created; this aggregates rows that already exist.
+    """
+    from ..models.damage_event import DamageEvent
+    from ..models.pilot_injury_event import PilotInjuryEvent
+    from ..models.rearm_order import RearmOrder
+    from ..models.repair_order import RepairOrder
+
+    with session_scope() as session:
+        entries: list[dict[str, Any]] = []
+
+        for tx in session.execute(
+            select(WarchestTransaction).where(WarchestTransaction.campaign_id == campaign_id)
+        ).scalars():
+            entries.append(
+                {
+                    "type": "warchest",
+                    "campaign_month": tx.campaign_month,
+                    "created_at": tx.created_at,
+                    "summary": f"{tx.transaction_type}: {tx.description}",
+                    "amount": tx.actual_amount,
+                }
+            )
+
+        for evt in session.execute(
+            select(DamageEvent).where(DamageEvent.campaign_id == campaign_id)
+        ).scalars():
+            entries.append(
+                {
+                    "type": "damage",
+                    "campaign_month": evt.campaign_month,
+                    "created_at": evt.created_at,
+                    "summary": (
+                        f"Damage: {evt.damage_category}"
+                        + (f" ({evt.notes})" if evt.notes else "")
+                    ),
+                    "amount": None,
+                }
+            )
+
+        for order in session.execute(
+            select(RepairOrder).where(RepairOrder.campaign_id == campaign_id)
+        ).scalars():
+            entries.append(
+                {
+                    "type": "repair",
+                    "campaign_month": order.campaign_month,
+                    "created_at": order.created_at,
+                    "summary": f"Repair ({order.damage_category}): {order.gross_cost} SP",
+                    "amount": order.actual_cost,
+                }
+            )
+
+        for order in session.execute(
+            select(RearmOrder).where(RearmOrder.campaign_id == campaign_id)
+        ).scalars():
+            entries.append(
+                {
+                    "type": "rearm",
+                    "campaign_month": order.campaign_month,
+                    "created_at": order.created_at,
+                    "summary": f"Rearm: {order.gross_cost} SP",
+                    "amount": order.actual_cost,
+                }
+            )
+
+        for evt in session.execute(
+            select(PilotInjuryEvent).where(PilotInjuryEvent.campaign_id == campaign_id)
+        ).scalars():
+            entries.append(
+                {
+                    "type": "pilot_injury",
+                    "campaign_month": evt.campaign_month,
+                    "created_at": evt.created_at,
+                    "summary": f"Pilot {evt.event_type}" + (f": {evt.notes}" if evt.notes else ""),
+                    "amount": None,
+                }
+            )
+
+        # Chaos orders by campaign month first; Aces has none, so it is purely chronological.
+        entries.sort(key=lambda e: (e["campaign_month"] or 0, e["created_at"]))
+        return entries

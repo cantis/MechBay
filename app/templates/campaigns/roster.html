@@ -1,0 +1,217 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<div id="rosterContext" class="d-none" data-campaign-id="{{ campaign.id }}"></div>
+
+<style>
+    .campaign-sheet .card > .card-header {
+        background-color: #ced4da !important;
+        border-bottom: 1px solid #adb5bd !important;
+    }
+    [data-bs-theme="dark"] .campaign-sheet .card > .card-header {
+        background-color: #495057 !important;
+        border-bottom-color: #6c757d !important;
+    }
+    .roster-list { min-height: 3rem; }
+    .roster-grip { cursor: grab; }
+</style>
+
+<div class="campaign-sheet">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="m-0">Roster</h2>
+            <small class="text-muted">
+                {{ campaign.name }} · <span id="rosterTotalUnits">{{ total_units }}</span> unit(s) ·
+                <strong><span id="rosterTotalPv">{{ total_pv }}</span> PV</strong>
+                · drag the <i class="fa-solid fa-grip-vertical"></i> handle to move units between lances
+            </small>
+        </div>
+        <a href="{{ url_for('campaigns.detail', id=campaign.id) }}" class="btn btn-outline-secondary">Back to Campaign</a>
+    </div>
+
+    <div class="row g-3 mb-3">
+        {% for group in groups %}
+        <div class="col-md-6 col-xl-4">
+            <div class="card roster-lance h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ group.name }}</h5>
+                    <span class="small">
+                        <span data-lance-count>{{ group.units | length }} unit{{ '' if group.units | length == 1 else 's' }}</span> ·
+                        <strong><span data-lance-pv>{{ group.pv }}</span> PV</strong>
+                    </span>
+                </div>
+                <div class="card-body">
+                    {% if group.lance %}
+                    {% if group.lance.special_rules %}<p class="small text-muted mb-2">{{ group.lance.special_rules }}</p>{% endif %}
+                    <a class="small" data-bs-toggle="collapse" href="#lanceEdit{{ group.lance.id }}" role="button"
+                        aria-expanded="false">Edit lance</a>
+                    <div class="collapse" id="lanceEdit{{ group.lance.id }}">
+                        <form method="post" action="{{ url_for('campaigns.update_lance', lance_id=group.lance.id) }}" class="row g-2 my-1">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                            <input type="hidden" name="return_to" value="roster">
+                            <div class="col-12">
+                                <input type="text" name="name" class="form-control form-control-sm" value="{{ group.lance.name }}" required>
+                            </div>
+                            <div class="col-12">
+                                <input type="text" name="special_rules" class="form-control form-control-sm"
+                                    placeholder="Special rules / notes" value="{{ group.lance.special_rules or '' }}">
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Save lance</button>
+                            </div>
+                        </form>
+                        <form method="post" action="{{ url_for('campaigns.delete_lance', lance_id=group.lance.id) }}" class="mb-1"
+                            onsubmit="return confirm('Delete the empty lance {{ group.lance.name | e }}?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                            <input type="hidden" name="return_to" value="roster">
+                            <span class="d-block" data-delete-wrap
+                                {% if group.units %}title="Move this lance's units elsewhere to delete it"{% endif %}>
+                                <button type="submit" class="btn btn-sm btn-outline-danger w-100 lance-delete-btn"
+                                    {% if group.units %}disabled{% endif %}>Delete lance</button>
+                            </span>
+                        </form>
+                    </div>
+                    {% endif %}
+                    <ul class="list-group roster-list mt-2" data-lance-id="{{ group.lance.id if group.lance else '' }}">
+                        {% for unit in group.units %}
+                        <li class="list-group-item d-flex align-items-center gap-2 roster-unit"
+                            data-unit-id="{{ unit.id }}" data-pv="{{ unit.point_value or 0 }}">
+                            <i class="fa-solid fa-grip-vertical text-muted roster-grip" title="Drag to move"></i>
+                            <div class="flex-grow-1">
+                                <strong>{{ unit.prefix }} {{ unit.chassis }}</strong>
+                                <span class="text-muted">{{ unit.variant or '—' }}</span>
+                                {% if unit.is_omni %}<span class="badge rounded-pill bg-info text-dark">Omni</span>{% endif %}
+                                {% if unit.condition != 'active' %}<span class="badge rounded-pill bg-secondary">{{ unit.condition }}</span>{% endif %}
+                                {% if unit.miniature_missing %}<span class="badge rounded-pill bg-warning text-dark">Missing mini</span>{% endif %}
+                            </div>
+                            <span class="badge text-bg-light border">{{ unit.point_value if unit.point_value is not none else '—' }} PV</span>
+                            <div class="dropdown">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"
+                                    data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" title="Unit actions">
+                                    <i class="fa-solid fa-ellipsis"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% if campaign.ruleset == 'aces' and unit.condition == 'active' and unit.available and unit.point_value and campaign_state.can_change_roster %}
+                                    <li>
+                                        <form method="post" action="{{ url_for('campaigns.sell_unit', id=campaign.id, unit_id=unit.id) }}" class="m-0"
+                                            onsubmit="return confirm('Sell this unit for {{ unit.point_value * 20 }} SP? It leaves the active Player Force.');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="return_to" value="roster">
+                                            <button type="submit" class="dropdown-item text-success">Sell ({{ unit.point_value * 20 }} SP)</button>
+                                        </form>
+                                    </li>
+                                    {% endif %}
+                                    {% if campaign.ruleset == 'aces' and unit.condition == 'active' %}
+                                    <li>
+                                        <form method="post" action="{{ url_for('campaigns.retire_unit', unit_id=unit.id) }}" class="m-0"
+                                            onsubmit="return confirm('Retire this unit from active service? It is kept in the campaign history.');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                            <input type="hidden" name="return_to" value="roster">
+                                            <button type="submit" class="dropdown-item">Retire (keep history)</button>
+                                        </form>
+                                    </li>
+                                    {% endif %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <form method="post" action="{{ url_for('campaigns.delete_unit', unit_id=unit.id) }}" class="m-0"
+                                            onsubmit="return confirm('Delete this unit from the campaign entirely, including its history? Use Retire to keep the record.');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+                                            <input type="hidden" name="return_to" value="roster">
+                                            <button type="submit" class="dropdown-item text-danger">Remove (delete record)</button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </div>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item text-muted text-center roster-empty">Drop units here</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header"><h5 class="mb-0">Add a lance</h5></div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('campaigns.add_lance', id=campaign.id) }}" class="row g-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="return_to" value="roster">
+                        <div class="col-7">
+                            <input type="text" name="name" class="form-control" placeholder="New lance name" required>
+                        </div>
+                        <div class="col-5">
+                            <button type="submit" class="btn btn-outline-secondary w-100">Add lance</button>
+                        </div>
+                        <div class="col-12">
+                            <input type="text" name="special_rules" class="form-control" placeholder="Special rules (optional)">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header"><h5 class="mb-0">Add a miniature</h5></div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('campaigns.add_unit', id=campaign.id) }}" class="row g-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="return_to" value="roster">
+                        <div class="col-12">
+                            <select name="miniature_id" class="form-select" required>
+                                <option value="">Add miniature…</option>
+                                {% for mini in inventory %}
+                                <option value="{{ mini.id }}">{{ mini.prefix }} {{ mini.chassis }} ({{ mini.series }}-{{ mini.unique_id }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-8">
+                            <select name="lance_id" class="form-select">
+                                <option value="">No lance</option>
+                                {% for lance in campaign.lances %}
+                                <option value="{{ lance.id }}">{{ lance.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-4">
+                            <button type="submit" class="btn btn-outline-secondary w-100">Add</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if out_of_service %}
+    <div class="card mb-3">
+        <div class="card-header"><h5 class="mb-0">Out of service</h5></div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Unit</th><th>Variant</th><th>PV</th><th>Status</th></tr></thead>
+                <tbody>
+                    {% for unit in out_of_service %}
+                    <tr>
+                        <td>{{ unit.prefix }} {{ unit.chassis }}</td>
+                        <td>{{ unit.variant or '—' }}</td>
+                        <td>{{ unit.point_value if unit.point_value is not none else '—' }}</td>
+                        <td><span class="badge rounded-pill bg-secondary">{{ unit.condition }}</span>{% if unit.notes %} <span class="small text-muted">{{ unit.notes }}</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script src="{{ url_for('static', filename='js/roster.js', v='2') }}"></script>
+{% endblock %}

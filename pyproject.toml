@@ -54,6 +54,7 @@ addopts = [
 # Custom markers for test categorization
 markers = [
     "slow: marks tests as slow (integration tests with realistic data structures)",
+    "no_default_pv: do not give Aces Sorties a default Maximum PV (tests of the PV limit itself)",
 ]
 
 # Note: For parallel execution, run with: pytest -n auto

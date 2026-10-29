@@ -83,6 +83,8 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     # Register blueprints
     from .blueprints.alpha_strike import bp as alpha_strike_bp
+    from .blueprints.campaigns import bp as campaigns_bp
+    from .blueprints.contracts import bp as contracts_bp
     from .blueprints.files import bp as files_bp
     from .blueprints.forces import bp as forces_bp
     from .blueprints.lance_templates import bp as lance_templates_bp
@@ -90,6 +92,8 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     app.register_blueprint(miniatures_bp)
     app.register_blueprint(forces_bp)
+    app.register_blueprint(campaigns_bp)
+    app.register_blueprint(contracts_bp)
     app.register_blueprint(alpha_strike_bp)
     app.register_blueprint(lance_templates_bp)
     app.register_blueprint(files_bp)
@@ -112,6 +116,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             return {"document_status": document_service.get_status()}
         except OSError:
             return {"document_status": {}}
+
+    @app.context_processor
+    def inject_active_campaign():
+        from .services import campaign_service
+
+        return {"active_campaign": campaign_service.get_active_campaign()}
 
     @app.route("/")
     def index():

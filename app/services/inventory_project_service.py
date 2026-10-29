@@ -218,6 +218,9 @@ def load_project_from_data(
         raise ValueError("Invalid settings section in project file")
 
     with document_service.suppress_dirty_tracking():
+        from . import campaign_service
+
+        campaign_service.delete_all_campaigns()
         force_service.delete_all_forces()
         document_service.clear_all_force_documents()
 
@@ -247,6 +250,9 @@ def load_project_from_data(
 def new_inventory_project() -> None:
     """Clear inventory, templates, and forces for a new untitled project."""
     with document_service.suppress_dirty_tracking():
+        from . import campaign_service
+
+        campaign_service.delete_all_campaigns()
         force_service.delete_all_forces()
         document_service.clear_all_force_documents()
         with session_scope() as session:

@@ -15,6 +15,27 @@ if str(ROOT) not in sys.path:  # pragma: no cover - defensive
 from app import create_app  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def default_sortie_max_pv(request, monkeypatch):
+    """Give Aces Sorties a generous Maximum PV unless a test sets its own.
+
+    A Sortie cannot be Ready without a Maximum PV; tests about other behaviour should not
+    each have to enter one. Tests of the limit itself opt out with ``no_default_pv``.
+    """
+    if request.node.get_closest_marker("no_default_pv"):
+        return
+    from app.services import campaign_service
+
+    original = campaign_service.create_aces_sortie
+
+    def with_default(campaign_id, name, **kwargs):
+        if kwargs.get("scenario_pv") in (None, "") and kwargs.get("max_pv") in (None, ""):
+            kwargs["max_pv"] = 1000
+        return original(campaign_id, name, **kwargs)
+
+    monkeypatch.setattr(campaign_service, "create_aces_sortie", with_default)
+
+
 @pytest.fixture(scope="function")
 def app():
     """Provide a fresh Flask app backed by an in-memory SQLite database per test.
@@ -67,17 +88,47 @@ def mini_data():
 def clear_seed_data(app):
     """Clear any seed data and test data before each test to ensure clean state."""
     from app.extensions import db_session
+    from app.models.campaign import Campaign
+    from app.models.campaign_lance import CampaignLance
+    from app.models.campaign_pilot import CampaignPilot
+    from app.models.campaign_unit import CampaignUnit
+    from app.models.contract import Contract
+    from app.models.contract_unit import ContractUnit
+    from app.models.damage_event import DamageEvent
     from app.models.force import Force
     from app.models.force_miniature import ForceMiniature
     from app.models.lance import Lance
     from app.models.lance_template import LanceTemplate
     from app.models.lance_template_miniature import LanceTemplateMiniature
     from app.models.miniature import Miniature
+    from app.models.pilot_injury_event import PilotInjuryEvent
+    from app.models.rearm_order import RearmOrder
+    from app.models.repair_order import RepairOrder
+    from app.models.sortie import Sortie
+    from app.models.sortie_unit import SortieUnit
+    from app.models.travel_event import TravelEvent
+    from app.models.unit_configuration_event import UnitConfigurationEvent
+    from app.models.warchest_transaction import WarchestTransaction
 
     # Use a fresh session for cleanup
     session = db_session()
     try:
         # Delete in reverse dependency order to avoid foreign key issues
+        session.query(DamageEvent).delete()
+        session.query(RepairOrder).delete()
+        session.query(RearmOrder).delete()
+        session.query(PilotInjuryEvent).delete()
+        session.query(UnitConfigurationEvent).delete()
+        session.query(SortieUnit).delete()
+        session.query(Sortie).delete()
+        session.query(WarchestTransaction).delete()
+        session.query(TravelEvent).delete()
+        session.query(ContractUnit).delete()
+        session.query(Contract).delete()
+        session.query(CampaignPilot).delete()
+        session.query(CampaignUnit).delete()
+        session.query(CampaignLance).delete()
+        session.query(Campaign).delete()
         # ForceMiniature references both Lance and Miniature
         session.query(ForceMiniature).delete()
         # Lance references Force
@@ -455,3 +506,96 @@ def assert_force_structure(force, expected_lance_count, expected_miniature_count
     assert total_miniatures == expected_miniature_count, (
         f"Expected {expected_miniature_count} miniatures, found {total_miniatures}"
     )
+
+
+def prepare_aces_ready(campaign_id: int, sortie_id: int, *, pilots: int = 2) -> None:
+    """Give an Aces Sortie what Ready now requires: 2 Named Pilots and a Force Commander."""
+    from app.extensions import session_scope
+    from app.models.campaign_pilot import CampaignPilot
+    from app.models.campaign_unit import CampaignUnit
+    from app.models.sortie_unit import SortieUnit
+    from app.services import aces_pilot_service, aces_sortie_service, contract_service
+
+    with session_scope() as session:
+        for unit in session.query(CampaignUnit).filter_by(campaign_id=campaign_id):
+            if not unit.unit_type_name:
+                unit.unit_type_name = "BattleMech"
+        for row in session.query(SortieUnit).filter_by(sortie_id=sortie_id):
+            if not row.unit_type_name:
+                row.unit_type_name = "BattleMech"
+        living = (
+            session.query(CampaignPilot)
+            .filter(
+                CampaignPilot.campaign_id == campaign_id,
+                CampaignPilot.status == "alive",
+                CampaignPilot.pilot_type.is_not(None),
+            )
+            .count()
+        )
+    for index in range(max(0, pilots - living)):
+        aces_pilot_service.create_aces_pilot(
+            campaign_id, f"Pilot{living + index + 1}", "BM",
+            skill_sp=150, edge_sp=0, ability_sp=0,
+        )
+    with session_scope() as session:
+        pilot_id = (
+            session.query(CampaignPilot.id)
+            .filter(CampaignPilot.campaign_id == campaign_id, CampaignPilot.pilot_type == "BM")
+            .order_by(CampaignPilot.id)
+            .first()[0]
+        )
+        row_id = (
+            session.query(SortieUnit.id).filter_by(sortie_id=sortie_id).order_by(SortieUnit.id)
+            .first()[0]
+        )
+    contract_service.assign_sortie_pilot(row_id, pilot_id)
+    aces_sortie_service.set_force_commander(sortie_id, pilot_id)
+
+
+def aces_after_inputs(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    """After-Sortie inputs for an Aces Sortie: one damage result for all units, first pilot MVP."""
+    from app.services import contract_service
+
+    sortie = contract_service.get_sortie_by_id(sortie_id)
+    flags = flags or {}
+    inputs = {
+        "unit_results": [
+            {"sortie_unit_id": row.id, "damage_outcome": damage, **flags.get(row.id, {})}
+            for row in sortie.units
+        ],
+        "mvp_pilot_id": next(
+            (r.campaign_pilot_id for r in sortie.units if r.campaign_pilot_id), None
+        ),
+        "max_pilot_sp": 0,
+    }
+    inputs.update(overrides)
+    return inputs
+
+
+def apply_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    from app.services import aces_after_action_service
+
+    return aces_after_action_service.apply_aces_after_action(
+        sortie_id, aces_after_inputs(sortie_id, damage, flags, **overrides)
+    )
+
+
+def finish_aces(sortie_id: int, damage: str = "none", flags: dict | None = None, **overrides):
+    """Apply, put every pilot's SP into Skill, and finalize."""
+    apply_aces(sortie_id, damage, flags, **overrides)
+    return finalize_aces(sortie_id)
+
+
+def finalize_aces(sortie_id: int):
+    """Put every pending pilot share into Skill, then finalize the Sortie."""
+    from app.services import aces_after_action_service as svc
+
+    for item in svc.pending_shares(sortie_id):
+        svc.allocate_pilot_share(
+            sortie_id,
+            item["share"].campaign_pilot_id,
+            skill_sp=item["total"],
+            edge_sp=0,
+            ability_sp=0,
+        )
+    return svc.finalize_aces_sortie(sortie_id)

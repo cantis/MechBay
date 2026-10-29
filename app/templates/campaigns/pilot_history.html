@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2 class="m-0">{{ pilot.display_name }}</h2>
+        <small class="text-muted">
+            Pilot Service History · {{ campaign.name }}
+            <span class="mx-1">·</span>{{ pilot.pilot_type }} — {{ type_label }}
+        </small>
+    </div>
+    <a href="{{ url_for('campaigns.detail', id=pilot.campaign_id) }}" class="btn btn-outline-secondary">Back to Campaign</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row text-center g-3">
+            <div class="col-6 col-md-2"><div class="fs-4">{{ pilot.alpha_strike_skill }}</div><div class="small text-muted">Skill</div></div>
+            <div class="col-6 col-md-2"><div class="fs-4">{{ pilot.edge_tokens }}</div><div class="small text-muted">Edge Tokens</div></div>
+            <div class="col-6 col-md-2"><div class="fs-4">{{ abilities | length }}</div><div class="small text-muted">Edge Abilities</div></div>
+            <div class="col-6 col-md-2"><div class="fs-4">{{ pilot.total_sp_earned }}</div><div class="small text-muted">Total SP Earned</div></div>
+            <div class="col-6 col-md-2"><div class="fs-4">{{ pilot.mvp_count }}</div><div class="small text-muted">MVP</div></div>
+            <div class="col-6 col-md-2">
+                <div class="fs-4">{{ pilot.status }}</div>
+                <div class="small text-muted">{% if pilot.wounds > 0 %}Wounded{% else %}Fit for duty{% endif %}</div>
+            </div>
+        </div>
+        <hr>
+        <div class="row small">
+            <div class="col-md-6">
+                <strong>Edge Abilities:</strong>
+                {% if abilities %}{% for name in abilities %}<span class="badge bg-info text-dark me-1">{{ name }}</span>{% endfor %}{% else %}<span class="text-muted">none</span>{% endif %}
+            </div>
+            <div class="col-md-6">
+                <strong>SP invested:</strong>
+                Skill {{ pilot.skill_sp }} · Edge {{ pilot.edge_sp }} · Abilities {{ pilot.ability_sp }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h5 class="mb-0">Career</h5></div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Event</th>
+                    <th>SP</th>
+                    <th>Allocation (Skill / Edge / Abilities)</th>
+                    <th>After</th>
+                    <th>New Edge Abilities</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in timeline %}
+                {% set e = item.event %}
+                {% if item.kind == 'sortie' %}
+                <tr class="table-light">
+                    <td></td>
+                    <td>
+                        <a href="{{ url_for('contracts.sortie_report' if e.status in ['after_action', 'closed', 'failed'] else 'contracts.sortie_detail', id=e.id) }}">{{ e.attempt_label }}</a> — {{ e.name }}
+                        <div class="small text-muted">{% if e.date_played %}Played {{ e.date_played.isoformat() }}{% else %}{{ e.created_at.strftime('%Y-%m-%d') }}{% endif %}</div>
+                    </td>
+                    <td colspan="4" class="small">
+                        <span class="badge bg-success">Participated</span>
+                        {% if item.is_commander %}<span class="badge bg-primary">Force Commander</span>{% endif %}
+                        {% if item.is_mvp %}<span class="badge bg-warning text-dark">MVP</span>{% endif %}
+                        <span class="badge {% if e.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">{{ e.outcome or e.status }}</span>
+                        <div class="text-muted">
+                            {{ item.unit.chassis }}{% if item.unit.variant %} {{ item.unit.variant }}{% endif %} ·
+                            Skill {{ item.unit.alpha_strike_skill }}{% if item.unit.pilot_edge_tokens is not none %}, Edge {{ item.unit.pilot_edge_tokens }}{% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% elif item.kind == 'advancement' %}
+                <tr>
+                    <td>{{ e.sequence }}</td>
+                    <td>
+                        {% if e.source_type == 'initial' %}
+                        Pilot created
+                        {% else %}
+                        Sortie improvement{% if e.sortie_id %} (<a href="{{ url_for('contracts.sortie_report', id=e.sortie_id) }}">#{{ e.sortie_id }}</a>){% endif %}
+                        {% if e.participation_state %}<span class="badge bg-secondary">{{ e.participation_state | replace('_', ' ') }}</span>{% endif %}
+                        {% endif %}
+                        <div class="small text-muted">{{ e.created_at.strftime('%Y-%m-%d') }}</div>
+                    </td>
+                    <td>
+                        {{ e.sp_received }}{% if e.mvp_bonus %} <span class="badge bg-warning text-dark">+{{ e.mvp_bonus }} MVP</span>{% endif %}
+                    </td>
+                    <td>{{ e.skill_sp_allocated }} / {{ e.edge_sp_allocated }} / {{ e.ability_sp_allocated }}</td>
+                    <td class="small">
+                        Skill {{ e.skill_after }} · Edge {{ e.edge_tokens_after }} · Abilities {{ e.ability_count_after }}
+                        <div class="text-muted">{{ e.total_sp_after }} SP total</div>
+                    </td>
+                    <td>
+                        {% for name in item.new_abilities %}<span class="badge bg-info text-dark me-1">{{ name }}</span>{% else %}<span class="text-muted">—</span>{% endfor %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr class="table-warning">
+                    <td></td>
+                    <td>{{ e.event_type | replace('_', ' ') | capitalize }}
+                        <div class="small text-muted">{{ e.created_at.strftime('%Y-%m-%d') }}{% if e.sortie_id %} · Sortie #{{ e.sortie_id }}{% endif %}</div>
+                    </td>
+                    <td colspan="4" class="small">{{ e.notes or '' }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

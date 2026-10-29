@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from ..extensions import Base
+
+if TYPE_CHECKING:
+    from .campaign import Campaign
+    from .contract import Contract
+    from .sortie_unit import SortieUnit
+
+
+class Sortie(Base):
+    """One tabletop battle. Equivalent to a Track in Hot Spots / Chaos Campaign."""
+
+    __tablename__ = "sorties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(Integer, ForeignKey("campaigns.id"), nullable=False)
+    contract_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("contracts.id"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    campaign_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scale: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    scenario_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="planning")
+    objectives_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    combat_pay: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    salvage_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    salvage_wp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mvp_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Aces-only: the scenario's PV, the difficulty adjustment applied to it, and the stored
+    # Maximum PV for this Sortie (authoritative; never recalculated from later state).
+    scenario_pv: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pv_modifier_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_sortie_pv: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Aces-only: real-world date, Force Commander, attempt tracking.
+    date_played: Mapped[date | None] = mapped_column(Date, nullable=True)
+    force_commander_pilot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    force_commander_callsign: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sortie_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    replay_of_sortie_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sorties.id", ondelete="SET NULL"), nullable=True
+    )
+    after_action_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+    campaign: Mapped[Campaign] = relationship("Campaign", back_populates="sorties")
+    contract: Mapped[Contract | None] = relationship("Contract", back_populates="sorties")
+    units: Mapped[list[SortieUnit]] = relationship(
+        "SortieUnit",
+        back_populates="sortie",
+        cascade="all, delete-orphan",
+        order_by="SortieUnit.order",
+    )
+
+    @property
+    def attempt_label(self) -> str:
+        """Aces numbering: 'Sortie 4', 'Sortie 4R', 'Sortie 4R2'."""
+        if self.sortie_number is None:
+            return f"Sortie #{self.id}"
+        suffix = "" if self.attempt_number <= 1 else (
+            "R" if self.attempt_number == 2 else f"R{self.attempt_number - 1}"
+        )
+        return f"Sortie {self.sortie_number}{suffix}"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "campaign_id": self.campaign_id,
+            "contract_id": self.contract_id,
+            "name": self.name,
+            "campaign_month": self.campaign_month,
+            "scale": self.scale,
+            "scenario_type": self.scenario_type,
+            "location": self.location,
+            "notes": self.notes,
+            "outcome": self.outcome,
+            "status": self.status,
+        }

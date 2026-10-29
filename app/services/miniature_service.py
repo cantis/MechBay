@@ -224,6 +224,18 @@ def bulk_update_miniatures(ids: list[int], field: str, value: str) -> int:
 
 
 def delete_miniature(id: int) -> bool:  # noqa: A002
+    from .campaign_service import (
+        MiniatureInActiveCampaignError,
+        detach_miniature_from_inactive_campaigns,
+        miniature_blocked_by_active_campaign,
+    )
+
+    blocking = miniature_blocked_by_active_campaign(id)
+    if blocking:
+        raise MiniatureInActiveCampaignError(
+            f"Cannot delete miniature while it is used in the loaded campaign '{blocking.name}'"
+        )
+    detach_miniature_from_inactive_campaigns(id)
     with session_scope() as session:
         mini = session.get(Miniature, id)
         if not mini:
